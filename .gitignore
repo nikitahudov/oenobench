@@ -1,13 +1,14 @@
 # Environment secrets
 .env
 
-# Data directories (large/local)
+# Data directories
 data/raw/
 data/processed/
 data/backups/
 data/exports/
+data/logs/
 
-# Docker volumes (managed by Docker)
+# Docker volumes
 volumes/
 
 # OS
@@ -20,9 +21,13 @@ Thumbs.db
 *.swp
 *.swo
 
-# Python (for future app code)
+# Python
 __pycache__/
 *.pyc
 .venv/
 venv/
 *.egg-info/
+dist/
+
+# Jupyter
+.ipynb_checkpoints/
