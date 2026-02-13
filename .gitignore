@@ -1,0 +1,28 @@
+# Environment secrets
+.env
+
+# Data directories (large/local)
+data/raw/
+data/processed/
+data/backups/
+data/exports/
+
+# Docker volumes (managed by Docker)
+volumes/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python (for future app code)
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
