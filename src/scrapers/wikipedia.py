@@ -23,6 +23,9 @@ Usage:
     python -m src.scrapers.wikipedia --list
     python -m src.scrapers.wikipedia --dry-run
     python -m src.scrapers.wikipedia --validate
+    python -m src.scrapers.wikipedia --test-run
+    python -m src.scrapers.wikipedia --test-run --cleanup
+    python -m src.scrapers.wikipedia --test-run --category regions
 """
 
 import json
@@ -52,6 +55,7 @@ SOURCE_TIER = "tier_2_authoritative"
 PROGRESS_FILE = "data/logs/wikipedia_progress.json"
 MAX_LEAD_FACTS_PER_ARTICLE = 5
 MIN_ARTICLE_LENGTH = 500  # characters — skip stubs
+TEST_RUN_ITEMS_PER_CATEGORY = 5
 
 # ─── Category Configuration ───────────────────────────────────────────────────
 
@@ -1260,6 +1264,249 @@ def validate():
     click.echo()
 
 
+# ─── Test Run ─────────────────────────────────────────────────────────────────
+
+
+def test_run_category(
+    category_key: str,
+    session: requests.Session,
+    existing_facts: list[str],
+) -> dict:
+    """Process first TEST_RUN_ITEMS_PER_CATEGORY articles from a category.
+
+    Returns a stats dict with items_processed, facts_generated,
+    facts_inserted, and the list of all generated fact dicts.
+    """
+    config = CATEGORIES[category_key]
+    domain = config["domain"]
+    subdomain = config["subdomain"]
+    roots = _get_roots(config)
+
+    # Discover articles (full crawl — we just limit how many we process)
+    articles = []
+    for root in roots:
+        root_articles = get_category_members(session, root)
+        articles.extend(root_articles)
+    articles = list(dict.fromkeys(articles))
+
+    limit = TEST_RUN_ITEMS_PER_CATEGORY
+    selected = articles[:limit]
+
+    all_generated = []
+    items_processed = 0
+
+    for idx, title in enumerate(selected):
+        click.echo(
+            f"  [{idx + 1}/{len(selected)}] {category_key}: {title}",
+            nl=False,
+        )
+        try:
+            facts = process_article(
+                session, title, domain, subdomain, existing_facts
+            )
+            all_generated.extend(facts)
+            items_processed += 1
+            click.echo(f" — {len(facts)} facts")
+        except Exception as e:
+            click.echo(f" — ERROR: {e}")
+            continue
+
+    # Insert into DB
+    facts_inserted = 0
+    if all_generated:
+        facts_inserted = insert_facts_batch(all_generated)
+        for f in all_generated:
+            existing_facts.append(f["fact_text"].lower())
+
+    return {
+        "category": category_key,
+        "items_processed": items_processed,
+        "facts_generated": len(all_generated),
+        "facts_inserted": facts_inserted,
+        "facts": all_generated,
+    }
+
+
+def _print_test_run_report(
+    cat_stats: list[dict],
+    cleanup: bool = False,
+):
+    """Print structured report and warnings for a test run."""
+    from src.utils.db import get_pg
+
+    all_facts = []
+    for cs in cat_stats:
+        all_facts.extend(cs["facts"])
+
+    total_items = sum(cs["items_processed"] for cs in cat_stats)
+    total_generated = sum(cs["facts_generated"] for cs in cat_stats)
+    total_inserted = sum(cs["facts_inserted"] for cs in cat_stats)
+
+    # ── Report Table ──
+    click.echo("\n=== TEST RUN REPORT ===")
+    hdr = f"{'Source/Category':<25s} {'Items Processed':>17s} {'Facts Generated':>17s} {'Facts Inserted (new)':>22s}"
+    click.echo(hdr)
+    click.echo("\u2500" * len(hdr))
+
+    for cs in cat_stats:
+        click.echo(
+            f"{cs['category']:<25s} {cs['items_processed']:>17d} "
+            f"{cs['facts_generated']:>17d} {cs['facts_inserted']:>22d}"
+        )
+
+    click.echo("\u2500" * len(hdr))
+    click.echo(
+        f"{'TOTAL':<25s} {total_items:>17d} "
+        f"{total_generated:>17d} {total_inserted:>22d}"
+    )
+
+    # ── Quality Checks ──
+    if all_facts:
+        n = len(all_facts)
+        too_short = [f for f in all_facts if len(f["fact_text"].split()) < 5]
+        too_long = [f for f in all_facts if len(f["fact_text"].split()) > 50]
+        word_counts = [len(f["fact_text"].split()) for f in all_facts]
+        avg_words = sum(word_counts) / n
+
+        import orjson
+
+        missing_ents = 0
+        for f in all_facts:
+            ents = f.get("entities", [])
+            if isinstance(ents, str):
+                ents = orjson.loads(ents)
+            if not ents:
+                missing_ents += 1
+
+        click.echo("\nQuality Checks:")
+        click.echo(f"  Too short (<5 words):    {len(too_short)} ({100*len(too_short)/n:.1f}%)")
+        click.echo(f"  Too long (>50 words):    {len(too_long)} ({100*len(too_long)/n:.1f}%)")
+        click.echo(f"  Missing entities:        {missing_ents} ({100*missing_ents/n:.1f}%)")
+        click.echo(f"  Avg words per fact:      {avg_words:.1f}")
+
+        # Sample facts
+        sample_size = min(10, n)
+        sample = random.sample(all_facts, sample_size)
+        click.echo(f"\nSample Facts ({sample_size} random from this run):")
+        for i, f in enumerate(sample, 1):
+            click.echo(f"  {i:>3d}. \"{f['fact_text']}\"")
+
+    # ── Warnings ──
+    warnings = []
+
+    for cs in cat_stats:
+        cat = cs["category"]
+        if cs["facts_inserted"] == 0 and cs["items_processed"] > 0:
+            warnings.append(f"ERROR: No facts from {cat}")
+        if cs["items_processed"] > 0:
+            avg_per_item = cs["facts_generated"] / cs["items_processed"]
+            if avg_per_item < 2:
+                warnings.append(
+                    f"WARNING: Low extraction rate in {cat} "
+                    f"({avg_per_item:.1f} facts/item)"
+                )
+        if cs["facts_generated"] > 0:
+            dup_rate = 1 - cs["facts_inserted"] / cs["facts_generated"]
+            if dup_rate > 0.5:
+                warnings.append(
+                    f"WARNING: High duplicate rate in {cat} "
+                    f"({100*dup_rate:.0f}% skipped)"
+                )
+
+    if all_facts:
+        n = len(all_facts)
+        n_short = sum(1 for f in all_facts if len(f["fact_text"].split()) < 5)
+        n_long = sum(1 for f in all_facts if len(f["fact_text"].split()) > 50)
+        if n_short / n > 0.1:
+            warnings.append("WARNING: Too many trivial facts (>10% under 5 words)")
+        if n_long / n > 0.1:
+            warnings.append("WARNING: Facts need better splitting (>10% over 50 words)")
+
+        for f in all_facts:
+            if "Regarding" in f["fact_text"]:
+                warnings.append(
+                    f"WARNING: Verbatim text detected — \"{f['fact_text'][:80]}...\""
+                )
+
+        over_40 = [f for f in all_facts if len(f["fact_text"].split()) > 40]
+        for f in over_40:
+            warnings.append(
+                f"WARNING: Fact over 40 words — \"{f['fact_text'][:100]}...\""
+            )
+
+    if warnings:
+        click.echo(f"\nWarnings ({len(warnings)}):")
+        for w in warnings:
+            click.echo(f"  {w}")
+    else:
+        click.echo("\nNo warnings.")
+
+    # ── Cleanup ──
+    if cleanup and all_facts:
+        fact_texts = [f["fact_text"] for f in all_facts]
+        conn = get_pg()
+        cur = conn.cursor()
+
+        # Find IDs of facts we just inserted
+        placeholders = ",".join(["%s"] * len(fact_texts))
+        cur.execute(
+            f"SELECT id FROM facts WHERE fact_text IN ({placeholders})",
+            fact_texts,
+        )
+        ids = [row["id"] for row in cur.fetchall()]
+
+        if ids:
+            id_placeholders = ",".join(["%s"] * len(ids))
+            cur.execute(
+                f"DELETE FROM facts WHERE id IN ({id_placeholders})",
+                [str(i) for i in ids],
+            )
+            conn.commit()
+            click.echo(f"\nCleaned up {len(ids)} test facts from database.")
+        else:
+            click.echo("\nNo test facts to clean up.")
+
+    click.echo()
+
+
+def run_test_run(
+    category: Optional[str] = None,
+    cleanup: bool = False,
+):
+    """Execute a test run: 5 items per category, insert, report, optionally cleanup."""
+    session = _make_session()
+
+    # Load existing facts for dedup
+    logger.info("Loading existing facts for deduplication...")
+    existing_facts = _load_existing_facts_for_dedup()
+    logger.info(f"Loaded {len(existing_facts)} existing facts for dedup")
+
+    # Determine which categories to process
+    if category:
+        if category not in CATEGORIES:
+            click.echo(
+                f"Unknown category: {category}. "
+                f"Available: {', '.join(CATEGORIES.keys())}"
+            )
+            return
+        cat_keys = [category]
+    else:
+        cat_keys = list(CATEGORIES.keys())
+
+    click.echo(
+        f"\n=== TEST RUN — {TEST_RUN_ITEMS_PER_CATEGORY} items per category "
+        f"({len(cat_keys)} categories) ===\n"
+    )
+
+    cat_stats = []
+    for cat_key in cat_keys:
+        click.echo(f"\n--- {cat_key} ---")
+        stats = test_run_category(cat_key, session, existing_facts)
+        cat_stats.append(stats)
+
+    _print_test_run_report(cat_stats, cleanup=cleanup)
+
+
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
 
@@ -1282,12 +1529,22 @@ def validate():
     "--validate", "run_validate", is_flag=True,
     help="Run quality checks on existing Wikipedia facts",
 )
+@click.option(
+    "--test-run", "test_run", is_flag=True,
+    help="Process 5 items per category, insert, and print quality report",
+)
+@click.option(
+    "--cleanup", is_flag=True,
+    help="With --test-run: delete inserted facts after printing report",
+)
 def main(
     category: Optional[str],
     run_all: bool,
     list_categories: bool,
     dry_run: bool,
     run_validate: bool,
+    test_run: bool,
+    cleanup: bool,
 ):
     """OenoBench Wikipedia Scraper — Extract wine facts from English Wikipedia."""
     os.makedirs("data/logs", exist_ok=True)
@@ -1295,6 +1552,10 @@ def main(
 
     if run_validate:
         validate()
+        return
+
+    if test_run:
+        run_test_run(category=category, cleanup=cleanup)
         return
 
     if list_categories:
