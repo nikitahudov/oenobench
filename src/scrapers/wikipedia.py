@@ -68,7 +68,13 @@ CATEGORIES = {
         "description": "Wine producers and wineries",
     },
     "appellations": {
-        "root": "Category:Appellations of wine",
+        "roots": [
+            "Category:Appellations",
+            "Category:American Viticultural Areas",
+            "Category:French wine AOCs",
+            "Category:Denominazioni di Origine Controllata",
+            "Category:Wine classification systems",
+        ],
         "domain": "wine_regions",
         "subdomain": "appellations",
         "description": "Wine appellations and designations of origin",
@@ -109,6 +115,13 @@ NON_WINE_TITLE_PATTERNS = [
 NON_WINE_TITLE_RE = re.compile("|".join(NON_WINE_TITLE_PATTERNS), re.IGNORECASE)
 
 # ─── Session Setup ────────────────────────────────────────────────────────────
+
+
+def _get_roots(config: dict) -> list[str]:
+    """Get root category list from a category config (supports 'root' or 'roots')."""
+    if "roots" in config:
+        return config["roots"]
+    return [config["root"]]
 
 
 def _make_session() -> requests.Session:
@@ -832,19 +845,23 @@ def scrape_category(
     config = CATEGORIES[category_key]
     domain = config["domain"]
     subdomain = config["subdomain"]
-    root_category = config["root"]
+    roots = _get_roots(config)
 
     logger.info(f"Scraping category: {category_key} ({config['description']})")
-    logger.info(f"  Root: {root_category}, Domain: {domain}")
+    logger.info(f"  Roots: {roots}, Domain: {domain}")
 
     session = _make_session()
 
-    # Discover articles
+    # Discover articles from all root categories
     logger.info("Crawling category tree...")
-    articles = get_category_members(session, root_category)
-    # Deduplicate article list
+    articles = []
+    for root in roots:
+        root_articles = get_category_members(session, root)
+        articles.extend(root_articles)
+        logger.info(f"  {root}: {len(root_articles)} articles")
+    # Deduplicate article list (preserving order)
     articles = list(dict.fromkeys(articles))
-    logger.info(f"Found {len(articles)} articles in {root_category}")
+    logger.info(f"Found {len(articles)} unique articles across {len(roots)} root(s)")
 
     if dry_run:
         click.echo(f"  {category_key}: {len(articles)} articles (dry run, no insertion)")
@@ -1049,27 +1066,27 @@ def main(
         click.echo("\nAvailable categories:")
         session = _make_session()
         for key, config in CATEGORIES.items():
-            # Get a quick count of direct members
-            params = {
-                "action": "query",
-                "list": "categorymembers",
-                "cmtitle": config["root"],
-                "cmtype": "page|subcat",
-                "cmlimit": "500",
-                "format": "json",
-                "formatversion": "2",
-            }
-            try:
-                time.sleep(REQUEST_DELAY)
-                resp = session.get(API_ENDPOINT, params=params, timeout=30)
-                data = resp.json()
-                members = data.get("query", {}).get("categorymembers", [])
-                pages = sum(1 for m in members if m.get("ns") == 0)
-                subcats = sum(1 for m in members if m.get("ns") == 14)
-                click.echo(f"  {key:20s} — {config['description']}")
-                click.echo(f"  {'':20s}   Direct: {pages} articles, {subcats} subcategories")
-            except Exception:
-                click.echo(f"  {key:20s} — {config['description']} (count unavailable)")
+            click.echo(f"  {key:20s} — {config['description']}")
+            for root in _get_roots(config):
+                params = {
+                    "action": "query",
+                    "list": "categorymembers",
+                    "cmtitle": root,
+                    "cmtype": "page|subcat",
+                    "cmlimit": "500",
+                    "format": "json",
+                    "formatversion": "2",
+                }
+                try:
+                    time.sleep(REQUEST_DELAY)
+                    resp = session.get(API_ENDPOINT, params=params, timeout=30)
+                    data = resp.json()
+                    members = data.get("query", {}).get("categorymembers", [])
+                    pages = sum(1 for m in members if m.get("ns") == 0)
+                    subcats = sum(1 for m in members if m.get("ns") == 14)
+                    click.echo(f"  {'':20s}   {root}: {pages} articles, {subcats} subcategories")
+                except Exception:
+                    click.echo(f"  {'':20s}   {root}: (count unavailable)")
         return
 
     if dry_run:
@@ -1079,9 +1096,11 @@ def main(
         else:
             session = _make_session()
             for key, config in CATEGORIES.items():
-                articles = get_category_members(session, config["root"])
-                articles = list(dict.fromkeys(articles))
-                click.echo(f"  {key:20s}: {len(articles)} articles")
+                all_articles = []
+                for root in _get_roots(config):
+                    all_articles.extend(get_category_members(session, root))
+                all_articles = list(dict.fromkeys(all_articles))
+                click.echo(f"  {key:20s}: {len(all_articles)} articles")
             click.echo("\nNo facts inserted (dry run).")
         return
 
