@@ -431,7 +431,12 @@ def get_article_wikitext(session: requests.Session, title: str) -> Optional[str]
     if not data or "parse" not in data:
         return None
 
-    return data["parse"].get("wikitext", {}).get("*", "")
+    wikitext = data["parse"].get("wikitext", "")
+    # formatversion=2 returns wikitext as a string;
+    # formatversion=1 returns {"*": "..."}
+    if isinstance(wikitext, dict):
+        return wikitext.get("*", "")
+    return wikitext or ""
 
 
 def is_disambiguation_page(session: requests.Session, title: str) -> bool:
