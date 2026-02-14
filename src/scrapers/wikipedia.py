@@ -54,7 +54,7 @@ MAX_ARTICLES_PER_ROOT = 2000
 SOURCE_TIER = "tier_2_authoritative"
 PROGRESS_FILE = "data/logs/wikipedia_progress.json"
 MAX_LEAD_FACTS_PER_ARTICLE = 8
-MIN_ARTICLE_LENGTH = 500  # characters — skip stubs
+MIN_ARTICLE_LENGTH = 100  # characters — skip true stubs only
 TEST_RUN_ITEMS_PER_CATEGORY = 5
 
 # ─── Category Configuration ───────────────────────────────────────────────────
@@ -202,6 +202,19 @@ REJECT_PATTERNS = [
         r"\bchurch\b",                           # religion
         r"\bcathedral\b",
         r"\bmonastery\b(?!.*wine|.*vineyard)",
+        r"\bchristian\w*\b",                       # religious context
+        r"\brabb\w+\b",                             # rabbinic
+        r"\bbibl\w+\b",                             # biblical
+        r"\beucharist\b",
+        r"\bsacrament\b",
+        r"\bliturg\w*\b",
+        r"\btheolog\w*\b",
+        r"\bsynagogue\b",
+        r"\bmosque\b",
+        r"\bevangeli\w+\b",
+        r"\babstain\b(?!.*wine)",                   # abstinence (non-wine)
+        r"\bancient world\b",                       # ancient history
+        r"\bdistillation\b(?!.*wine|.*grape|.*brandy)",  # distilling (non-wine)
         r"\btemperature\b(?!.*vine|.*grape|.*harvest|.*ripen)",  # general climate
         r"\brainfall\b(?!.*vine|.*grape|.*viticult)",
     ]
@@ -789,6 +802,13 @@ def _rephrase_one_clause(clause: str, article_title: str) -> Optional[str]:
     # Remove "Regarding X:" prefixes
     s = re.sub(r"^Regarding\s+[^:]+:\s*", "", s, flags=re.IGNORECASE)
 
+    # Truncate list-introducer sentences at the colon
+    # "X is as follows: DOP – ..." → "X is as follows."
+    s = re.sub(
+        r"(?:,?\s+(?:and )?is\s+)?(?:as follows|including|such as)\s*:.*$",
+        ".", s, flags=re.IGNORECASE,
+    )
+
     # Strip leading conjunctions, adverbs, and discourse markers
     s = re.sub(
         r"^(?:Rather|Instead|Moreover|Furthermore|Additionally|Also|"
@@ -800,6 +820,13 @@ def _rephrase_one_clause(clause: str, article_title: str) -> Optional[str]:
         r"However|Unlike\s+[^,]+)[,;]\s*",
         "", s, flags=re.IGNORECASE,
     )
+
+    # Handle "In <topic>, this/it is..." → "<Topic> is..."
+    m = re.match(r"^In\s+(\w[\w\s]{0,30}?),\s*(?:this|it)\s+(is|was|has)\b", s, re.IGNORECASE)
+    if m:
+        topic = m.group(1).strip()
+        verb = m.group(2)
+        s = f"{topic[0].upper()}{topic[1:]} {verb}{s[m.end():]}"
 
     # Capitalize first letter (clauses from splits may start lowercase)
     if s and s[0].islower():
