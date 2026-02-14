@@ -928,27 +928,16 @@ def extract_lead_facts(
 ) -> list[dict]:
     """Extract atomic facts from the lead paragraph of a Wikipedia article.
 
-    Wine relevance works at the ARTICLE level: if any sentence in the lead
-    contains a wine keyword, all non-rejected sentences from the article
-    are eligible.  This avoids dropping valid wine facts from sentences
-    that don't independently mention a wine keyword (e.g. "Bordeaux is a
-    port city in southwestern France." — relevant context for a wine
-    region, but no wine keyword).
-
-    Individual sentences are still filtered by REJECT_PATTERNS (demographics,
-    transport, sports, etc.) and OPINION_PATTERNS.
+    All articles processed by this scraper come from wine category trees,
+    so category membership itself is the wine-relevance signal.  Individual
+    sentences are filtered by REJECT_PATTERNS (demographics, transport,
+    sports, religion, etc.) and OPINION_PATTERNS only.
     """
     if not extract_text or len(extract_text) < 50:
         return []
 
     sentences = re.split(r"(?<=[.!?])\s+", extract_text.strip())
     scan = sentences[:12]
-
-    # Article-level wine gate: at least one sentence must mention a wine keyword
-    article_has_wine = any(is_wine_relevant(s) for s in scan)
-    if not article_has_wine:
-        logger.debug(f"  Skip (no wine keyword in lead): {title}")
-        return []
 
     facts = []
     for sentence in scan:
@@ -1104,24 +1093,19 @@ def process_article(
     extract_text = get_article_extract(session, title)
     if extract_text:
         # Check for disambiguation via text (fast path)
-        if "may refer to" in extract_text or "can refer to" in extract_text:
-            logger.debug(f"  Skip (disambiguation): {title}")
-            return []
+        is_disambig = "may refer to" in extract_text or "can refer to" in extract_text
+        is_stub = len(extract_text) < MIN_ARTICLE_LENGTH
 
-        # Stub check
-        if len(extract_text) < MIN_ARTICLE_LENGTH:
-            logger.debug(f"  Skip (stub, {len(extract_text)} chars): {title}")
-            return []
-
-        # Per-sentence wine relevance is checked inside extract_lead_facts();
-        # no need for a first-sentence gate here since all articles come from
-        # wine-related categories and individual sentences are filtered.
-
-        lead_facts = extract_lead_facts(
-            title, extract_text, domain, subdomain, source_id
-        )
-        all_facts.extend(lead_facts)
-        logger.debug(f"  Lead: {len(lead_facts)} facts")
+        if is_disambig:
+            logger.debug(f"  Skip lead (disambiguation): {title}")
+        elif is_stub:
+            logger.debug(f"  Skip lead (stub, {len(extract_text)} chars): {title}")
+        else:
+            lead_facts = extract_lead_facts(
+                title, extract_text, domain, subdomain, source_id
+            )
+            all_facts.extend(lead_facts)
+            logger.debug(f"  Lead: {len(lead_facts)} facts")
 
     elif not wikitext:
         logger.debug(f"  Skip (empty article): {title}")
