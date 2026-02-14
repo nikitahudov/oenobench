@@ -103,7 +103,10 @@ CATEGORIES = {
         "description": "Grape growing and vineyard management",
     },
     "oenology": {
-        "root": "Category:Oenology",
+        "roots": [
+            "Category:Oenology",
+            "Category:Winemaking",
+        ],
         "domain": "winemaking",
         "subdomain": None,
         "description": "Winemaking science and techniques",
@@ -188,7 +191,7 @@ REJECT_PATTERNS = [
         r"\belection\b",                         # politics
         r"\bparliament\b",
         r"\bmayor\b",
-        r"\bgovernment\b",
+        r"\bgovernment\b(?!.*wine|.*appellation|.*classif|.*denom)",
         r"\bfootball\b",                         # sports
         r"\bsoccer\b",
         r"\bcricket\b",
@@ -197,7 +200,7 @@ REJECT_PATTERNS = [
         r"\btourist\b(?!.*wine)",
         r"\brestaurant\b(?!.*wine)",
         r"\bschool\b",                           # education
-        r"\buniversity\b(?!.*wine|.*viticult)",
+        r"\buniversity\b(?!.*wine|.*viticult|.*grape|.*oenol|.*enol)",
         r"\bhospital\b",                         # healthcare
         r"\bchurch\b",                           # religion
         r"\bcathedral\b",
@@ -215,8 +218,8 @@ REJECT_PATTERNS = [
         r"\babstain\b(?!.*wine)",                   # abstinence (non-wine)
         r"\bancient world\b",                       # ancient history
         r"\bdistillation\b(?!.*wine|.*grape|.*brandy)",  # distilling (non-wine)
-        r"\btemperature\b(?!.*vine|.*grape|.*harvest|.*ripen)",  # general climate
-        r"\brainfall\b(?!.*vine|.*grape|.*viticult)",
+        r"\btemperature\b(?!.*vine|.*grape|.*harvest|.*ripen|.*region|.*valley|.*climat|.*growing)",
+        r"\brainfall\b(?!.*vine|.*grape|.*viticult|.*region|.*valley|.*climat|.*growing|.*mm\b|.*inch)",
     ]
 ]
 
@@ -228,7 +231,12 @@ OPINION_PATTERNS = [
         r"\bexcellent\b",
         r"\bsuperb\b",
         r"\bone of (?:the |[\w]+'s )(?:best|finest|greatest|most famous|most renowned)",
-        r"\bmost (?:famous|renowned|prestigious|celebrated)\b",
+        r"\bmost (?:famous|renowned|prestigious|celebrated|acclaimed|respected|notable)\b",
+        r"\brenowned\b",
+        r"\bacclaimed\b",
+        r"\bpseudo-scientific\b",
+        r"\bpseudoscientific\b",
+        r"\bvery (?:successful|popular|important)\b",
     ]
 ]
 
@@ -768,7 +776,8 @@ def rephrase_to_atomic(sentence: str, article_title: str) -> list[str]:
     _CONJUNCTION_SPLIT = re.compile(
         r",?\s*\b(?:although|however|while|whereas|but|though|rather|"
         r"instead|moreover|furthermore|additionally|nonetheless|"
-        r"nevertheless|therefore|thus|consequently|indeed)\s+",
+        r"nevertheless|therefore|thus|consequently|indeed|"
+        r"because|since)\s+",
         re.IGNORECASE,
     )
     expanded = []
@@ -803,9 +812,15 @@ def _rephrase_one_clause(clause: str, article_title: str) -> Optional[str]:
     s = re.sub(r"^Regarding\s+[^:]+:\s*", "", s, flags=re.IGNORECASE)
 
     # Truncate list-introducer sentences at the colon
-    # "X is as follows: DOP – ..." → "X is as follows."
+    # "X is as follows: DOP – ..." → "X."
     s = re.sub(
         r"(?:,?\s+(?:and )?is\s+)?(?:as follows|including|such as)\s*:.*$",
+        ".", s, flags=re.IGNORECASE,
+    )
+    # Strip trailing "such as X, Y, Z" or "including X, Y, Z" lists
+    # "Restrictions such as what grapes may be grown, yields." → "Restrictions."
+    s = re.sub(
+        r",?\s*(?:such as|including)\s+\w[\w\s,'.()-]+$",
         ".", s, flags=re.IGNORECASE,
     )
 
