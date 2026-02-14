@@ -53,7 +53,7 @@ MAX_CATEGORY_DEPTH = 3
 MAX_ARTICLES_PER_ROOT = 2000
 SOURCE_TIER = "tier_2_authoritative"
 PROGRESS_FILE = "data/logs/wikipedia_progress.json"
-MAX_LEAD_FACTS_PER_ARTICLE = 5
+MAX_LEAD_FACTS_PER_ARTICLE = 8
 MIN_ARTICLE_LENGTH = 500  # characters — skip stubs
 TEST_RUN_ITEMS_PER_CATEGORY = 5
 
@@ -696,12 +696,17 @@ _PAREN_LANG_ANNOTATION_RE = re.compile(
     r"\s*\([A-Z][a-z]+:\s*[^)]{1,80}\)"
 )
 _PAREN_GENERIC_SHORT_RE = re.compile(
-    r"\s*\([^)]{1,15}\)"  # short parentheticals like "(abbr.)" or "(lit.)"
+    r"\s*\([^)]{1,30}\)"  # short parentheticals like "(abbr.)" or "(lit.)"
 )
 _PAREN_FORMAL_NAME_RE = re.compile(
     r"\s*\((?:formally|formerly|originally|also known as|trading as|"
     r"full name|born|née|stylized|stylised|abbr)[^)]{1,100}\)",
     re.IGNORECASE,
+)
+# Parentheticals containing quotes — translations, etymologies, glosses
+# e.g. (vinis cultura, 'wine-growing'), (from French "vin")
+_PAREN_TRANSLATION_RE = re.compile(
+    r"""\s*\([^)]*['\u2018\u2019\u201c\u201d"][^)]*\)"""
 )
 
 
@@ -722,14 +727,25 @@ def rephrase_to_atomic(sentence: str, article_title: str) -> list[str]:
     if not s:
         return []
 
-    # Remove pronunciation / IPA / language / formal-name parentheticals
+    # Remove pronunciation / IPA / language / formal-name / translation parentheticals
     s = _PAREN_PRONUNCIATION_RE.sub("", s)
     s = _PAREN_LANG_ANNOTATION_RE.sub("", s)
     s = _PAREN_FORMAL_NAME_RE.sub("", s)
+    s = _PAREN_TRANSLATION_RE.sub("", s)
     s = _PAREN_GENERIC_SHORT_RE.sub("", s)
 
     # Collapse whitespace
     s = re.sub(r"\s+", " ", s).strip()
+
+    # Strip alternative names: "X, Y, or Z is" → "X is"
+    # e.g. "Viticulture, viniculture, or winegrowing is..." → "Viticulture is..."
+    s = re.sub(
+        r"^([A-Z][\w-]+(?:\s+[\w-]+)?)"    # First name (1-2 words)
+        r"(?:,\s*[\w-]+(?:\s+[\w-]+)?)*"    # , alternative names
+        r",?\s+(?:or|and)\s+[\w-]+(?:\s+[\w-]+)?"  # or/and last alternative
+        r"\s+(is|are|was|were)\b",
+        r"\1 \2", s,
+    )
 
     # --- Split compound sentences ---
     # Split on semicolons
@@ -737,7 +753,9 @@ def rephrase_to_atomic(sentence: str, article_title: str) -> list[str]:
 
     # Further split on ", although", ", however", ", while" etc.
     _CONJUNCTION_SPLIT = re.compile(
-        r",?\s*\b(?:although|however|while|whereas|but|though)\s+",
+        r",?\s*\b(?:although|however|while|whereas|but|though|rather|"
+        r"instead|moreover|furthermore|additionally|nonetheless|"
+        r"nevertheless|therefore|thus|consequently|indeed)\s+",
         re.IGNORECASE,
     )
     expanded = []
@@ -770,6 +788,22 @@ def _rephrase_one_clause(clause: str, article_title: str) -> Optional[str]:
 
     # Remove "Regarding X:" prefixes
     s = re.sub(r"^Regarding\s+[^:]+:\s*", "", s, flags=re.IGNORECASE)
+
+    # Strip leading conjunctions, adverbs, and discourse markers
+    s = re.sub(
+        r"^(?:Rather|Instead|Moreover|Furthermore|Additionally|Also|"
+        r"Notably|Indeed|Nonetheless|Nevertheless|Therefore|Thus|"
+        r"Consequently|Similarly|Conversely|Alternatively|Subsequently|"
+        r"Meanwhile|Overall|Essentially|Specifically|Traditionally|"
+        r"Historically|Generally|Typically|In fact|In particular|"
+        r"As a result|For example|For instance|On the other hand|"
+        r"However|Unlike\s+[^,]+)[,;]\s*",
+        "", s, flags=re.IGNORECASE,
+    )
+
+    # Capitalize first letter (clauses from splits may start lowercase)
+    if s and s[0].islower():
+        s = s[0].upper() + s[1:]
 
     # Remove leading "The " when followed by the article title
     if s.lower().startswith("the " + article_title.lower()):
@@ -809,7 +843,7 @@ def _rephrase_one_clause(clause: str, article_title: str) -> Optional[str]:
     # If the sentence doesn't start with the article title (or close),
     # prepend the title as subject
     words = s.split()
-    if len(words) < 3:
+    if len(words) < 2:
         return None
 
     title_lower = article_title.lower()
@@ -825,16 +859,31 @@ def _rephrase_one_clause(clause: str, article_title: str) -> Optional[str]:
             s = f"{article_title} has{s[6:]}"
         elif re.match(r"^It\s+", s):
             s = f"{article_title} {s[3:]}"
-        elif re.match(r"^The\s+", s, re.IGNORECASE):
-            s = f"{article_title} {s[0].lower()}{s[1:]}"
-        elif re.match(r"^An?\s+", s, re.IGNORECASE):
-            s = f"{article_title} {s[0].lower()}{s[1:]}"
-        elif not s[0].isupper():
-            s = f"{article_title} {s}"
+        elif re.match(r"^They\s+are\b", s) or re.match(r"^These\s+", s):
+            # Plural pronouns without referent — skip
+            return None
+        elif re.match(r"^This\s+is\b", s):
+            s = f"{article_title} is{s[7:]}"
+        elif re.match(r"^This\s+was\b", s):
+            s = f"{article_title} was{s[8:]}"
+        elif re.match(
+            r"^[Tt]he\s+(?:wine\s+)?(?:region|grape|variety|vineyard|"
+            r"winery|appellation|area|estate|domaine|denomination)\s", s,
+        ):
+            # "The region primarily uses..." → "Burgundy primarily uses..."
+            m = re.match(
+                r"^[Tt]he\s+(?:wine\s+)?(?:region|grape|variety|vineyard|"
+                r"winery|appellation|area|estate|domaine|denomination)\s+", s,
+            )
+            s = f"{article_title} {s[m.end():]}"
+        else:
+            # For other cases, just capitalize — don't blindly prepend title
+            if not s[0].isupper():
+                s = s[0].upper() + s[1:]
 
     # Final length check
     words = s.split()
-    if len(words) < 5 or len(words) > 40:
+    if len(words) < 4 or len(words) > 40:
         return None
 
     return s
@@ -862,7 +911,7 @@ def extract_lead_facts(
     facts = []
     sentences = re.split(r"(?<=[.!?])\s+", extract_text.strip())
 
-    for sentence in sentences[:8]:  # scan first 8 sentences, cap output later
+    for sentence in sentences[:12]:  # scan first 12 sentences, cap output later
         sentence = sentence.strip()
         if not sentence:
             continue
@@ -1023,13 +1072,9 @@ def process_article(
             logger.debug(f"  Skip (stub, {len(extract_text)} chars): {title}")
             return []
 
-        # First-sentence wine relevance check
-        first_sentence_end = extract_text.find(".")
-        if first_sentence_end > 0:
-            first_sentence = extract_text[: first_sentence_end + 1]
-            if not is_wine_relevant(first_sentence):
-                logger.debug(f"  Skip (first sentence not wine-relevant): {title}")
-                return []
+        # Per-sentence wine relevance is checked inside extract_lead_facts();
+        # no need for a first-sentence gate here since all articles come from
+        # wine-related categories and individual sentences are filtered.
 
         lead_facts = extract_lead_facts(
             title, extract_text, domain, subdomain, source_id
