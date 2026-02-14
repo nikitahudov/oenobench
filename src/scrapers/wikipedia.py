@@ -928,23 +928,36 @@ def extract_lead_facts(
 ) -> list[dict]:
     """Extract atomic facts from the lead paragraph of a Wikipedia article.
 
-    - Only keeps wine-relevant sentences
-    - Rephrases every sentence (never verbatim)
-    - Max MAX_LEAD_FACTS_PER_ARTICLE facts
+    Wine relevance works at the ARTICLE level: if any sentence in the lead
+    contains a wine keyword, all non-rejected sentences from the article
+    are eligible.  This avoids dropping valid wine facts from sentences
+    that don't independently mention a wine keyword (e.g. "Bordeaux is a
+    port city in southwestern France." — relevant context for a wine
+    region, but no wine keyword).
+
+    Individual sentences are still filtered by REJECT_PATTERNS (demographics,
+    transport, sports, etc.) and OPINION_PATTERNS.
     """
     if not extract_text or len(extract_text) < 50:
         return []
 
-    facts = []
     sentences = re.split(r"(?<=[.!?])\s+", extract_text.strip())
+    scan = sentences[:12]
 
-    for sentence in sentences[:12]:  # scan first 12 sentences, cap output later
+    # Article-level wine gate: at least one sentence must mention a wine keyword
+    article_has_wine = any(is_wine_relevant(s) for s in scan)
+    if not article_has_wine:
+        logger.debug(f"  Skip (no wine keyword in lead): {title}")
+        return []
+
+    facts = []
+    for sentence in scan:
         sentence = sentence.strip()
         if not sentence:
             continue
 
-        # Wine relevance gate
-        if not is_wine_relevant(sentence):
+        # Reject clearly non-wine sentences (demographics, sports, etc.)
+        if any(pat.search(sentence) for pat in REJECT_PATTERNS):
             continue
 
         # Opinion gate
@@ -954,7 +967,8 @@ def extract_lead_facts(
         # Rephrase into atomic facts (may produce 1-2 facts from one sentence)
         atomic_facts = rephrase_to_atomic(sentence, title)
         for fact_text in atomic_facts:
-            if not is_wine_relevant(fact_text):
+            # Reject non-wine content that might emerge after splitting
+            if any(pat.search(fact_text) for pat in REJECT_PATTERNS):
                 continue
 
             facts.append(
