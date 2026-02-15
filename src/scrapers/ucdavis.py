@@ -110,6 +110,11 @@ def _scrape_ontology(source_id: str, dry_run: bool = False, test_run_limit: Opti
 
         logger.info(f"Found {len(rdf_files)} RDF/Turtle files in ontology repo")
 
+        # Filter to wine-related files only — the repo bundles general-purpose
+        # ontologies (LinkedGeoData OSM, DBpedia) that produce non-wine junk
+        rdf_files = [f for f in rdf_files if "wine" in f.name.lower()]
+        logger.info(f"Filtered to {len(rdf_files)} wine-related RDF files")
+
         if test_run_limit:
             rdf_files = rdf_files[:test_run_limit]
             logger.info(f"[TEST RUN] Limited to {len(rdf_files)} RDF files")
@@ -406,8 +411,8 @@ def _scrape_ava(source_id: str, dry_run: bool = False, test_run_limit: Optional[
             unique_avas = unique_avas[:test_run_limit]
             logger.info(f"[TEST RUN] Limited to {len(unique_avas)} AVAs")
 
-        # Quality check: warn if count is low
-        if len(unique_avas) < KNOWN_AVA_COUNT * 0.8:
+        # Quality check: warn if count is low (skip during test runs)
+        if not test_run_limit and len(unique_avas) < KNOWN_AVA_COUNT * 0.8:
             logger.warning(
                 f"AVA count ({len(unique_avas)}) is significantly below "
                 f"expected ~{KNOWN_AVA_COUNT}. Some AVAs may be missing."
@@ -599,11 +604,11 @@ def _scrape_fps(source_id: str, dry_run: bool = False, test_run_limit: Optional[
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT})
 
-    # Start from the main grape registry page
+    # Start from the grape variety listing page
     base_url = "https://fps.ucdavis.edu"
-    index_url = f"{base_url}/fgrabout.cfm"
+    index_url = f"{base_url}/fgrvarieties.cfm"
 
-    logger.info(f"Fetching FPS index page: {index_url}")
+    logger.info(f"Fetching FPS varieties page: {index_url}")
     resp = session.get(index_url, timeout=30)
     resp.raise_for_status()
     time.sleep(FPS_REQUEST_DELAY)
@@ -614,12 +619,37 @@ def _scrape_fps(source_id: str, dry_run: bool = False, test_run_limit: Optional[
     variety_links = _find_variety_links(soup, base_url)
     logger.info(f"Found {len(variety_links)} variety links on index page")
 
-    # If the index page doesn't have direct links, try the variety list page
+    # If the main page uses a letter-based index (A-Z), follow each letter page
+    if len(variety_links) < 20:
+        letter_links = _find_letter_index_links(soup, base_url)
+        if letter_links:
+            logger.info(f"Found {len(letter_links)} letter-index pages, following them...")
+            for letter_url in letter_links:
+                try:
+                    resp = session.get(letter_url, timeout=30)
+                    resp.raise_for_status()
+                    time.sleep(FPS_REQUEST_DELAY)
+                    letter_soup = BeautifulSoup(resp.text, "lxml")
+                    new_links = _find_variety_links(letter_soup, base_url)
+                    variety_links.extend(new_links)
+                    logger.debug(f"Found {len(new_links)} variety links on {letter_url}")
+                except Exception as e:
+                    logger.debug(f"Could not fetch letter page {letter_url}: {e}")
+
+    # Deduplicate variety links
+    seen_urls = set()
+    unique_links = []
+    for link in variety_links:
+        if link["url"] not in seen_urls:
+            seen_urls.add(link["url"])
+            unique_links.append(link)
+    variety_links = unique_links
+
+    # If still not enough, try alternative pages
     if len(variety_links) < 10:
         alt_urls = [
-            f"{base_url}/fgrlist.cfm",
-            f"{base_url}/fgrvarieties.cfm",
-            f"{base_url}/fgrsearch.cfm",
+            f"{base_url}/fgrselections.cfm",
+            f"{base_url}/fgrabout.cfm",
         ]
         for alt_url in alt_urls:
             try:
@@ -683,19 +713,18 @@ def _scrape_fps(source_id: str, dry_run: bool = False, test_run_limit: Optional[
 
 
 def _find_variety_links(soup: BeautifulSoup, base_url: str) -> list[dict]:
-    """Find links to individual grape variety pages."""
+    """Find links to individual grape variety detail pages (fgrdetails.cfm?varietyid=X)."""
     links = []
     seen_urls = set()
 
     for a in soup.find_all("a", href=True):
         href = a["href"]
         text = a.get_text(strip=True)
+        href_lower = href.lower()
 
-        # Look for variety detail page patterns
-        if any(
-            pattern in href.lower()
-            for pattern in ["fgrdetail", "fgrvariety", "variety", "fgr"]
-        ):
+        # Only match actual variety detail pages, not navigation pages
+        # Detail pages use: fgrdetails.cfm?varietyid=123
+        if "fgrdetails" in href_lower or "varietyid=" in href_lower:
             if href.startswith("/"):
                 full_url = base_url + href
             elif href.startswith("http"):
@@ -708,6 +737,34 @@ def _find_variety_links(soup: BeautifulSoup, base_url: str) -> list[dict]:
                 links.append({"url": full_url, "name": text or ""})
 
     return links
+
+
+def _find_letter_index_links(soup: BeautifulSoup, base_url: str) -> list[str]:
+    """Find letter-based index links (A-Z) on paginated variety listing pages."""
+    links = []
+    seen = set()
+
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        text = a.get_text(strip=True)
+        href_lower = href.lower()
+
+        # Look for letter-index patterns: ?letter=A, or single-letter links to variety pages
+        if "letter=" in href_lower or (
+            len(text) == 1 and text.isalpha() and "fgrvariet" in href_lower
+        ):
+            if href.startswith("/"):
+                full_url = base_url + href
+            elif href.startswith("http"):
+                full_url = href
+            else:
+                full_url = base_url + "/" + href
+
+            if full_url not in seen:
+                seen.add(full_url)
+                links.append(full_url)
+
+    return sorted(links)
 
 
 def _extract_fps_table_facts(
