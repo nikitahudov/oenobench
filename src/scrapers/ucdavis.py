@@ -541,7 +541,9 @@ def _get_label(g, node) -> Optional[str]:
     # CamelCase to spaces
     readable = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", fragment)
     readable = readable.replace("_", " ").strip()
-    return readable if readable else None
+    if not readable:
+        return None
+    return _title_case_proper_noun(readable)
 
 
 def _property_to_readable(prop_name: str) -> str:
@@ -561,6 +563,14 @@ def _property_to_readable(prop_name: str) -> str:
         "type": "is of type",
         "has maker": "is made by",
         "same as": "is the same as",
+        # Bare-noun predicates that need a verb
+        "color": "has color",
+        "body": "has body",
+        "flavor": "has flavor",
+        "sugar": "has sugar level",
+        "maker": "is made by",
+        "grape": "is made from grape",
+        "region": "is from region",
     }
     if readable in _OVERRIDES:
         return _OVERRIDES[readable]
@@ -1229,6 +1239,25 @@ def _extract_fps_table_facts(
                             "source_id": source_id,
                             "entities": [{"type": "grape", "name": name}],
                             "tags": ["fps", "ucdavis", "grape", color_text.lower()],
+                        })
+
+            # Origin / country
+            if "origin" in col_map and len(cells) > col_map["origin"]:
+                origin_text = cells[col_map["origin"]].get_text(strip=True)
+                if origin_text and len(origin_text) < 80:
+                    key = f"fps_origin:{name}:{origin_text}"
+                    if key not in seen:
+                        seen.add(key)
+                        facts.append({
+                            "fact_text": f"{name} originates from {origin_text}.",
+                            "domain": "grape_varieties",
+                            "subdomain": "fps",
+                            "source_id": source_id,
+                            "entities": [
+                                {"type": "grape", "name": name},
+                                {"type": "region", "name": origin_text},
+                            ],
+                            "tags": ["fps", "ucdavis", "grape", "origin"],
                         })
 
     return facts
