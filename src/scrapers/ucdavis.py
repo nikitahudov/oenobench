@@ -450,10 +450,16 @@ def _extract_ontology_facts(g, source_id: str) -> list[dict]:
             pred_label = _get_label(g, pred)
             if not pred_label:
                 continue
-            # Skip RDF/OWL built-in predicates
+            # Skip RDF/OWL/RDFS infrastructure predicates, but NOT wine
+            # ontology properties (which share the w3.org domain).
+            # The W3C wine.rdf uses http://www.w3.org/TR/.../wine# namespace
+            # so we must match specific standard namespaces only.
             pred_str = str(pred)
             if any(ns in pred_str for ns in [
-                "www.w3.org", "rdf-syntax", "rdf-schema", "owl#"
+                "/22-rdf-syntax-ns#",      # RDF core (rdf:type, etc.)
+                "/rdf-schema#",            # RDFS (rdfs:label, etc.)
+                "/2002/07/owl#",           # OWL (owl:sameAs, etc.)
+                "/XMLSchema#",             # XSD datatypes
             ]):
                 continue
 
@@ -644,8 +650,13 @@ def _extract_ava_from_geojson(data: dict, filename: str) -> list[dict]:
                 or props.get("valid_start")
                 or props.get("cfr_revision_history")
             ),
+            "county": props.get("county") or props.get("COUNTY"),
+            "aka": props.get("aka") or props.get("AKA"),
+            "contains": props.get("contains") or props.get("CONTAINS"),
+            "petitioner": props.get("petitioner") or props.get("PETITIONER"),
             "cfr_author": props.get("cfr_author") or props.get("CFR_AUTHOR"),
             "cfr_index": props.get("cfr_index") or props.get("CFR_INDEX"),
+            "lcsh": props.get("lcsh") or props.get("LCSH"),
             "fr_doc": (
                 props.get("used_fr_doc")
                 or props.get("fr_doc")
@@ -733,11 +744,29 @@ def _build_ava_facts(avas: list[dict], source_id: str) -> list[dict]:
                     "tags": ["ava", "united_states", "history", "establishment"],
                 })
 
-        # Fact: parent AVA relationship
+        # Fact: county
+        if ava.get("county"):
+            county_str = ava["county"]
+            for county in [c.strip() for c in county_str.split(",") if c.strip()]:
+                key = f"ava_county:{name}:{county}"
+                if key not in seen:
+                    seen.add(key)
+                    facts.append({
+                        "fact_text": f"{ava_label} is located in {county} County.",
+                        "domain": "wine_regions",
+                        "subdomain": "ava",
+                        "source_id": source_id,
+                        "entities": [
+                            {"type": "ava", "name": name},
+                            {"type": "county", "name": county},
+                        ],
+                        "tags": ["ava", "united_states", "geography"],
+                    })
+
+        # Fact: parent AVA relationship (pipe-delimited)
         if ava.get("within"):
             within = ava["within"]
-            # Can be comma-separated
-            parents = [p.strip() for p in within.split(",") if p.strip()]
+            parents = [p.strip() for p in within.replace("|", ",").split(",") if p.strip()]
             for parent in parents:
                 parent_label = (
                     f"{parent} AVA" if not parent.upper().endswith("AVA") else parent
@@ -756,6 +785,60 @@ def _build_ava_facts(avas: list[dict], source_id: str) -> list[dict]:
                         ],
                         "tags": ["ava", "united_states", "hierarchy"],
                     })
+
+        # Fact: contains sub-AVAs
+        if ava.get("contains"):
+            contains = ava["contains"]
+            children = [c.strip() for c in contains.replace("|", ",").split(",") if c.strip()]
+            for child in children:
+                child_label = (
+                    f"{child} AVA" if not child.upper().endswith("AVA") else child
+                )
+                key = f"ava_contains:{name}:{child}"
+                if key not in seen:
+                    seen.add(key)
+                    facts.append({
+                        "fact_text": f"{ava_label} contains the {child_label}.",
+                        "domain": "wine_regions",
+                        "subdomain": "ava",
+                        "source_id": source_id,
+                        "entities": [
+                            {"type": "ava", "name": name},
+                            {"type": "ava", "name": child},
+                        ],
+                        "tags": ["ava", "united_states", "hierarchy"],
+                    })
+
+        # Fact: alternate names
+        if ava.get("aka"):
+            aka = ava["aka"]
+            aliases = [a.strip() for a in aka.replace("|", ",").split(",") if a.strip()]
+            for alias in aliases:
+                key = f"ava_aka:{name}:{alias}"
+                if key not in seen:
+                    seen.add(key)
+                    facts.append({
+                        "fact_text": f"{ava_label} is also known as {alias}.",
+                        "domain": "wine_regions",
+                        "subdomain": "ava",
+                        "source_id": source_id,
+                        "entities": [{"type": "ava", "name": name}],
+                        "tags": ["ava", "united_states", "naming"],
+                    })
+
+        # Fact: CFR regulation index
+        if ava.get("cfr_index"):
+            key = f"ava_cfr:{name}"
+            if key not in seen:
+                seen.add(key)
+                facts.append({
+                    "fact_text": f"{ava_label} is defined in 27 CFR {ava['cfr_index']}.",
+                    "domain": "wine_regions",
+                    "subdomain": "ava",
+                    "source_id": source_id,
+                    "entities": [{"type": "ava", "name": name}],
+                    "tags": ["ava", "united_states", "regulation"],
+                })
 
         # Fact: Federal Register reference
         if ava.get("fr_doc"):
