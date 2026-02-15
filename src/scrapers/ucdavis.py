@@ -125,12 +125,21 @@ def _scrape_ontology(source_id: str, dry_run: bool = False, test_run_limit: Opti
 
         g = Graph()
         for f in rdf_files:
+            fmt = _guess_rdf_format(f)
             try:
-                fmt = _guess_rdf_format(f)
                 g.parse(str(f), format=fmt)
                 logger.debug(f"Parsed {f.name} ({fmt})")
             except Exception as e:
-                logger.warning(f"Failed to parse {f.name}: {e}")
+                # N3 is a superset of Turtle — try it as fallback for
+                # files using extended syntax like = (owl:sameAs shorthand)
+                if fmt != "n3":
+                    try:
+                        g.parse(str(f), format="n3")
+                        logger.debug(f"Parsed {f.name} (n3 fallback)")
+                    except Exception:
+                        logger.warning(f"Failed to parse {f.name}: {e}")
+                else:
+                    logger.warning(f"Failed to parse {f.name}: {e}")
 
         logger.info(f"Loaded {len(g)} triples from ontology")
         facts = _extract_ontology_facts(g, source_id)
@@ -273,7 +282,11 @@ def _extract_ontology_facts(g, source_id: str) -> list[dict]:
         if not s_label or not o_label:
             continue
         if o in (OWL.Class, RDFS.Class, OWL.ObjectProperty,
-                 OWL.DatatypeProperty, OWL.Ontology, OWL.NamedIndividual):
+                 OWL.DatatypeProperty, OWL.Ontology, OWL.NamedIndividual,
+                 OWL.Thing):
+            continue
+        # Safety net: reject generic OWL/RDFS class names even from unknown namespaces
+        if o_label in ("Thing", "Resource", "Class", "Nothing"):
             continue
 
         domain, subdomain, tags = _classify_ontology_entity(s_label, o_label)
@@ -350,6 +363,10 @@ def _get_label(g, node) -> Optional[str]:
         return None
 
     if not fragment or fragment.startswith("Q") and fragment[1:].isdigit():
+        return None
+
+    # Reject hash/UUID-like fragments (20+ consecutive hex chars)
+    if re.search(r'[0-9a-f]{20,}', fragment, re.IGNORECASE):
         return None
 
     # CamelCase to spaces
