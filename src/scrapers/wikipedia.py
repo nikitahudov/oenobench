@@ -466,6 +466,49 @@ def get_article_wikitext(session: requests.Session, title: str) -> Optional[str]
     return wikitext or ""
 
 
+def get_article_data(
+    session: requests.Session, title: str
+) -> tuple[Optional[str], Optional[str]]:
+    """Fetch both plain-text extract and wikitext in a single API call.
+
+    Uses action=query with prop=extracts|revisions to avoid the 2s delay
+    of a second request.  Returns (extract_text, wikitext).
+    """
+    params = {
+        "action": "query",
+        "titles": title,
+        "prop": "extracts|revisions",
+        "exintro": "1",
+        "explaintext": "1",
+        "rvprop": "content",
+        "rvslots": "main",
+        "redirects": "1",
+    }
+    data = _api_request(session, params)
+    if not data or "query" not in data:
+        return None, None
+
+    pages = data["query"].get("pages", [])
+    if not pages:
+        return None, None
+
+    page = pages[0]
+    if page.get("missing", False):
+        return None, None
+
+    extract = page.get("extract", "") or None
+    wikitext = None
+    revisions = page.get("revisions", [])
+    if revisions:
+        slots = revisions[0].get("slots", {})
+        main_slot = slots.get("main", {})
+        wikitext = main_slot.get("content", "")
+        if not wikitext:
+            wikitext = None
+
+    return extract, wikitext
+
+
 def is_disambiguation_page(session: requests.Session, title: str) -> bool:
     """Check if article is a disambiguation page via its categories."""
     params = {
@@ -744,6 +787,14 @@ _PAREN_FOREIGN_RE = re.compile(
 )
 
 
+_CONJUNCTION_SPLIT = re.compile(
+    r",?\s*\b(?:although|however|while|whereas|but|though|rather|"
+    r"instead|moreover|furthermore|additionally|nonetheless|"
+    r"nevertheless|therefore|thus|consequently|indeed)\s+",
+    re.IGNORECASE,
+)
+
+
 def rephrase_to_atomic(sentence: str, article_title: str) -> list[str]:
     """Transform a Wikipedia sentence into one or more atomic facts.
 
@@ -801,12 +852,6 @@ def rephrase_to_atomic(sentence: str, article_title: str) -> list[str]:
     parts = re.split(r"\s*;\s*", s)
 
     # Further split on ", although", ", however", ", while" etc.
-    _CONJUNCTION_SPLIT = re.compile(
-        r",?\s*\b(?:although|however|while|whereas|but|though|rather|"
-        r"instead|moreover|furthermore|additionally|nonetheless|"
-        r"nevertheless|therefore|thus|consequently|indeed)\s+",
-        re.IGNORECASE,
-    )
     expanded = []
     for part in parts:
         sub = _CONJUNCTION_SPLIT.split(part)
@@ -973,6 +1018,38 @@ def _rephrase_one_clause(clause: str, article_title: str) -> Optional[str]:
 
 # ─── Lead Paragraph Extraction ───────────────────────────────────────────────
 
+# Abbreviations that should NOT be treated as sentence endings.
+# The single-letter pattern requires a preceding space so "France." won't match.
+_ABBREV_RE = re.compile(
+    r"(?:"
+    r"(?:^|\s)[A-Za-z]\."             # single-letter initials: U. S. A.
+    r"|(?:St|Dr|Mr|Mrs|Ms|Prof|Jr|Sr|Mt|Ft|Gen|Gov|Lt|Sgt|Col|Dept"
+    r"|Inc|Ltd|Co|Corp|vs|etc|approx|est|vol|no|ca)\."  # common abbrevs
+    r"|(?:\d+)\."                      # numbers before decimal: 2.5, 12.7
+    r")$",
+    re.IGNORECASE,
+)
+
+
+def _split_sentences(text: str) -> list[str]:
+    """Split text into sentences, handling abbreviations and decimals.
+
+    Avoids splitting on "U.S.", "St. Emilion", "2.5 hectares", etc.
+    """
+    # Split on period/!/?  followed by whitespace and an uppercase letter
+    # (or end of string), which is the standard sentence boundary pattern.
+    raw_parts = re.split(r"(?<=[.!?])\s+(?=[A-Z\"\u201c(])", text)
+
+    # Re-join fragments that were split at abbreviations
+    merged: list[str] = []
+    for part in raw_parts:
+        if merged and _ABBREV_RE.search(merged[-1]):
+            merged[-1] = merged[-1] + " " + part
+        else:
+            merged.append(part)
+
+    return merged
+
 
 def extract_lead_facts(
     title: str,
@@ -991,7 +1068,7 @@ def extract_lead_facts(
     if not extract_text or len(extract_text) < 50:
         return []
 
-    sentences = re.split(r"(?<=[.!?])\s+", extract_text.strip())
+    sentences = _split_sentences(extract_text.strip())
     scan = sentences[:12]
 
     facts = []
@@ -1133,8 +1210,10 @@ def process_article(
     else:
         source_id = "dry-run"
 
+    # Fetch both extract and wikitext in a single API call
+    extract_text, wikitext = get_article_data(session, title)
+
     # --- Phase A: Infobox ---
-    wikitext = get_article_wikitext(session, title)
     if wikitext:
         infobox_fields = parse_infobox(wikitext)
         if infobox_fields:
@@ -1145,7 +1224,6 @@ def process_article(
             logger.debug(f"  Infobox: {len(infobox_facts)} facts")
 
     # --- Phase B: Lead paragraph ---
-    extract_text = get_article_extract(session, title)
     if extract_text:
         # Check for disambiguation via text (fast path)
         is_disambig = "may refer to" in extract_text or "can refer to" in extract_text
