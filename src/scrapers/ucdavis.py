@@ -140,7 +140,26 @@ def _scrape_ontology(source_id: str, dry_run: bool = False, test_run_limit: Opti
 
 
 def _guess_rdf_format(filepath: Path) -> str:
-    """Guess rdflib parse format from file extension."""
+    """Guess rdflib parse format, using content sniffing for ambiguous extensions.
+
+    Some .owl files in the UC Davis repo are actually Turtle syntax (start with
+    @prefix), not OWL/XML. Content sniffing catches this mismatch.
+    """
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#"):
+                    continue
+                if stripped.startswith("@prefix") or stripped.startswith("@base"):
+                    return "turtle"
+                if stripped.startswith("<?xml") or stripped.startswith("<!DOCTYPE") or stripped.startswith("<rdf:"):
+                    return "xml"
+                break
+    except Exception:
+        pass
+
+    # Fall back to extension-based guess
     ext = filepath.suffix.lower()
     return {
         ".ttl": "turtle",
@@ -671,6 +690,8 @@ def _scrape_fps(source_id: str, dry_run: bool = False, test_run_limit: Optional[
     logger.info(f"Extracted {len(facts)} facts from index/list tables")
 
     if test_run_limit:
+        facts = _limit_fps_facts_by_variety(facts, test_run_limit)
+        logger.info(f"[TEST RUN] Limited to facts from first {test_run_limit} varieties ({len(facts)} facts)")
         variety_links = variety_links[:test_run_limit]
         logger.info(f"[TEST RUN] Limited to {len(variety_links)} variety pages")
 
@@ -765,6 +786,25 @@ def _find_letter_index_links(soup: BeautifulSoup, base_url: str) -> list[str]:
                 links.append(full_url)
 
     return sorted(links)
+
+
+def _limit_fps_facts_by_variety(facts: list[dict], limit: int) -> list[dict]:
+    """Limit FPS facts to those from the first N unique grape varieties."""
+    seen_varieties = set()
+    limited = []
+    for fact in facts:
+        variety = None
+        for ent in fact.get("entities", []):
+            if ent.get("type") == "grape":
+                variety = ent["name"]
+                break
+        if variety is not None:
+            if variety not in seen_varieties:
+                if len(seen_varieties) >= limit:
+                    continue
+                seen_varieties.add(variety)
+        limited.append(fact)
+    return limited
 
 
 def _extract_fps_table_facts(
