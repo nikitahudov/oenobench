@@ -14,6 +14,9 @@ Usage:
     python -m src.scrapers.ucdavis --dry-run
     python -m src.scrapers.ucdavis --validate
     python -m src.scrapers.ucdavis --list
+    python -m src.scrapers.ucdavis --test-run
+    python -m src.scrapers.ucdavis --test-run --source ava
+    python -m src.scrapers.ucdavis --test-run --cleanup
 """
 
 import json
@@ -93,7 +96,7 @@ def _clone_repo(repo_url: str, target_dir: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _scrape_ontology(source_id: str, dry_run: bool = False) -> list[dict]:
+def _scrape_ontology(source_id: str, dry_run: bool = False, test_run_limit: Optional[int] = None) -> list[dict]:
     """Parse RDF/Turtle files from the Wine Ontology repo."""
     from rdflib import Graph, RDF, RDFS, OWL, Namespace
 
@@ -106,6 +109,10 @@ def _scrape_ontology(source_id: str, dry_run: bool = False) -> list[dict]:
             rdf_files.extend(Path(repo_path).rglob(ext))
 
         logger.info(f"Found {len(rdf_files)} RDF/Turtle files in ontology repo")
+
+        if test_run_limit:
+            rdf_files = rdf_files[:test_run_limit]
+            logger.info(f"[TEST RUN] Limited to {len(rdf_files)} RDF files")
 
         if not rdf_files:
             logger.warning("No RDF files found in wine-ontology repo")
@@ -358,7 +365,7 @@ def _classify_ontology_entity(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _scrape_ava(source_id: str, dry_run: bool = False) -> list[dict]:
+def _scrape_ava(source_id: str, dry_run: bool = False, test_run_limit: Optional[int] = None) -> list[dict]:
     """Parse GeoJSON files from the AVA Digitizing Project."""
     with tempfile.TemporaryDirectory() as tmpdir:
         repo_path = _clone_repo(SOURCES["ava"]["url"], tmpdir)
@@ -394,6 +401,10 @@ def _scrape_ava(source_id: str, dry_run: bool = False) -> list[dict]:
                 unique_avas.append(ava)
 
         logger.info(f"Found {len(unique_avas)} unique AVAs")
+
+        if test_run_limit:
+            unique_avas = unique_avas[:test_run_limit]
+            logger.info(f"[TEST RUN] Limited to {len(unique_avas)} AVAs")
 
         # Quality check: warn if count is low
         if len(unique_avas) < KNOWN_AVA_COUNT * 0.8:
@@ -583,7 +594,7 @@ def _build_ava_facts(avas: list[dict], source_id: str) -> list[dict]:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def _scrape_fps(source_id: str, dry_run: bool = False) -> list[dict]:
+def _scrape_fps(source_id: str, dry_run: bool = False, test_run_limit: Optional[int] = None) -> list[dict]:
     """Scrape the FPS grape variety database from HTML pages."""
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT})
@@ -628,6 +639,10 @@ def _scrape_fps(source_id: str, dry_run: bool = False) -> list[dict]:
     # Also extract facts directly from any tables on the index/list pages
     facts = _extract_fps_table_facts(soup, source_id)
     logger.info(f"Extracted {len(facts)} facts from index/list tables")
+
+    if test_run_limit:
+        variety_links = variety_links[:test_run_limit]
+        logger.info(f"[TEST RUN] Limited to {len(variety_links)} variety pages")
 
     # Scrape individual variety pages
     scraped_count = 0
@@ -1140,11 +1155,237 @@ def _find_near_duplicates(facts: list[dict], max_check: int = 2000) -> list[tupl
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Test Run
+# ═══════════════════════════════════════════════════════════════════════════════
+
+TEST_RUN_LIMIT = 5
+
+
+def run_test_run(source_filter: Optional[str] = None, cleanup: bool = False):
+    """Execute a test run: process 5 items per source, insert, report, optionally clean up."""
+    sources_to_run = [source_filter] if source_filter else list(SOURCES.keys())
+
+    results = []
+    all_fact_texts = []
+
+    scrapers = {
+        "ontology": _scrape_ontology,
+        "ava": _scrape_ava,
+        "fps": _scrape_fps,
+    }
+
+    for source_name in sources_to_run:
+        if source_name not in SOURCES:
+            logger.error(f"Unknown source: {source_name}")
+            continue
+
+        config = SOURCES[source_name]
+        source_id = ensure_source(
+            name=config["name"],
+            url=config["url"],
+            source_type=config["source_type"],
+            tier=config["tier"],
+        )
+
+        # Scrape with limit
+        logger.info(f"[TEST RUN] Scraping {source_name} (limit={TEST_RUN_LIMIT})")
+        facts = scrapers[source_name](source_id, test_run_limit=TEST_RUN_LIMIT)
+        items_processed = _count_items_in_facts(facts, source_name)
+
+        # Insert
+        if facts:
+            inserted = insert_facts_batch(facts)
+        else:
+            inserted = 0
+
+        # Track fact texts for cleanup
+        all_fact_texts.extend(f["fact_text"] for f in facts)
+
+        results.append({
+            "source": source_name,
+            "items_processed": items_processed,
+            "facts_generated": len(facts),
+            "facts_inserted": inserted,
+            "facts": facts,
+        })
+
+    # Print report
+    _print_test_run_report(results)
+
+    # Cleanup if requested
+    if cleanup and all_fact_texts:
+        cleaned = _cleanup_test_facts(all_fact_texts)
+        click.echo(f"\nCleaned up {cleaned} test facts from database")
+
+
+def _count_items_in_facts(facts: list[dict], source_name: str) -> int:
+    """Count unique primary items (entities) in a facts list for the test-run report."""
+    items = set()
+    for fact in facts:
+        entities = fact.get("entities", [])
+        if not entities:
+            continue
+        primary = entities[0]
+        name = primary.get("name", "")
+        if not name:
+            continue
+        if source_name == "ava" and primary.get("type") == "ava":
+            items.add(name)
+        elif source_name == "fps" and primary.get("type") == "grape":
+            items.add(name)
+        elif source_name == "ontology":
+            items.add(name)
+    return len(items) if items else min(len(facts), TEST_RUN_LIMIT)
+
+
+def _print_test_run_report(results: list[dict]):
+    """Print the structured test-run report with quality checks and warnings."""
+    all_facts = []
+    for r in results:
+        all_facts.extend(r["facts"])
+
+    total_items = sum(r["items_processed"] for r in results)
+    total_generated = sum(r["facts_generated"] for r in results)
+    total_inserted = sum(r["facts_inserted"] for r in results)
+
+    click.echo("")
+    click.echo("=== TEST RUN REPORT ===")
+    click.echo(
+        f"{'Source/Category':<23s} {'Items Processed':>17s} "
+        f"{'Facts Generated':>17s} {'Facts Inserted (new)':>22s}"
+    )
+    click.echo("\u2500" * 80)
+
+    for r in results:
+        click.echo(
+            f"{r['source']:<23s} {r['items_processed']:>17d} "
+            f"{r['facts_generated']:>17d} {r['facts_inserted']:>22d}"
+        )
+
+    click.echo("\u2500" * 80)
+    click.echo(
+        f"{'TOTAL':<23s} {total_items:>17d} "
+        f"{total_generated:>17d} {total_inserted:>22d}"
+    )
+
+    if not all_facts:
+        click.echo("\nNo facts generated — nothing to check.")
+        return
+
+    total = len(all_facts)
+    too_short = [f for f in all_facts if len(f["fact_text"].split()) < 5]
+    too_long = [f for f in all_facts if len(f["fact_text"].split()) > 50]
+    missing_entities = [f for f in all_facts if not f.get("entities")]
+    word_counts = [len(f["fact_text"].split()) for f in all_facts]
+    avg_words = sum(word_counts) / len(word_counts)
+
+    click.echo("\nQuality Checks:")
+    click.echo(f"  Too short (<5 words):    {len(too_short)} ({len(too_short)/total*100:.1f}%)")
+    click.echo(f"  Too long (>50 words):    {len(too_long)} ({len(too_long)/total*100:.1f}%)")
+    click.echo(f"  Missing entities:        {len(missing_entities)} ({len(missing_entities)/total*100:.1f}%)")
+    click.echo(f"  Avg words per fact:      {avg_words:.1f}")
+
+    # Sample facts
+    sample = random.sample(all_facts, min(10, total))
+    click.echo(f"\nSample Facts ({min(10, total)} random from this run):")
+    for i, f in enumerate(sample, 1):
+        click.echo(f'  {i:2d}. "{f["fact_text"]}"')
+
+    # Warnings
+    warnings = []
+
+    for r in results:
+        src = r["source"]
+
+        # Zero facts generated
+        if r["facts_generated"] == 0:
+            warnings.append(f"ERROR: No facts from {src}")
+        # Facts generated but none inserted (all dupes)
+        elif r["facts_inserted"] == 0:
+            warnings.append(
+                f"ERROR: No facts inserted from {src} (all duplicates?)"
+            )
+
+        # Low extraction rate
+        if r["items_processed"] > 0:
+            avg_per_item = r["facts_generated"] / r["items_processed"]
+            if avg_per_item < 2:
+                warnings.append(
+                    f"WARNING: Low extraction rate in {src} "
+                    f"({avg_per_item:.1f} facts/item, expected 4-6)"
+                )
+
+        # High duplicate rate
+        if r["facts_generated"] > 0:
+            dupe_rate = (r["facts_generated"] - r["facts_inserted"]) / r["facts_generated"]
+            if dupe_rate > 0.5:
+                warnings.append(
+                    f"WARNING: High duplicate rate in {src} "
+                    f"({dupe_rate*100:.0f}% skipped)"
+                )
+
+    # Global quality warnings
+    if len(too_short) / total > 0.1:
+        warnings.append("WARNING: Too many trivial facts (>10% under 5 words)")
+    if len(too_long) / total > 0.1:
+        warnings.append("WARNING: Facts need better splitting (>10% over 50 words)")
+
+    # Verbatim text check
+    regarding_facts = [f for f in all_facts if f["fact_text"].startswith("Regarding")]
+    if regarding_facts:
+        warnings.append(
+            f"WARNING: Verbatim text detected "
+            f"({len(regarding_facts)} facts start with 'Regarding')"
+        )
+
+    # Facts over 40 words for manual review
+    long_facts = [f for f in all_facts if len(f["fact_text"].split()) > 40]
+    if long_facts:
+        warnings.append(
+            f"{len(long_facts)} facts exceed 40 words — review fact splitting logic"
+        )
+
+    if warnings:
+        click.echo("\nWarnings:")
+        for w in warnings:
+            click.echo(f"  - {w}")
+        if long_facts:
+            click.echo("\n  Facts over 40 words (manual review):")
+            for f in long_facts[:5]:
+                click.echo(f'    - "{f["fact_text"]}"')
+    else:
+        click.echo("\nNo warnings — all checks passed!")
+
+
+def _cleanup_test_facts(fact_texts: list[str]) -> int:
+    """Delete test-run facts from the database. Returns count deleted."""
+    from src.utils.db import get_pg
+
+    conn = get_pg()
+    cur = conn.cursor()
+
+    deleted = 0
+    batch_size = 100
+    for i in range(0, len(fact_texts), batch_size):
+        batch = fact_texts[i : i + batch_size]
+        placeholders = ",".join(["%s"] * len(batch))
+        cur.execute(
+            f"DELETE FROM facts WHERE fact_text IN ({placeholders})",
+            batch,
+        )
+        deleted += cur.rowcount
+
+    conn.commit()
+    logger.info(f"Cleaned up {deleted} test facts from database")
+    return deleted
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Main Pipeline
 # ═══════════════════════════════════════════════════════════════════════════════
 
 
-def run_source(source_name: str, dry_run: bool = False) -> int:
+def run_source(source_name: str, dry_run: bool = False, test_run_limit: Optional[int] = None) -> int:
     """Run a single source scraper. Returns fact count."""
     if source_name not in SOURCES:
         logger.error(
@@ -1168,7 +1409,7 @@ def run_source(source_name: str, dry_run: bool = False) -> int:
         "fps": _scrape_fps,
     }
 
-    facts = scrapers[source_name](source_id, dry_run=dry_run)
+    facts = scrapers[source_name](source_id, dry_run=dry_run, test_run_limit=test_run_limit)
 
     if dry_run:
         click.echo(f"\n[DRY RUN] Would insert {len(facts)} facts from {source_name}")
@@ -1233,12 +1474,16 @@ def run_all(dry_run: bool = False) -> dict:
 @click.option("--list", "list_sources", is_flag=True, help="List available sources")
 @click.option("--dry-run", is_flag=True, help="Parse and generate facts without inserting")
 @click.option("--validate", is_flag=True, help="Run quality checks on inserted facts")
+@click.option("--test-run", is_flag=True, help="Run limited test (5 items per source) with report")
+@click.option("--cleanup", is_flag=True, help="Delete test-run facts after report (use with --test-run)")
 def main(
     source: Optional[str],
     run_all_flag: bool,
     list_sources: bool,
     dry_run: bool,
     validate: bool,
+    test_run: bool,
+    cleanup: bool,
 ):
     """OenoBench UC Davis Scraper — Extract wine facts from UC Davis repositories."""
     os.makedirs("data/logs", exist_ok=True)
@@ -1249,6 +1494,10 @@ def main(
         for name, config in SOURCES.items():
             click.echo(f"  {name:15s} — {config['description']}")
             click.echo(f"  {'':15s}   URL: {config['url']}")
+        return
+
+    if test_run:
+        run_test_run(source_filter=source, cleanup=cleanup)
         return
 
     if validate:
@@ -1284,6 +1533,8 @@ def main(
     click.echo("Use --list to see available sources.")
     click.echo("Use --validate to run quality checks on inserted facts.")
     click.echo("Use --dry-run to parse without inserting.")
+    click.echo("Use --test-run to process 5 items per source with a report.")
+    click.echo("Use --test-run --cleanup to auto-delete test facts after the report.")
 
 
 if __name__ == "__main__":
