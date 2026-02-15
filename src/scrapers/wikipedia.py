@@ -773,6 +773,19 @@ def rephrase_to_atomic(sentence: str, article_title: str) -> list[str]:
     # Collapse whitespace
     s = re.sub(r"\s+", " ", s).strip()
 
+    # Strip comma-delimited alternative names:
+    # "X, also known as Y, is ..." → "X is ..."
+    s = re.sub(
+        r",\s*(?:also (?:known|called) as|sometimes (?:known|called) as|"
+        r"formerly (?:known|called) as|or simply)\s+[^,]+,",
+        "", s, flags=re.IGNORECASE,
+    )
+
+    # Reject sentences that are primarily direct quotes
+    # "X writes, '...'" or 'According to X, "..."'
+    if re.search(r'\b(?:writes?|states?|notes?|said|argues?|claims?),?\s*["\u201c]', s):
+        return []
+
     # Strip alternative names: "X, Y, or Z is" → "X is"
     # e.g. "Viticulture, viniculture, or winegrowing is..." → "Viticulture is..."
     s = re.sub(
@@ -817,15 +830,15 @@ def _rephrase_one_clause(clause: str, article_title: str) -> Optional[str]:
     s = clause.strip()
 
     # Strip temporal/conditional clauses at end: ", when ...", ", where ..."
-    s = re.sub(r",\s+when\s.{1,80}$", "", s)
-    s = re.sub(r",\s+where\s.{1,80}$", "", s)
+    s = re.sub(r",\s+when\s.{1,150}$", "", s)
+    s = re.sub(r",\s+where\s.{1,150}$", "", s)
 
     # Strip relative clauses: ", which ..., " or ", who ..., "
-    s = re.sub(r",\s+which\s[^,]{1,80},", ",", s)
-    s = re.sub(r",\s+who\s[^,]{1,80},", ",", s)
+    s = re.sub(r",\s+which\s[^,]{1,120},", ",", s)
+    s = re.sub(r",\s+who\s[^,]{1,120},", ",", s)
     # Terminal relative clauses: ", which ..." at end of sentence
-    s = re.sub(r",\s+which\s.{1,80}$", "", s)
-    s = re.sub(r",\s+who\s.{1,80}$", "", s)
+    s = re.sub(r",\s+which\s.{1,150}$", "", s)
+    s = re.sub(r",\s+who\s.{1,150}$", "", s)
 
     # Remove "Regarding X:" prefixes
     s = re.sub(r"^Regarding\s+[^:]+:\s*", "", s, flags=re.IGNORECASE)
