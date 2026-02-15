@@ -804,8 +804,7 @@ def rephrase_to_atomic(sentence: str, article_title: str) -> list[str]:
     _CONJUNCTION_SPLIT = re.compile(
         r",?\s*\b(?:although|however|while|whereas|but|though|rather|"
         r"instead|moreover|furthermore|additionally|nonetheless|"
-        r"nevertheless|therefore|thus|consequently|indeed|"
-        r"because|since)\s+",
+        r"nevertheless|therefore|thus|consequently|indeed)\s+",
         re.IGNORECASE,
     )
     expanded = []
@@ -829,16 +828,20 @@ def _rephrase_one_clause(clause: str, article_title: str) -> Optional[str]:
 
     s = clause.strip()
 
-    # Strip temporal/conditional clauses at end: ", when ...", ", where ..."
-    s = re.sub(r",\s+when\s.{1,150}$", "", s)
-    s = re.sub(r",\s+where\s.{1,150}$", "", s)
+    # Strip temporal/conditional terminal clauses only when the remainder is
+    # long enough on its own (>6 words) to avoid producing fragments.
+    _before = re.sub(r",\s+(?:when|where)\s.{1,150}$", "", s)
+    if len(_before.split()) >= 6:
+        s = _before
 
-    # Strip relative clauses: ", which ..., " or ", who ..., "
+    # Strip embedded relative clauses: ", which ..., " or ", who ..., "
     s = re.sub(r",\s+which\s[^,]{1,120},", ",", s)
     s = re.sub(r",\s+who\s[^,]{1,120},", ",", s)
-    # Terminal relative clauses: ", which ..." at end of sentence
-    s = re.sub(r",\s+which\s.{1,150}$", "", s)
-    s = re.sub(r",\s+who\s.{1,150}$", "", s)
+    # Terminal relative clauses: ", which ..." / ", who ..." at end of sentence
+    # Only strip if the remainder is long enough (≥6 words)
+    _before_rel = re.sub(r",\s+(?:which|who)\s.{1,150}$", "", s)
+    if len(_before_rel.split()) >= 6:
+        s = _before_rel
 
     # Remove "Regarding X:" prefixes
     s = re.sub(r"^Regarding\s+[^:]+:\s*", "", s, flags=re.IGNORECASE)
@@ -892,30 +895,32 @@ def _rephrase_one_clause(clause: str, article_title: str) -> Optional[str]:
         return None
     s += "."
 
-    # Truncate: if >25 words, cut at first comma after word 15;
-    # if no comma, try cutting at a conjunction; last resort: hard cut at 25
+    # Truncate: if >30 words, cut at first comma after word 18;
+    # if no comma, try cutting at a relative-pronoun clause boundary;
+    # if nothing works, reject the fact (hard cuts produce broken sentences).
     words = s.split()
-    if len(words) > 25:
+    if len(words) > 30:
         pos = 0
         for i, w in enumerate(words):
             pos = s.index(w, pos) + len(w)
-            if i >= 14:
+            if i >= 17:
                 break
         # Try comma first
         comma_pos = s.find(",", pos)
         if comma_pos != -1 and comma_pos < len(s) - 5:
             s = s[:comma_pos].rstrip() + "."
         else:
-            # Try conjunction/relative pronoun as fallback cut point
+            # Try relative-pronoun/clause boundary (NOT "and" — it matches
+            # noun phrases like "tradition and terroir")
             cut_match = re.search(
-                r"\s+(?:which|that is|and\s+\w+s?\b|who)\s",
+                r"\s+(?:which|that is|who)\s",
                 s[pos:], re.IGNORECASE,
             )
             if cut_match:
                 s = s[: pos + cut_match.start()].rstrip() + "."
             else:
-                # Hard cut at word 25
-                s = " ".join(words[:25]).rstrip(".") + "."
+                # No safe cut point — reject rather than produce a fragment
+                return None
 
     # If the sentence doesn't start with the article title (or close),
     # prepend the title as subject
@@ -960,7 +965,7 @@ def _rephrase_one_clause(clause: str, article_title: str) -> Optional[str]:
 
     # Final length check
     words = s.split()
-    if len(words) < 4 or len(words) > 40:
+    if len(words) < 4 or len(words) > 45:
         return None
 
     return s
