@@ -422,6 +422,13 @@ def _extract_ontology_facts(g, source_id: str) -> list[dict]:
         # Safety net: reject generic OWL/RDFS class names even from unknown namespaces
         if o_label in ("Thing", "Resource", "Class", "Nothing"):
             continue
+        # Skip tautological assertions where subject ≈ class name
+        # (e.g., "winery is classified as Winery")
+        if s_label.lower().strip() == o_label.lower().strip():
+            continue
+        # Skip classes-as-instances: if the subject URI is itself a known class
+        if s in classes:
+            continue
 
         domain, subdomain, tags = _classify_ontology_entity(s_label, o_label)
 
@@ -492,12 +499,24 @@ def _extract_ontology_facts(g, source_id: str) -> list[dict]:
     return facts
 
 
+def _title_case_proper_noun(label: str) -> str:
+    """Title-case labels that are entirely lowercase (likely proper nouns).
+
+    Wine names, regions, and producers are proper nouns; if a label
+    has lost its capitalisation (e.g. rdfs:label ``"opus one"``), we
+    restore it.  Labels with existing mixed case are left untouched.
+    """
+    if label != label.lower():
+        return label  # already has capitals
+    return label.title()
+
+
 def _get_label(g, node) -> Optional[str]:
     """Get rdfs:label or derive a human-readable label from a URI."""
     from rdflib import RDFS
 
     for _, _, label in g.triples((node, RDFS.label, None)):
-        return str(label)
+        return _title_case_proper_noun(str(label))
 
     # Fall back to URI fragment
     uri = str(node)
@@ -526,9 +545,34 @@ def _get_label(g, node) -> Optional[str]:
 
 
 def _property_to_readable(prop_name: str) -> str:
-    """Convert a property name like 'hasColor' to 'has color'."""
+    """Convert a property name like 'hasColor' to a readable English phrase.
+
+    Ensures the predicate forms a grammatically correct sentence fragment
+    when placed between a subject and object: ``{subject} {pred} {object}.``
+    """
     readable = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", prop_name)
-    return readable.lower().strip()
+    readable = readable.lower().strip()
+
+    # Explicit overrides for common wine-ontology predicates
+    _OVERRIDES = {
+        "located in": "is located in",
+        "made from grape": "is made from",
+        "made from": "is made from",
+        "type": "is of type",
+        "has maker": "is made by",
+        "same as": "is the same as",
+    }
+    if readable in _OVERRIDES:
+        return _OVERRIDES[readable]
+
+    # Past-participle predicates need "is" prefix  (e.g. "located in" → "is located in")
+    _PAST_PARTICIPLES = ("located", "made", "produced", "derived", "grown",
+                         "aged", "blended", "classified", "associated")
+    first_word = readable.split()[0] if readable else ""
+    if first_word in _PAST_PARTICIPLES:
+        return f"is {readable}"
+
+    return readable
 
 
 def _classify_ontology_entity(
