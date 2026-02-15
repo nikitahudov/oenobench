@@ -125,22 +125,36 @@ def _scrape_ontology(source_id: str, dry_run: bool = False, test_run_limit: Opti
 
         g = Graph()
         for f in rdf_files:
+            # Skip tiny stub files (< 2KB) — the lib.ucdavis.edu/wine.rdf
+            # is a 1.4KB broken stub; the real data is in the 77KB W3C wine.rdf
+            if f.stat().st_size < 2048:
+                logger.debug(f"Skipping {f.name} (stub file, {f.stat().st_size} bytes)")
+                continue
+
             fmt = _guess_rdf_format(f)
             try:
                 g.parse(str(f), format=fmt)
                 logger.debug(f"Parsed {f.name} ({fmt})")
             except Exception as e:
-                # N3 is a superset of Turtle — try it as fallback for
-                # files using extended syntax like = (owl:sameAs shorthand)
+                # N3 is a superset of Turtle — try as fallback for files
+                # using extended syntax like = (owl:sameAs shorthand)
                 if fmt != "n3":
                     try:
                         g.parse(str(f), format="n3")
                         logger.debug(f"Parsed {f.name} (n3 fallback)")
-                    except Exception as e2:
-                        logger.warning(
-                            f"Failed to parse {f.name}: {e} "
-                            f"(n3 fallback also failed: {e2})"
-                        )
+                        continue
+                    except Exception:
+                        pass
+
+                # Last resort: extract triples with regex for broken files
+                triples = _extract_triples_from_broken_turtle(f)
+                if triples:
+                    base_ns = "http://library.ucdavis.edu/wine-ontology#"
+                    added = _inject_triples_into_graph(g, triples, base_ns)
+                    logger.info(
+                        f"Parsed {f.name} (regex fallback, "
+                        f"{added} triples from {len(triples)} extracted)"
+                    )
                 else:
                     logger.warning(f"Failed to parse {f.name}: {e}")
 
@@ -181,6 +195,123 @@ def _guess_rdf_format(filepath: Path) -> str:
         ".xml": "xml",
         ".jsonld": "json-ld",
     }.get(ext, "turtle")
+
+
+def _extract_triples_from_broken_turtle(filepath: Path) -> list[tuple]:
+    """Extract RDF-like triples from a broken Turtle/N3 file using regex.
+
+    The wine-ontology.owl file has too many syntax errors for any standard
+    parser. This function extracts structured data directly from the text.
+
+    Returns a list of (subject, predicate, object) string tuples.
+    """
+    try:
+        content = filepath.read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return []
+
+    triples = []
+    current_subject = None
+
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        # New subject definition: :SubjectName a :TypeName
+        m = re.match(r':(\w+)\s+a\s+:?(\w[\w:]*)', stripped)
+        if m:
+            current_subject = m.group(1)
+            obj = m.group(2)
+            triples.append((current_subject, "rdf:type", obj))
+            # Check for continuation on same line after ;
+            rest = stripped[m.end():]
+            if ";" in rest:
+                # Process continuation predicates
+                for pm in re.finditer(r'(?:rdfs?:|owl:)(\w+)\s+"([^"]*)"', rest):
+                    triples.append((current_subject, pm.group(1), pm.group(2)))
+                for pm in re.finditer(r'rdfs:subClassOf\s+:(\w+)', rest):
+                    triples.append((current_subject, "subClassOf", pm.group(1)))
+            continue
+
+        # Continuation predicate on indented line
+        if current_subject and stripped.startswith(("rdfs:", "rdf:", "owl:", "=")):
+            # Label — also match broken pattern :SomeLabel" (missing opening quote)
+            m = re.match(r'(?:rdfs?:label|rdf:label)\s+(?::)?"?([^"]+)"', stripped)
+            if m:
+                triples.append((current_subject, "label", m.group(1)))
+                continue
+            # SubClassOf
+            m = re.match(r'(?:rdfs:subClassOf|owl:subClass)\s+:(\w+)', stripped)
+            if m:
+                triples.append((current_subject, "subClassOf", m.group(1)))
+                continue
+            # Domain
+            m = re.match(r'rdfs:domain\s+:(\w+)', stripped)
+            if m:
+                triples.append((current_subject, "domain", m.group(1)))
+                continue
+            # Range
+            m = re.match(r'rdfs:range\s+:(\w+)', stripped)
+            if m:
+                triples.append((current_subject, "range", m.group(1)))
+                continue
+            # owl:sameAs (= shorthand)
+            m = re.match(r'=\s+(\S+)', stripped)
+            if m:
+                triples.append((current_subject, "sameAs", m.group(1)))
+                continue
+
+    return triples
+
+
+def _inject_triples_into_graph(g, triples: list[tuple], base_ns: str) -> int:
+    """Inject regex-extracted triples into an rdflib Graph.
+
+    Returns the number of triples added.
+    """
+    from rdflib import URIRef, Literal, RDF, RDFS, OWL, Namespace
+
+    ns = Namespace(base_ns)
+    added = 0
+
+    # Mapping for rdf:X type URIs
+    type_map = {
+        "rdf:Class": RDFS.Class,
+        "rdf:Property": RDF.Property,
+        "rdfs:Class": RDFS.Class,
+        "owl:Class": OWL.Class,
+    }
+
+    for subj_name, pred, obj_val in triples:
+        subj = ns[subj_name]
+
+        if pred == "rdf:type":
+            type_uri = type_map.get(obj_val, ns[obj_val])
+            g.add((subj, RDF.type, type_uri))
+            added += 1
+        elif pred == "label":
+            g.add((subj, RDFS.label, Literal(obj_val, lang="en")))
+            added += 1
+        elif pred == "subClassOf":
+            g.add((subj, RDFS.subClassOf, ns[obj_val]))
+            added += 1
+        elif pred == "domain":
+            g.add((subj, RDFS.domain, ns[obj_val]))
+            added += 1
+        elif pred == "range":
+            g.add((subj, RDFS.range, ns[obj_val]))
+            added += 1
+        elif pred == "sameAs":
+            # Clean trailing punctuation from regex capture
+            uri = obj_val.rstrip(";.")
+            try:
+                g.add((subj, OWL.sameAs, URIRef(uri)))
+                added += 1
+            except Exception:
+                pass
+
+    return added
 
 
 def _extract_ontology_facts(g, source_id: str) -> list[dict]:
