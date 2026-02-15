@@ -136,8 +136,11 @@ def _scrape_ontology(source_id: str, dry_run: bool = False, test_run_limit: Opti
                     try:
                         g.parse(str(f), format="n3")
                         logger.debug(f"Parsed {f.name} (n3 fallback)")
-                    except Exception:
-                        logger.warning(f"Failed to parse {f.name}: {e}")
+                    except Exception as e2:
+                        logger.warning(
+                            f"Failed to parse {f.name}: {e} "
+                            f"(n3 fallback also failed: {e2})"
+                        )
                 else:
                     logger.warning(f"Failed to parse {f.name}: {e}")
 
@@ -326,6 +329,12 @@ def _extract_ontology_facts(g, source_id: str) -> list[dict]:
             obj_val = _get_label(g, obj) or str(obj)
             if len(obj_val) > 100:
                 continue
+            # Reject hash/UUID-like values in literals
+            if re.search(r'[0-9a-f]{20,}', obj_val, re.IGNORECASE):
+                continue
+            # Reject purely numeric object values (database IDs)
+            if obj_val.strip().isdigit():
+                continue
 
             readable_pred = _property_to_readable(pred_label)
             key = f"data_prop:{s_label}:{pred_label}:{obj_val}"
@@ -363,6 +372,10 @@ def _get_label(g, node) -> Optional[str]:
         return None
 
     if not fragment or fragment.startswith("Q") and fragment[1:].isdigit():
+        return None
+
+    # Reject purely numeric fragments (database IDs like "0172", "0250")
+    if fragment.isdigit():
         return None
 
     # Reject hash/UUID-like fragments (20+ consecutive hex chars)
