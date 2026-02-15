@@ -106,6 +106,8 @@ CATEGORIES = {
         "roots": [
             "Category:Oenology",
             "Category:Winemaking",
+            "Category:Wine chemistry",
+            "Category:Fermentation in winemaking",
         ],
         "domain": "winemaking",
         "subdomain": None,
@@ -729,6 +731,17 @@ _PAREN_FORMAL_NAME_RE = re.compile(
 _PAREN_TRANSLATION_RE = re.compile(
     r"""\s*\([^)]*['\u2018\u2019\u201c\u201d"][^)]*\)"""
 )
+# Parentheticals with explanatory asides: (the other...), (also ...), (i.e. ...)
+_PAREN_ASIDE_RE = re.compile(
+    r"\s*\((?:the other|also |i\.e\.|e\.g\.|that is,?|or |meaning |"
+    r"literally |lit\. |sometimes |often |commonly )[^)]{1,120}\)",
+    re.IGNORECASE,
+)
+# Parentheticals containing non-ASCII (foreign terms without Language: prefix)
+# e.g. (indication géographique protégée), (denominación de origen)
+_PAREN_FOREIGN_RE = re.compile(
+    r"\s*\([^)]*[^\x00-\x7f][^)]*\)"
+)
 
 
 def rephrase_to_atomic(sentence: str, article_title: str) -> list[str]:
@@ -753,6 +766,8 @@ def rephrase_to_atomic(sentence: str, article_title: str) -> list[str]:
     s = _PAREN_LANG_ANNOTATION_RE.sub("", s)
     s = _PAREN_FORMAL_NAME_RE.sub("", s)
     s = _PAREN_TRANSLATION_RE.sub("", s)
+    s = _PAREN_ASIDE_RE.sub("", s)
+    s = _PAREN_FOREIGN_RE.sub("", s)
     s = _PAREN_GENERIC_SHORT_RE.sub("", s)
 
     # Collapse whitespace
@@ -800,6 +815,10 @@ def _rephrase_one_clause(clause: str, article_title: str) -> Optional[str]:
         return None
 
     s = clause.strip()
+
+    # Strip temporal/conditional clauses at end: ", when ...", ", where ..."
+    s = re.sub(r",\s+when\s.{1,80}$", "", s)
+    s = re.sub(r",\s+where\s.{1,80}$", "", s)
 
     # Strip relative clauses: ", which ..., " or ", who ..., "
     s = re.sub(r",\s+which\s[^,]{1,80},", ",", s)
@@ -850,6 +869,9 @@ def _rephrase_one_clause(clause: str, article_title: str) -> Optional[str]:
     # Remove leading "The " when followed by the article title
     if s.lower().startswith("the " + article_title.lower()):
         s = s[4:]
+        # Re-capitalize after stripping "The "
+        if s and s[0].islower():
+            s = s[0].upper() + s[1:]
 
     # Ensure it ends with a period
     s = s.strip().rstrip(".")
