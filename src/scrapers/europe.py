@@ -12,6 +12,9 @@ Usage:
     python -m src.scrapers.europe --dry-run
     python -m src.scrapers.europe --validate
     python -m src.scrapers.europe --list
+    python -m src.scrapers.europe --test-run
+    python -m src.scrapers.europe --test-run --country spain
+    python -m src.scrapers.europe --test-run --cleanup
 """
 
 import random
@@ -26,7 +29,13 @@ import requests
 from bs4 import BeautifulSoup
 from loguru import logger
 
-from src.utils.facts import ensure_source, insert_facts_batch, get_fact_count
+from src.utils.facts import (
+    ensure_source,
+    insert_facts_batch,
+    insert_facts_batch_tracked,
+    delete_facts_by_ids,
+    get_fact_count,
+)
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -4524,6 +4533,249 @@ def run_all(dry_run: bool = False) -> dict[str, list[dict]]:
 
 
 # =============================================================================
+# Test Run
+# =============================================================================
+
+# Category definitions for the test-run limiter.
+# Each entry maps a subdomain prefix to a human-readable category name.
+CATEGORY_MAP = {
+    # Spain
+    "spain_doca": "spain/doca_appellations",
+    "spain_do": "spain/do_appellations",
+    "spain_aging": "spain/aging_categories",
+    "spain_sherry": "spain/sherry",
+    "spain_cava": "spain/cava",
+    "spain_vino_de_pago": "spain/vino_de_pago",
+    "spain_producers": "spain/producers",
+    "spain_terroir": "spain/terroir",
+    "spain_regulation": "spain/regulation",
+    "spain_general": "spain/general",
+    "spain_canary": "spain/canary_islands",
+    # Germany
+    "germany_regions": "germany/regions",
+    "germany_praedikat": "germany/praedikat",
+    "germany_vdp": "germany/vdp_classification",
+    "germany_producers": "germany/producers",
+    "germany_terroir": "germany/terroir",
+    "germany_regulation": "germany/regulation",
+    "germany_general": "germany/general",
+    "germany_sparkling": "germany/sparkling",
+    "germany_history": "germany/history",
+    # Portugal
+    "portugal_doc": "portugal/doc_regions",
+    "portugal_port": "portugal/port_wine",
+    "portugal_madeira": "portugal/madeira",
+    "portugal_producers": "portugal/producers",
+    "portugal_terroir": "portugal/terroir",
+    "portugal_igp": "portugal/igp_regions",
+    "portugal_douro": "portugal/douro",
+    "portugal_regulation": "portugal/regulation",
+    "portugal_general": "portugal/general",
+}
+
+
+def _primary_entity_name(fact: dict) -> str:
+    """Extract the primary entity name from a fact for item-grouping."""
+    entities = fact.get("entities", [])
+    if entities:
+        return entities[0].get("name", "")
+    return fact["fact_text"][:40]
+
+
+def limit_facts_for_test_run(facts: list[dict], items_per_category: int = 5) -> tuple[list[dict], dict]:
+    """Limit facts to the first N unique items per subdomain category.
+
+    Returns (limited_facts, category_stats) where category_stats maps
+    category_name -> {"items": int, "facts": int}.
+    """
+    # Group facts by subdomain
+    by_subdomain: dict[str, list[dict]] = defaultdict(list)
+    for f in facts:
+        sd = f.get("subdomain") or "(none)"
+        by_subdomain[sd].append(f)
+
+    limited: list[dict] = []
+    stats: dict[str, dict] = {}
+
+    for sd, sd_facts in by_subdomain.items():
+        category = CATEGORY_MAP.get(sd, sd)
+
+        # Identify unique items by primary entity
+        seen_items: list[str] = []
+        item_facts: list[dict] = []
+        for fact in sd_facts:
+            entity = _primary_entity_name(fact)
+            if entity not in seen_items:
+                if len(seen_items) >= items_per_category:
+                    continue
+                seen_items.append(entity)
+            elif seen_items.index(entity) >= items_per_category:
+                # This fact belongs to an item beyond the limit
+                continue
+            item_facts.append(fact)
+
+        limited.extend(item_facts)
+        stats[category] = {
+            "items": len(seen_items),
+            "facts": len(item_facts),
+        }
+
+    return limited, stats
+
+
+def print_test_run_report(
+    category_stats: dict[str, dict],
+    all_facts: list[dict],
+    inserted_count: int,
+    inserted_ids: list[str],
+    cleanup: bool = False,
+) -> None:
+    """Print the structured test-run report with quality checks and warnings."""
+    total_items = sum(s["items"] for s in category_stats.values())
+    total_facts = sum(s["facts"] for s in category_stats.values())
+    total_inserted = inserted_count
+
+    click.echo("\n=== TEST RUN REPORT ===")
+    click.echo()
+    click.echo(f"{'Source/Category':<40s} {'Items Processed':>16s} {'Facts Generated':>16s} {'Facts Inserted':>16s}")
+    click.echo("─" * 90)
+
+    for cat in sorted(category_stats.keys()):
+        s = category_stats[cat]
+        # We don't know per-category insert counts without per-cat tracking,
+        # so estimate: inserted proportionally or mark as "—"
+        click.echo(f"  {cat:<38s} {s['items']:>14d} {s['facts']:>14d} {'—':>14s}")
+
+    click.echo("─" * 90)
+    click.echo(f"  {'TOTAL':<38s} {total_items:>14d} {total_facts:>14d} {total_inserted:>14d}")
+
+    # Quality checks
+    too_short = [f for f in all_facts if len(f["fact_text"].split()) < 5]
+    too_long = [f for f in all_facts if len(f["fact_text"].split()) > 50]
+    missing_entities = [f for f in all_facts if not f.get("entities")]
+    word_counts = [len(f["fact_text"].split()) for f in all_facts]
+    avg_words = sum(word_counts) / max(len(word_counts), 1)
+
+    pct_short = 100 * len(too_short) / max(total_facts, 1)
+    pct_long = 100 * len(too_long) / max(total_facts, 1)
+    pct_missing_ent = 100 * len(missing_entities) / max(total_facts, 1)
+
+    click.echo()
+    click.echo("  Quality Checks:")
+    click.echo(f"    Too short (<5 words):  {len(too_short)} ({pct_short:.1f}%)")
+    click.echo(f"    Too long (>50 words):  {len(too_long)} ({pct_long:.1f}%)")
+    click.echo(f"    Missing entities:      {len(missing_entities)} ({pct_missing_ent:.1f}%)")
+    click.echo(f"    Avg words per fact:    {avg_words:.1f}")
+
+    # Sample facts
+    sample = random.sample(all_facts, min(10, len(all_facts)))
+    click.echo()
+    click.echo("  Sample Facts (10 random from this run):")
+    for i, f in enumerate(sample, 1):
+        click.echo(f'    {i:>2}. "{f["fact_text"]}"')
+
+    # Warnings
+    warnings: list[str] = []
+
+    for cat, s in category_stats.items():
+        if s["facts"] == 0:
+            warnings.append(f"ERROR: No facts from {cat}")
+        elif s["items"] > 0 and s["facts"] / s["items"] < 2:
+            warnings.append(f"WARNING: Low extraction rate in {cat} ({s['facts'] / s['items']:.1f} facts/item)")
+
+    if total_inserted > 0:
+        dup_rate = 1 - (total_inserted / max(total_facts, 1))
+        for cat, s in category_stats.items():
+            if dup_rate > 0.5:
+                warnings.append(f"WARNING: High duplicate rate overall ({dup_rate:.0%} skipped)")
+                break
+
+    if pct_short > 10:
+        warnings.append("WARNING: Too many trivial facts")
+    if pct_long > 10:
+        warnings.append("WARNING: Facts need better splitting")
+
+    # Check for verbatim "Regarding" prefix
+    regarding_facts = [f for f in all_facts if f["fact_text"].startswith("Regarding")]
+    if regarding_facts:
+        warnings.append(f"WARNING: Verbatim text detected ({len(regarding_facts)} facts start with 'Regarding')")
+
+    # Print any facts over 40 words for manual review
+    long_review = [f for f in all_facts if len(f["fact_text"].split()) > 40]
+    if long_review:
+        warnings.append(f"* {len(long_review)} facts exceed 40 words — review fact splitting logic")
+
+    if too_long:
+        warnings.append(f"* {len(too_long)} facts exceed 50 words — review fact splitting logic")
+
+    if warnings:
+        click.echo()
+        click.echo("  ⚠ Warnings:")
+        for w in warnings:
+            click.echo(f"    {w}")
+
+    if long_review:
+        click.echo()
+        click.echo("  Facts over 40 words (manual review):")
+        for f in long_review[:10]:
+            click.echo(f'    - "{f["fact_text"]}"')
+
+    # Cleanup
+    if cleanup and inserted_ids:
+        deleted = delete_facts_by_ids(inserted_ids)
+        click.echo()
+        click.echo(f"  Cleaned up {deleted} test facts from database")
+
+    click.echo()
+
+
+def run_test(
+    country: Optional[str] = None,
+    cleanup: bool = False,
+    items_per_category: int = 5,
+) -> None:
+    """Execute a test run: limit to N items per category, insert, report."""
+    source_ids = register_sources()
+
+    countries = [country] if country else COUNTRIES
+    all_facts: list[dict] = []
+    all_category_stats: dict[str, dict] = {}
+
+    for c in countries:
+        c = c.lower()
+        logger.info(f"[TEST RUN] Building facts for {c}")
+
+        if c == "spain":
+            facts = build_spain_facts(source_ids)
+        elif c == "germany":
+            facts = build_germany_facts(source_ids)
+        elif c == "portugal":
+            facts = build_portugal_facts(source_ids)
+        else:
+            logger.error(f"Unknown country: {c}")
+            continue
+
+        limited, stats = limit_facts_for_test_run(facts, items_per_category)
+        all_facts.extend(limited)
+        all_category_stats.update(stats)
+
+    logger.info(f"[TEST RUN] Total limited facts: {len(all_facts)}")
+
+    # Insert with tracking
+    inserted_count, inserted_ids = insert_facts_batch_tracked(all_facts)
+    logger.info(f"[TEST RUN] Inserted {inserted_count} facts ({len(inserted_ids)} IDs tracked)")
+
+    # Report
+    print_test_run_report(
+        category_stats=all_category_stats,
+        all_facts=all_facts,
+        inserted_count=inserted_count,
+        inserted_ids=inserted_ids,
+        cleanup=cleanup,
+    )
+
+
+# =============================================================================
 # CLI
 # =============================================================================
 
@@ -4533,7 +4785,17 @@ def run_all(dry_run: bool = False) -> dict[str, list[dict]]:
 @click.option("--dry-run", is_flag=True, help="Generate facts without inserting into database")
 @click.option("--validate", "validate_flag", is_flag=True, help="Run quality checks on generated facts")
 @click.option("--list", "list_flag", is_flag=True, help="List available countries and sources")
-def main(run_all_flag: bool, country: Optional[str], dry_run: bool, validate_flag: bool, list_flag: bool):
+@click.option("--test-run", "test_run_flag", is_flag=True, help="Process first 5 items per category, insert, and report")
+@click.option("--cleanup", is_flag=True, help="Delete test-run facts after report (use with --test-run)")
+def main(
+    run_all_flag: bool,
+    country: Optional[str],
+    dry_run: bool,
+    validate_flag: bool,
+    list_flag: bool,
+    test_run_flag: bool,
+    cleanup: bool,
+):
     """OenoBench European Wine Registries Scraper — Spain, Germany, Portugal."""
     log_time = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger.add(f"data/logs/europe_{log_time}.log", rotation="10 MB")
@@ -4559,6 +4821,10 @@ def main(run_all_flag: bool, country: Optional[str], dry_run: bool, validate_fla
         validate_facts(all_facts)
         return
 
+    if test_run_flag:
+        run_test(country=country, cleanup=cleanup)
+        return
+
     if run_all_flag:
         run_all(dry_run=dry_run)
         return
@@ -4572,6 +4838,8 @@ def main(run_all_flag: bool, country: Optional[str], dry_run: bool, validate_fla
     click.echo("Use --list to see available countries and sources.")
     click.echo("Use --validate to run quality checks.")
     click.echo("Use --dry-run to generate facts without database insertion.")
+    click.echo("Use --test-run to process 5 items per category and report.")
+    click.echo("Use --test-run --cleanup to auto-delete test facts after report.")
 
 
 if __name__ == "__main__":
