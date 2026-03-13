@@ -16,6 +16,7 @@ Usage:
     python -m src.scrapers.italy --list
 """
 
+import json
 import random
 import re
 import time
@@ -1519,6 +1520,228 @@ def _build_region_summary_facts(source_id: str) -> list[dict]:
     return facts
 
 
+# ─── Test Run Support ─────────────────────────────────────────────────────────
+
+TEST_RUN_LIMIT = 5  # items per category
+
+
+def _insert_facts_tracked(facts: list[dict]) -> tuple[int, list[str]]:
+    """Insert facts and return (count_inserted, list_of_inserted_fact_ids).
+
+    Uses insert_facts_batch for the actual insert, then queries back
+    the IDs for the fact_texts we attempted.
+    """
+    if not facts:
+        return 0, []
+
+    inserted = insert_facts_batch(facts)
+
+    # Query back the IDs for all facts we just built (covers both new and
+    # already-existing rows so the caller can identify what was new).
+    from src.utils.db import get_pg
+    conn = get_pg()
+    cur = conn.cursor()
+
+    fact_texts = [f["fact_text"] for f in facts]
+    # Batch the lookups to avoid huge IN clauses
+    ids: list[str] = []
+    for i in range(0, len(fact_texts), 100):
+        batch = fact_texts[i : i + 100]
+        placeholders = ",".join(["%s"] * len(batch))
+        cur.execute(
+            f"SELECT id FROM facts WHERE fact_text IN ({placeholders})",
+            batch,
+        )
+        ids.extend(str(r["id"]) for r in cur.fetchall())
+
+    return inserted, ids
+
+
+def _delete_facts_by_ids(fact_ids: list[str]) -> int:
+    """Delete facts by their UUIDs. Returns count deleted."""
+    if not fact_ids:
+        return 0
+    from src.utils.db import get_pg
+    conn = get_pg()
+    cur = conn.cursor()
+    deleted = 0
+    for i in range(0, len(fact_ids), 100):
+        batch = fact_ids[i : i + 100]
+        placeholders = ",".join(["%s"] * len(batch))
+        cur.execute(f"DELETE FROM facts WHERE id IN ({placeholders})", batch)
+        deleted += cur.rowcount
+    conn.commit()
+    return deleted
+
+
+def _print_test_run_report(
+    category_stats: list[dict],
+    all_facts: list[dict],
+    all_inserted_ids: list[str],
+):
+    """Print the structured test-run report with warnings."""
+    total_items = sum(s["items"] for s in category_stats)
+    total_generated = sum(s["generated"] for s in category_stats)
+    total_inserted = sum(s["inserted"] for s in category_stats)
+
+    # ── Header ──
+    click.echo("\n=== TEST RUN REPORT ===")
+    click.echo(f"{'Source/Category':<30s} {'Items Processed':>16s} {'Facts Generated':>16s} {'Facts Inserted (new)':>21s}")
+    click.echo("─" * 85)
+    for s in category_stats:
+        click.echo(
+            f"{s['name']:<30s} {s['items']:>16d} {s['generated']:>16d} {s['inserted']:>21d}"
+        )
+    click.echo("─" * 85)
+    click.echo(
+        f"{'TOTAL':<30s} {total_items:>16d} {total_generated:>16d} {total_inserted:>21d}"
+    )
+
+    if not all_facts:
+        click.echo("\nNo facts generated.")
+        return
+
+    # ── Quality checks ──
+    short_facts = [f for f in all_facts if len(f["fact_text"].split()) < 5]
+    long_facts = [f for f in all_facts if len(f["fact_text"].split()) > 50]
+
+    has_entities = 0
+    for f in all_facts:
+        ent = f.get("entities")
+        if ent:
+            if isinstance(ent, str):
+                try:
+                    ent = json.loads(ent)
+                except (json.JSONDecodeError, TypeError):
+                    ent = []
+            if ent:
+                has_entities += 1
+    missing_entities = total_generated - has_entities
+
+    avg_words = sum(len(f["fact_text"].split()) for f in all_facts) / len(all_facts)
+
+    click.echo(f"\nQuality Checks:")
+    click.echo(f"  Too short (<5 words):  {len(short_facts)} ({100*len(short_facts)/total_generated:.1f}%)")
+    click.echo(f"  Too long (>50 words):  {len(long_facts)} ({100*len(long_facts)/total_generated:.1f}%)")
+    click.echo(f"  Missing entities:      {missing_entities} ({100*missing_entities/total_generated:.1f}%)")
+    click.echo(f"  Avg words per fact:    {avg_words:.1f}")
+
+    # ── Sample facts ──
+    sample_n = min(10, len(all_facts))
+    sample = random.sample(all_facts, sample_n)
+    click.echo(f"\nSample Facts ({sample_n} random from this run):")
+    for i, f in enumerate(sample, 1):
+        click.echo(f'  {i:2d}. "{f["fact_text"]}"')
+
+    # ── Warnings ──
+    warnings = []
+
+    for s in category_stats:
+        if s["generated"] == 0:
+            warnings.append(f"ERROR: No facts from {s['name']}")
+        elif s["items"] > 0:
+            avg_per_item = s["generated"] / s["items"]
+            if avg_per_item < 2:
+                warnings.append(
+                    f"WARNING: Low extraction rate in {s['name']} "
+                    f"(avg {avg_per_item:.1f} facts/item)"
+                )
+        if s["generated"] > 0 and s["inserted"] == 0:
+            dup_pct = 100.0
+        elif s["generated"] > 0:
+            dup_pct = 100.0 * (s["generated"] - s["inserted"]) / s["generated"]
+        else:
+            dup_pct = 0.0
+        if dup_pct > 50:
+            warnings.append(
+                f"WARNING: High duplicate rate in {s['name']} "
+                f"({dup_pct:.0f}% skipped)"
+            )
+
+    if total_generated > 0:
+        short_pct = 100 * len(short_facts) / total_generated
+        long_pct = 100 * len(long_facts) / total_generated
+        if short_pct > 10:
+            warnings.append(f"WARNING: Too many trivial facts ({short_pct:.1f}% under 5 words)")
+        if long_pct > 10:
+            warnings.append(f"WARNING: Facts need better splitting ({long_pct:.1f}% over 50 words)")
+
+    regarding_facts = [f for f in all_facts if f["fact_text"].startswith("Regarding")]
+    if regarding_facts:
+        warnings.append(f"WARNING: Verbatim text detected ({len(regarding_facts)} facts start with 'Regarding')")
+
+    over_40 = [f for f in all_facts if len(f["fact_text"].split()) > 40]
+    if over_40:
+        warnings.append(f"WARNING: {len(over_40)} fact(s) over 40 words — review:")
+        for f in over_40[:5]:
+            warnings.append(f'    "{f["fact_text"]}"')
+
+    if warnings:
+        click.echo(f"\n⚠ Warnings:")
+        for w in warnings:
+            click.echo(f"  * {w}")
+    else:
+        click.echo(f"\n✓ No warnings.")
+
+
+def run_test(appellation_type: Optional[str] = None, cleanup: bool = False) -> None:
+    """Run a limited test extraction: 5 items per category, insert, report, optionally clean up."""
+    logger.info("Starting test run (5 items per category)...")
+
+    category_stats: list[dict] = []
+    all_facts: list[dict] = []
+    all_inserted_ids: list[str] = []
+
+    categories_to_run = []
+    if appellation_type is None or appellation_type == "docg":
+        categories_to_run.append("docg")
+    if appellation_type is None or appellation_type == "doc":
+        categories_to_run.append("doc")
+    # Classification hierarchy is always included (small fixed set)
+    if appellation_type is None:
+        categories_to_run.append("hierarchy")
+
+    for cat in categories_to_run:
+        if cat == "docg":
+            source_id = _get_source_id("federdoc")
+            docg_data = _deduplicate_docg(DOCG_DATABASE)[:TEST_RUN_LIMIT]
+            facts = _build_docg_facts(docg_data, source_id)
+            items_count = len(docg_data)
+        elif cat == "doc":
+            source_id = _get_source_id("italian_wine_central")
+            doc_data = DOC_DATABASE[:TEST_RUN_LIMIT]
+            facts = _build_doc_facts(doc_data, source_id)
+            items_count = len(doc_data)
+        elif cat == "hierarchy":
+            source_id = _get_source_id("mipaaf")
+            # Hierarchy facts are a single fixed list — take first 5
+            facts = _build_classification_hierarchy_facts(source_id)[:TEST_RUN_LIMIT]
+            items_count = len(facts)  # each fact is one "item" here
+        else:
+            continue
+
+        inserted, ids = _insert_facts_tracked(facts)
+
+        category_stats.append({
+            "name": cat,
+            "items": items_count,
+            "generated": len(facts),
+            "inserted": inserted,
+        })
+        all_facts.extend(facts)
+        all_inserted_ids.extend(ids)
+
+        logger.info(f"Test run [{cat}]: {items_count} items → {len(facts)} facts → {inserted} new")
+
+    _print_test_run_report(category_stats, all_facts, all_inserted_ids)
+
+    if cleanup and all_inserted_ids:
+        deleted = _delete_facts_by_ids(all_inserted_ids)
+        click.echo(f"\nCleaned up {deleted} test facts from database.")
+    elif cleanup:
+        click.echo("\nNo facts to clean up.")
+
+
 # ─── Main Pipeline ────────────────────────────────────────────────────────────
 
 def _get_source_id(source_key: str) -> str:
@@ -1812,8 +2035,12 @@ def validate():
 @click.option("--list", "list_sources", is_flag=True, help="List available sources")
 @click.option("--dry-run", is_flag=True, help="Preview facts without database insertion")
 @click.option("--validate", "validate_flag", is_flag=True, help="Run quality checks on stored facts")
+@click.option("--test-run", "test_run_flag", is_flag=True,
+              help="Process 5 items per category, insert, and print a report")
+@click.option("--cleanup", is_flag=True,
+              help="With --test-run, delete inserted facts after reporting")
 def main(run_all_flag: bool, appellation_type: Optional[str], list_sources: bool,
-         dry_run: bool, validate_flag: bool):
+         dry_run: bool, validate_flag: bool, test_run_flag: bool, cleanup: bool):
     """OenoBench Italian Wine Registry Scraper — Extract DOCG/DOC appellation data."""
     logger.add("data/logs/italy_{time}.log", rotation="10 MB")
 
@@ -1830,6 +2057,14 @@ def main(run_all_flag: bool, appellation_type: Optional[str], list_sources: bool
 
     if validate_flag:
         validate()
+        return
+
+    if test_run_flag:
+        run_test(appellation_type=appellation_type, cleanup=cleanup)
+        return
+
+    if cleanup:
+        click.echo("--cleanup can only be used with --test-run.")
         return
 
     if run_all_flag:
@@ -1851,6 +2086,7 @@ def main(run_all_flag: bool, appellation_type: Optional[str], list_sources: bool
 
     click.echo("Use --all to run full extraction, or --type docg/doc for a specific type.")
     click.echo("Use --list to see available sources, --dry-run to preview, --validate to check quality.")
+    click.echo("Use --test-run to process 5 items per category and see a report.")
 
 
 if __name__ == "__main__":
