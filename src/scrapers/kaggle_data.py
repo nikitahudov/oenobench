@@ -14,6 +14,9 @@ Usage:
     python -m src.scrapers.kaggle_data --dry-run
     python -m src.scrapers.kaggle_data --validate
     python -m src.scrapers.kaggle_data --list
+    python -m src.scrapers.kaggle_data --test-run
+    python -m src.scrapers.kaggle_data --test-run --cleanup
+    python -m src.scrapers.kaggle_data --test-run --dataset wine-reviews
 """
 
 import os
@@ -101,7 +104,7 @@ def _round_val(v: float, decimals: int = 1) -> str:
     return f"{v:.{decimals}f}"
 
 
-def _build_wine_quality_facts(source_id: str) -> list[dict]:
+def _build_wine_quality_facts(source_id: str, test_run: bool = False) -> list[dict]:
     """Build statistical summary facts from UCI Wine Quality CSVs."""
     red_path = RAW_DIR / WINE_QUALITY_RED
     white_path = RAW_DIR / WINE_QUALITY_WHITE
@@ -426,13 +429,21 @@ def _build_wine_quality_facts(source_id: str) -> list[dict]:
         "tags": ["dataset", "uci", "vinho_verde"],
     })
 
+    # Tag all wine-quality facts with their category
+    for f in facts:
+        f["_category"] = "wine_quality_stats"
+
+    if test_run:
+        facts = facts[:5]
+        logger.info(f"Wine Quality [test-run]: limited to {len(facts)} facts")
+
     logger.info(f"Wine Quality: generated {len(facts)} statistical facts")
     return facts
 
 
 # ─── Wine Reviews Fact Builders ───────────────────────────────────────────────
 
-def _build_wine_reviews_facts(source_id: str) -> list[dict]:
+def _build_wine_reviews_facts(source_id: str, test_run: bool = False) -> list[dict]:
     """Build aggregate facts from zynicide/wine-reviews 130K dataset."""
     csv_path = RAW_DIR / WINE_REVIEWS_FILE
     df = pd.read_csv(csv_path)
@@ -445,6 +456,22 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
 
     facts = []
     seen = set()
+    _cat_counts = Counter()  # track per-category counts for test_run limiting
+    TEST_RUN_LIMIT = 5
+
+    def _should_add(category: str) -> bool:
+        """Check if we can still add facts for this category under test_run."""
+        if not test_run:
+            return True
+        return _cat_counts[category] < TEST_RUN_LIMIT
+
+    def _tag_and_append(fact: dict, category: str) -> None:
+        """Tag fact with category and append if within test_run limit."""
+        if not _should_add(category):
+            return
+        fact["_category"] = category
+        facts.append(fact)
+        _cat_counts[category] += 1
 
     # --- Variety-country associations (top varieties per country) ---
     variety_country = (
@@ -464,7 +491,7 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
             key = f"variety_country:{variety}:{country}"
             if key not in seen:
                 seen.add(key)
-                facts.append({
+                _tag_and_append({
                     "fact_text": f"{variety} is a widely reviewed grape variety in {country}.",
                     "domain": "grape_varieties",
                     "subdomain": country.lower().replace(" ", "_"),
@@ -475,7 +502,7 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
                     ],
                     "confidence": 0.8,
                     "tags": ["variety", "country", "kaggle_reviews"],
-                })
+                }, "variety_country")
 
     # --- Variety-province (region) associations ---
     variety_province = (
@@ -495,7 +522,7 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
             key = f"variety_province:{variety}:{province}"
             if key not in seen:
                 seen.add(key)
-                facts.append({
+                _tag_and_append({
                     "fact_text": f"{variety} is commonly produced in the {province} region of {country}.",
                     "domain": "wine_regions",
                     "subdomain": country.lower().replace(" ", "_"),
@@ -507,7 +534,7 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
                     ],
                     "confidence": 0.8,
                     "tags": ["variety", "region", "kaggle_reviews"],
-                })
+                }, "variety_province")
 
     # --- Producer-region associations (top wineries per province) ---
     winery_region = (
@@ -527,7 +554,7 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
             key = f"winery_region:{winery}:{province}"
             if key not in seen:
                 seen.add(key)
-                facts.append({
+                _tag_and_append({
                     "fact_text": f"{winery} is a wine producer in the {province} region of {country}.",
                     "domain": "producers",
                     "subdomain": country.lower().replace(" ", "_"),
@@ -539,7 +566,7 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
                     ],
                     "confidence": 0.75,
                     "tags": ["producer", "region", "kaggle_reviews"],
-                })
+                }, "winery_region")
 
     # --- Country-level statistics ---
     country_stats = (
@@ -562,7 +589,7 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
         key = f"country_varieties:{country}"
         if key not in seen and row["variety_count"] > 1:
             seen.add(key)
-            facts.append({
+            _tag_and_append({
                 "fact_text": (
                     f"Wine reviews from {country} cover {int(row['variety_count'])} "
                     f"distinct grape varieties."
@@ -573,13 +600,13 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
                 "entities": [{"type": "country", "name": country}],
                 "confidence": 0.75,
                 "tags": ["statistics", "variety_count", "country", "kaggle_reviews"],
-            })
+            }, "country_stats")
 
         # Average points per country
         key = f"country_avg_points:{country}"
         if key not in seen and not np.isnan(row["avg_points"]):
             seen.add(key)
-            facts.append({
+            _tag_and_append({
                 "fact_text": (
                     f"Wines from {country} have an average critic rating of "
                     f"{_round_val(row['avg_points'])} points on a 100-point scale."
@@ -590,13 +617,13 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
                 "entities": [{"type": "country", "name": country}],
                 "confidence": 0.75,
                 "tags": ["statistics", "rating", "country", "kaggle_reviews"],
-            })
+            }, "country_stats")
 
         # Median price per country
         key = f"country_median_price:{country}"
         if key not in seen and not np.isnan(row["median_price"]) and row["median_price"] > 0:
             seen.add(key)
-            facts.append({
+            _tag_and_append({
                 "fact_text": (
                     f"The median price of reviewed wines from {country} is "
                     f"${_round_val(row['median_price'], 0)}."
@@ -607,7 +634,7 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
                 "entities": [{"type": "country", "name": country}],
                 "confidence": 0.7,
                 "tags": ["statistics", "price", "country", "kaggle_reviews"],
-            })
+            }, "country_stats")
 
     # --- Top-rated varieties globally ---
     variety_ratings = (
@@ -624,7 +651,7 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
         key = f"variety_avg_rating:{variety}"
         if key not in seen:
             seen.add(key)
-            facts.append({
+            _tag_and_append({
                 "fact_text": (
                     f"{variety} wines have an average critic rating of "
                     f"{_round_val(row['avg_points'])} points across {int(row['count'])} reviews."
@@ -635,7 +662,7 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
                 "entities": [{"type": "grape", "name": variety}],
                 "confidence": 0.75,
                 "tags": ["statistics", "rating", "variety", "kaggle_reviews"],
-            })
+            }, "variety_ratings")
 
     # --- Most expensive varieties ---
     variety_price = (
@@ -652,7 +679,7 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
         key = f"variety_median_price:{variety}"
         if key not in seen:
             seen.add(key)
-            facts.append({
+            _tag_and_append({
                 "fact_text": (
                     f"{variety} wines have a median price of "
                     f"${_round_val(row['median_price'], 0)} per bottle."
@@ -663,7 +690,7 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
                 "entities": [{"type": "grape", "name": variety}],
                 "confidence": 0.7,
                 "tags": ["statistics", "price", "variety", "kaggle_reviews"],
-            })
+            }, "variety_price")
 
     # --- Region-level sub-region facts (region_1 within province) ---
     if "region_1" in df.columns:
@@ -689,7 +716,7 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
             key = f"subregion:{region}:{province}"
             if key not in seen:
                 seen.add(key)
-                facts.append({
+                _tag_and_append({
                     "fact_text": f"{region} is a wine-producing area within the {province} region of {country}.",
                     "domain": "wine_regions",
                     "subdomain": country.lower().replace(" ", "_"),
@@ -701,7 +728,7 @@ def _build_wine_reviews_facts(source_id: str) -> list[dict]:
                     ],
                     "confidence": 0.8,
                     "tags": ["region", "subregion", "kaggle_reviews"],
-                })
+                }, "subregions")
 
     logger.info(f"Wine Reviews: generated {len(facts)} aggregate facts")
     return facts
@@ -775,6 +802,219 @@ def run_all(dry_run: bool = False) -> dict:
         f"Kaggle scraping complete. Generated: {total_generated}, Inserted: {total_inserted}"
     )
     return summary
+
+
+# ─── Test Run ─────────────────────────────────────────────────────────────────
+
+def _insert_facts_tracked(facts: list[dict]) -> tuple[int, list[str]]:
+    """Insert facts one-by-one, tracking inserted IDs. Returns (count, id_list)."""
+    from src.utils.facts import insert_fact
+
+    inserted_ids = []
+    for fact in facts:
+        # Strip internal _category key before inserting
+        clean = {k: v for k, v in fact.items() if not k.startswith("_")}
+        fact_id = insert_fact(
+            fact_text=clean["fact_text"],
+            domain=clean["domain"],
+            source_id=clean["source_id"],
+            subdomain=clean.get("subdomain"),
+            entities=clean.get("entities"),
+            confidence=clean.get("confidence", 1.0),
+            tags=clean.get("tags"),
+        )
+        if fact_id:
+            inserted_ids.append(fact_id)
+    return len(inserted_ids), inserted_ids
+
+
+def _print_test_report(
+    facts: list[dict],
+    inserted_ids: list[str],
+    dataset_filter: Optional[str] = None,
+) -> None:
+    """Print the structured test-run report with quality checks and warnings."""
+    import orjson
+
+    click.echo("\n=== TEST RUN REPORT ===")
+    click.echo("")
+
+    # Group facts by category
+    cat_facts = defaultdict(list)
+    for f in facts:
+        cat_facts[f.get("_category", "unknown")].append(f)
+
+    # Count inserted per category (approximate: order matches)
+    total_generated = len(facts)
+    total_inserted = len(inserted_ids)
+
+    # Build per-category stats — items processed = facts in that category (each fact is one item for aggregate scrapers)
+    header = f"{'Category':<25s} {'Facts Generated':>16s} {'Facts Inserted':>16s}"
+    click.echo(header)
+    click.echo("─" * 60)
+
+    warnings = []
+    for cat, cat_f in sorted(cat_facts.items()):
+        gen = len(cat_f)
+        # Estimate inserted: proportional (we don't track per-category IDs)
+        # For accurate count, check which fact_texts are in the DB
+        from src.utils.db import get_pg
+        conn = get_pg()
+        cur = conn.cursor()
+        ins = 0
+        for f in cat_f:
+            cur.execute("SELECT 1 FROM facts WHERE fact_text = %s", (f["fact_text"],))
+            if cur.fetchone():
+                ins += 1
+
+        click.echo(f"  {cat:<23s} {gen:>16d} {ins:>16d}")
+
+        # Warnings per category
+        if ins == 0:
+            warnings.append(f"ERROR: No facts from '{cat}'")
+        skipped = gen - ins
+        if gen > 0 and skipped / gen > 0.5:
+            warnings.append(f"WARNING: High duplicate rate in '{cat}' ({skipped}/{gen} skipped)")
+
+    click.echo("─" * 60)
+    click.echo(f"  {'TOTAL':<23s} {total_generated:>16d} {total_inserted:>16d}")
+
+    # Quality checks
+    click.echo("\nQuality Checks:")
+
+    too_short = [f for f in facts if len(f["fact_text"].split()) < 5]
+    too_long = [f for f in facts if len(f["fact_text"].split()) > 50]
+    over_40 = [f for f in facts if len(f["fact_text"].split()) > 40]
+
+    entities_empty = 0
+    for f in facts:
+        ents = f.get("entities")
+        if isinstance(ents, str):
+            ents = orjson.loads(ents)
+        if not ents:
+            entities_empty += 1
+
+    word_counts = [len(f["fact_text"].split()) for f in facts]
+    avg_words = sum(word_counts) / len(word_counts) if word_counts else 0
+
+    pct = lambda n: f"{n/total_generated*100:.1f}%" if total_generated else "0.0%"
+
+    click.echo(f"  Too short (<5 words):  {len(too_short)} ({pct(len(too_short))})")
+    click.echo(f"  Too long (>50 words):  {len(too_long)} ({pct(len(too_long))})")
+    click.echo(f"  Missing entities:      {entities_empty} ({pct(entities_empty)})")
+    click.echo(f"  Avg words per fact:    {avg_words:.1f}")
+
+    # Check for "Regarding" prefix (verbatim text detection)
+    regarding = [f for f in facts if f["fact_text"].startswith("Regarding")]
+
+    # Sample facts
+    click.echo(f"\nSample Facts ({min(10, total_generated)} random from this run):")
+    sample = random.sample(facts, min(10, total_generated))
+    for i, f in enumerate(sample, 1):
+        click.echo(f'  {i}. "{f["fact_text"]}"')
+
+    # Warnings
+    if too_long:
+        warnings.append(f"{len(too_long)} facts exceed 50 words — review fact splitting logic")
+    if too_short and total_generated > 0 and len(too_short) / total_generated > 0.1:
+        warnings.append("WARNING: Too many trivial facts (>10% under 5 words)")
+    if too_long and total_generated > 0 and len(too_long) / total_generated > 0.1:
+        warnings.append("WARNING: Facts need better splitting (>10% over 50 words)")
+    if regarding:
+        warnings.append(f"WARNING: Verbatim text detected — {len(regarding)} facts start with 'Regarding'")
+
+    if over_40:
+        warnings.append(f"\n  Facts over 40 words (review manually):")
+        for f in over_40:
+            warnings.append(f'    - "{f["fact_text"]}"')
+
+    if warnings:
+        click.echo("\n⚠ Warnings:")
+        for w in warnings:
+            click.echo(f"  * {w}")
+    else:
+        click.echo("\n✓ No warnings — all checks passed.")
+
+
+def _cleanup_test_facts(inserted_ids: list[str]) -> int:
+    """Delete facts by their IDs. Returns count deleted."""
+    if not inserted_ids:
+        return 0
+
+    from src.utils.db import get_pg
+
+    conn = get_pg()
+    cur = conn.cursor()
+
+    # Delete in batches
+    for i in range(0, len(inserted_ids), 100):
+        batch = inserted_ids[i : i + 100]
+        placeholders = ",".join(["%s"] * len(batch))
+        cur.execute(f"DELETE FROM facts WHERE id IN ({placeholders})", batch)
+
+    conn.commit()
+    return len(inserted_ids)
+
+
+def run_test(dataset_filter: Optional[str] = None, cleanup: bool = False) -> None:
+    """Execute a test run: limited facts, insert, report, optionally clean up."""
+    datasets_to_run = [dataset_filter] if dataset_filter else list(DATASETS.keys())
+
+    all_facts = []
+    all_inserted_ids = []
+
+    for ds_name in datasets_to_run:
+        if ds_name not in DATASETS:
+            click.echo(f"Unknown dataset: {ds_name}", err=True)
+            continue
+
+        config = DATASETS[ds_name]
+        logger.info(f"[test-run] Processing dataset: {ds_name}")
+
+        try:
+            _check_files(ds_name)
+        except FileNotFoundError as e:
+            click.echo(str(e), err=True)
+            continue
+
+        # Register source
+        source_id = ensure_source(
+            name=f"Kaggle: {ds_name}",
+            url=config["source_url"],
+            source_type="dataset",
+            tier=config["tier"],
+        )
+
+        # Build facts with test_run=True (limited per category)
+        if ds_name == "wine-quality":
+            facts = _build_wine_quality_facts(source_id, test_run=True)
+        elif ds_name == "wine-reviews":
+            facts = _build_wine_reviews_facts(source_id, test_run=True)
+        else:
+            facts = []
+
+        if not facts:
+            click.echo(f"[test-run] No facts generated for {ds_name}")
+            continue
+
+        # Insert with tracking
+        count, ids = _insert_facts_tracked(facts)
+        logger.info(f"[test-run] {ds_name}: {len(facts)} generated, {count} inserted")
+
+        all_facts.extend(facts)
+        all_inserted_ids.extend(ids)
+
+    if not all_facts:
+        click.echo("No facts generated during test run.")
+        return
+
+    # Print report
+    _print_test_report(all_facts, all_inserted_ids, dataset_filter)
+
+    # Cleanup if requested
+    if cleanup:
+        deleted = _cleanup_test_facts(all_inserted_ids)
+        click.echo(f"\nCleaned up {deleted} test facts from database.")
 
 
 # ─── Validation ───────────────────────────────────────────────────────────────
@@ -901,12 +1141,16 @@ def validate_facts() -> None:
 @click.option("--list", "list_datasets", is_flag=True, help="List available datasets")
 @click.option("--dry-run", is_flag=True, help="Generate facts without inserting into DB")
 @click.option("--validate", is_flag=True, help="Run quality checks on existing Kaggle facts")
+@click.option("--test-run", is_flag=True, help="Process 5 items per category, insert, and report")
+@click.option("--cleanup", is_flag=True, help="Delete test-run facts after reporting (use with --test-run)")
 def main(
     dataset: Optional[str],
     run_all_flag: bool,
     list_datasets: bool,
     dry_run: bool,
     validate: bool,
+    test_run: bool,
+    cleanup: bool,
 ):
     """OenoBench Kaggle Dataset Scraper — Extract wine facts from Kaggle CSVs."""
     logger.add("data/logs/kaggle_data_{time}.log", rotation="10 MB")
@@ -922,6 +1166,10 @@ def main(
 
     if validate:
         validate_facts()
+        return
+
+    if test_run:
+        run_test(dataset_filter=dataset, cleanup=cleanup)
         return
 
     if run_all_flag:
