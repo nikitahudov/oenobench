@@ -16,6 +16,9 @@ Usage:
     python -m src.scrapers.ttb --dry-run
     python -m src.scrapers.ttb --validate
     python -m src.scrapers.ttb --list
+    python -m src.scrapers.ttb --test-run
+    python -m src.scrapers.ttb --test-run --cleanup
+    python -m src.scrapers.ttb --test-run --source ava
 """
 
 import random
@@ -1666,6 +1669,273 @@ def validate_facts(facts: list[dict]) -> None:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+#  TEST RUN
+# ═════════════════════════════════════════════════════════════════════════════
+
+TEST_RUN_ITEMS_PER_SOURCE = 5
+
+
+def _insert_facts_tracked(facts: list[dict]) -> tuple[int, list[str]]:
+    """Insert facts and return (inserted_count, list_of_inserted_fact_ids).
+
+    Wraps the standard insertion logic while tracking which fact IDs were
+    actually inserted (not skipped as duplicates).
+    """
+    import uuid as _uuid
+    import orjson
+
+    from src.utils.db import get_pg
+
+    conn = get_pg()
+    cur = conn.cursor()
+    inserted = 0
+    fact_ids: list[str] = []
+
+    for fact in facts:
+        cur.execute(
+            "SELECT 1 FROM facts WHERE fact_text = %s",
+            (fact["fact_text"],),
+        )
+        if cur.fetchone():
+            continue
+
+        fact_id = str(_uuid.uuid4())
+        cur.execute(
+            """
+            INSERT INTO facts
+                (id, fact_text, domain, subdomain, entities,
+                 source_id, confidence, tags)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                fact_id,
+                fact["fact_text"],
+                fact["domain"],
+                fact.get("subdomain"),
+                orjson.dumps(fact.get("entities", [])).decode(),
+                fact["source_id"],
+                fact.get("confidence", 1.0),
+                fact.get("tags", []),
+            ),
+        )
+        inserted += 1
+        fact_ids.append(fact_id)
+
+    conn.commit()
+    return inserted, fact_ids
+
+
+def _cleanup_facts(fact_ids: list[str]) -> int:
+    """Delete facts by their IDs. Returns count deleted."""
+    if not fact_ids:
+        return 0
+
+    from src.utils.db import get_pg
+
+    conn = get_pg()
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM facts WHERE id = ANY(%s::uuid[])",
+        (fact_ids,),
+    )
+    deleted = cur.rowcount
+    conn.commit()
+    return deleted
+
+
+def _print_test_report(
+    source_stats: dict[str, dict],
+    all_facts: list[dict],
+) -> None:
+    """Print the structured test-run report with quality checks and warnings."""
+    click.echo("\n=== TEST RUN REPORT ===")
+    click.echo(
+        f"{'Source/Category':<20s} {'Items Processed':>16s} "
+        f"{'Facts Generated':>16s} {'Facts Inserted (new)':>21s}"
+    )
+    click.echo("─" * 75)
+
+    total_items = 0
+    total_generated = 0
+    total_inserted = 0
+
+    for name, stats in source_stats.items():
+        items = stats["items"]
+        generated = stats["generated"]
+        inserted = stats["inserted"]
+        total_items += items
+        total_generated += generated
+        total_inserted += inserted
+        click.echo(
+            f"{name:<20s} {items:>16d} {generated:>16d} {inserted:>21d}"
+        )
+
+    click.echo("─" * 75)
+    click.echo(
+        f"{'TOTAL':<20s} {total_items:>16d} "
+        f"{total_generated:>16d} {total_inserted:>21d}"
+    )
+
+    # Quality checks
+    if not all_facts:
+        click.echo("\nNo facts generated.")
+        return
+
+    total = len(all_facts)
+    too_short = [f for f in all_facts if len(f["fact_text"].split()) < 5]
+    too_long = [f for f in all_facts if len(f["fact_text"].split()) > 50]
+    missing_ent = [
+        f for f in all_facts
+        if not f.get("entities") or len(f["entities"]) == 0
+    ]
+    word_counts = [len(f["fact_text"].split()) for f in all_facts]
+    avg_words = sum(word_counts) / total
+
+    click.echo("\nQuality Checks:")
+    click.echo(
+        f"  Too short (<5 words):  {len(too_short)} "
+        f"({100 * len(too_short) / total:.1f}%)"
+    )
+    click.echo(
+        f"  Too long (>50 words):  {len(too_long)} "
+        f"({100 * len(too_long) / total:.1f}%)"
+    )
+    click.echo(
+        f"  Missing entities:      {len(missing_ent)} "
+        f"({100 * len(missing_ent) / total:.1f}%)"
+    )
+    click.echo(f"  Avg words per fact:    {avg_words:.1f}")
+
+    # Sample facts
+    n_samples = min(10, total)
+    click.echo(f"\nSample Facts ({n_samples} random from this run):")
+    samples = random.sample(all_facts, n_samples)
+    for i, f in enumerate(samples, 1):
+        click.echo(f'  {i:2d}. "{f["fact_text"]}"')
+
+    # Warnings
+    warnings: list[str] = []
+
+    for name, stats in source_stats.items():
+        if stats["inserted"] == 0 and stats["generated"] > 0:
+            warnings.append(f"ERROR: No facts from {name}")
+        if stats["items"] > 0:
+            rate = stats["generated"] / stats["items"]
+            if rate < 2:
+                warnings.append(
+                    f"WARNING: Low extraction rate in {name} "
+                    f"({rate:.1f} facts/item)"
+                )
+        if stats["generated"] > 0:
+            skipped = stats["generated"] - stats["inserted"]
+            if skipped / stats["generated"] > 0.5:
+                warnings.append(
+                    f"WARNING: High duplicate rate in {name} "
+                    f"({skipped}/{stats['generated']} skipped)"
+                )
+
+    if total > 0 and len(too_short) / total > 0.10:
+        warnings.append("WARNING: Too many trivial facts")
+    if total > 0 and len(too_long) / total > 0.10:
+        warnings.append("WARNING: Facts need better splitting")
+
+    regarding_facts = [
+        f for f in all_facts
+        if f["fact_text"].startswith("Regarding")
+    ]
+    if regarding_facts:
+        warnings.append("WARNING: Verbatim text detected")
+
+    over_40 = [f for f in all_facts if len(f["fact_text"].split()) > 40]
+    if over_40:
+        warnings.append(
+            f"WARNING: {len(over_40)} fact(s) over 40 words — "
+            f"review for splitting:"
+        )
+        for f in over_40:
+            warnings.append(f'    "{f["fact_text"]}"')
+
+    if warnings:
+        click.echo("\nWarnings:")
+        for w in warnings:
+            click.echo(f"  * {w}")
+    else:
+        click.echo("\nNo warnings.")
+
+
+def run_test(
+    source_filter: Optional[str] = None,
+    cleanup: bool = False,
+) -> None:
+    """Run a limited test: 5 items per source, insert, report, optionally clean up."""
+    sources_to_run = (
+        [source_filter] if source_filter else list(SOURCES_CONFIG.keys())
+    )
+
+    session = _create_session()
+    source_stats: dict[str, dict] = {}
+    all_facts: list[dict] = []
+    all_fact_ids: list[str] = []
+
+    for source_name in sources_to_run:
+        if source_name not in SOURCES_CONFIG:
+            logger.error(f"Unknown source: {source_name}")
+            continue
+
+        cfg = SOURCES_CONFIG[source_name]
+        logger.info(
+            f"[TEST RUN] Processing source: {source_name} "
+            f"(limit {TEST_RUN_ITEMS_PER_SOURCE} items)"
+        )
+
+        source_id = ensure_source(
+            name=cfg["source_name"],
+            url=cfg["source_url"],
+            source_type=cfg["source_type"],
+            tier="tier_1_official",
+        )
+
+        # Scrape raw data and limit to 5 items
+        if source_name == "ava":
+            raw = _scrape_avas(session)
+            raw = raw[:TEST_RUN_ITEMS_PER_SOURCE]
+            facts = _build_ava_facts(raw, source_id)
+        elif source_name == "varieties":
+            raw = _scrape_varieties(session)
+            raw = raw[:TEST_RUN_ITEMS_PER_SOURCE]
+            facts = _build_variety_facts(raw, source_id)
+        elif source_name == "regulations":
+            # Regulations are already a flat list; take first 5
+            raw_count = min(
+                TEST_RUN_ITEMS_PER_SOURCE, len(_REGULATION_FACTS)
+            )
+            facts = _build_regulation_facts(source_id)[:raw_count]
+            raw = [None] * raw_count  # placeholder for item count
+        else:
+            continue
+
+        items_processed = len(raw)
+        generated = len(facts)
+        inserted, fact_ids = _insert_facts_tracked(facts)
+
+        source_stats[source_name] = {
+            "items": items_processed,
+            "generated": generated,
+            "inserted": inserted,
+        }
+        all_facts.extend(facts)
+        all_fact_ids.extend(fact_ids)
+
+    _print_test_report(source_stats, all_facts)
+
+    if cleanup and all_fact_ids:
+        deleted = _cleanup_facts(all_fact_ids)
+        click.echo(f"\nCleaned up {deleted} test facts from database.")
+    elif cleanup:
+        click.echo("\nNo test facts to clean up.")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 #  MAIN PIPELINE
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -1759,12 +2029,22 @@ def run_all(dry_run: bool = False) -> dict:
     "--validate", "validate_flag", is_flag=True,
     help="Run quality checks on all extracted facts",
 )
+@click.option(
+    "--test-run", "test_run", is_flag=True,
+    help="Process first 5 items per source, insert, and print a report",
+)
+@click.option(
+    "--cleanup", is_flag=True,
+    help="When used with --test-run, delete inserted facts after report",
+)
 def main(
     source: Optional[str],
     run_all_flag: bool,
     list_sources: bool,
     dry_run: bool,
     validate_flag: bool,
+    test_run: bool,
+    cleanup: bool,
 ) -> None:
     """OenoBench TTB Scraper — Extract US wine regulation data from TTB."""
     Path("data/logs").mkdir(parents=True, exist_ok=True)
@@ -1774,6 +2054,14 @@ def main(
         click.echo("\nAvailable sources:")
         for name, cfg in SOURCES_CONFIG.items():
             click.echo(f"  {name:20s} — {cfg['description']}")
+        return
+
+    if test_run:
+        run_test(source_filter=source, cleanup=cleanup)
+        return
+
+    if cleanup:
+        click.echo("--cleanup can only be used with --test-run.")
         return
 
     if validate_flag:
