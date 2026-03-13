@@ -21,6 +21,9 @@ Usage:
     python -m src.scrapers.inao --dry-run
     python -m src.scrapers.inao --validate
     python -m src.scrapers.inao --list
+    python -m src.scrapers.inao --test-run
+    python -m src.scrapers.inao --test-run --cleanup
+    python -m src.scrapers.inao --test-run --region bordeaux
 """
 
 import csv
@@ -31,6 +34,7 @@ import random
 import re
 import sys
 import time
+import uuid
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -1437,6 +1441,322 @@ def generate_template() -> None:
     )
 
 
+# ─── Test Run ─────────────────────────────────────────────────────────────────
+
+TEST_RUN_LIMIT = 5  # items per category
+
+
+def _insert_facts_tracked(facts: list[dict]) -> tuple[int, list[str]]:
+    """Insert facts and return (inserted_count, list_of_inserted_fact_ids).
+
+    Wraps insert_facts_batch by querying back for inserted IDs.
+    Does NOT change any insertion logic — uses the same insert_facts_batch.
+    """
+    if not facts:
+        return 0, []
+
+    # Record the fact texts we're about to insert
+    fact_texts = [f["fact_text"] for f in facts]
+
+    # Insert using existing logic
+    inserted_count = insert_facts_batch(facts)
+
+    # Query back the IDs of the facts we just inserted
+    from src.utils.db import get_pg
+    conn = get_pg()
+    cur = conn.cursor()
+    inserted_ids = []
+    for text in fact_texts:
+        cur.execute("SELECT id FROM facts WHERE fact_text = %s", (text,))
+        row = cur.fetchone()
+        if row:
+            inserted_ids.append(str(row["id"]))
+
+    return inserted_count, inserted_ids
+
+
+def _cleanup_test_facts(fact_ids: list[str]) -> int:
+    """Delete facts by their IDs. Returns count deleted."""
+    if not fact_ids:
+        return 0
+
+    from src.utils.db import get_pg
+    conn = get_pg()
+    cur = conn.cursor()
+    deleted = 0
+    for fid in fact_ids:
+        cur.execute("DELETE FROM facts WHERE id = %s", (fid,))
+        deleted += cur.rowcount
+    conn.commit()
+    return deleted
+
+
+def _print_test_report(
+    category_stats: dict[str, dict],
+    all_facts: list[dict],
+    all_inserted_ids: list[str],
+) -> None:
+    """Print the structured test-run report with quality checks and warnings."""
+    click.echo("\n=== TEST RUN REPORT ===")
+    click.echo("")
+
+    # Table header
+    header = (
+        f"  {'Source/Category':<25s} {'Items Processed':>17s} "
+        f"{'Facts Generated':>17s} {'Facts Inserted (new)':>22s}"
+    )
+    separator = "  " + "─" * 83
+    click.echo(header)
+    click.echo(separator)
+
+    total_items = 0
+    total_generated = 0
+    total_inserted = 0
+
+    for cat_name, stats in category_stats.items():
+        items = stats["items_processed"]
+        generated = stats["facts_generated"]
+        inserted = stats["facts_inserted"]
+        total_items += items
+        total_generated += generated
+        total_inserted += inserted
+        click.echo(
+            f"  {cat_name:<25s} {items:>17d} {generated:>17d} {inserted:>22d}"
+        )
+
+    click.echo(separator)
+    click.echo(
+        f"  {'TOTAL':<25s} {total_items:>17d} {total_generated:>17d} "
+        f"{total_inserted:>22d}"
+    )
+
+    # Quality checks
+    if not all_facts:
+        click.echo("\n  No facts to analyze.")
+        return
+
+    total = len(all_facts)
+    too_short = []
+    too_long = []
+    missing_entities = 0
+    total_words = 0
+    verbatim_regarding = []
+    over_40_words = []
+
+    for f in all_facts:
+        text = f["fact_text"]
+        wc = len(text.split())
+        total_words += wc
+
+        if wc < 5:
+            too_short.append(text)
+        if wc > 50:
+            too_long.append(text)
+        if wc > 40:
+            over_40_words.append(text)
+        if not f.get("entities"):
+            missing_entities += 1
+        if text.startswith("Regarding"):
+            verbatim_regarding.append(text)
+
+    avg_words = total_words / total if total else 0
+
+    click.echo(f"\n  Quality Checks:")
+    click.echo(
+        f"    Too short (<5 words):  {len(too_short)} ({len(too_short)/total*100:.1f}%)"
+    )
+    click.echo(
+        f"    Too long (>50 words):  {len(too_long)} ({len(too_long)/total*100:.1f}%)"
+    )
+    click.echo(
+        f"    Missing entities:      {missing_entities} ({missing_entities/total*100:.1f}%)"
+    )
+    click.echo(f"    Avg words per fact:    {avg_words:.1f}")
+
+    # Sample facts
+    sample = random.sample(all_facts, min(10, len(all_facts)))
+    click.echo(f"\n  Sample Facts ({min(10, len(all_facts))} random from this run):")
+    for i, f in enumerate(sample, 1):
+        click.echo(f"    {i:2d}. \"{f['fact_text']}\"")
+
+    # Warnings
+    warnings = []
+
+    for cat_name, stats in category_stats.items():
+        if stats["facts_inserted"] == 0 and stats["items_processed"] > 0:
+            warnings.append(f"ERROR: No facts from {cat_name}")
+
+        items = stats["items_processed"]
+        generated = stats["facts_generated"]
+        if items > 0 and generated / items < 2:
+            warnings.append(
+                f"WARNING: Low extraction rate in {cat_name} "
+                f"({generated/items:.1f} facts/item)"
+            )
+
+        if items > 0 and generated > 0:
+            skipped = generated - stats["facts_inserted"]
+            if skipped / generated > 0.5:
+                warnings.append(
+                    f"WARNING: High duplicate rate in {cat_name} "
+                    f"({skipped}/{generated} = {skipped/generated*100:.0f}% skipped)"
+                )
+
+    if len(too_short) / total > 0.1:
+        warnings.append("WARNING: Too many trivial facts")
+
+    if len(too_long) / total > 0.1:
+        warnings.append("WARNING: Facts need better splitting")
+
+    if verbatim_regarding:
+        warnings.append(
+            f"WARNING: Verbatim text detected ({len(verbatim_regarding)} facts "
+            f"starting with 'Regarding')"
+        )
+
+    if warnings:
+        click.echo(f"\n  \u26a0 Warnings:")
+        for w in warnings:
+            click.echo(f"    * {w}")
+
+    if over_40_words:
+        click.echo(f"\n  Facts over 40 words (review for splitting):")
+        for text in over_40_words[:5]:
+            click.echo(f"    - \"{text}\"")
+
+    if not warnings:
+        click.echo(f"\n  \u2714 No warnings — all checks passed.")
+
+
+def run_test(
+    region_filter: Optional[str] = None,
+    cleanup: bool = False,
+) -> None:
+    """Run a limited test extraction: 5 items per category, insert, report."""
+    session = _get_session()
+
+    # Register source (real insert)
+    source_id = ensure_source(
+        name="INAO (Institut national de l'origine et de la qualité)",
+        url="https://www.inao.gouv.fr",
+        source_type="government_registry",
+        tier=SOURCE_TIER,
+        language="fr",
+    )
+
+    # Track per-category stats
+    category_stats = {}
+    all_facts_collected = []
+    all_inserted_ids = []
+
+    # ── Category 1: csv_appellations ──────────────────────────────────────
+    csv_text = _load_cached_csv()
+    if not csv_text:
+        logger.info("No cached CSV, downloading for test run...")
+        csv_text = _download_datagouv_csv(session)
+
+    csv_facts = []
+    csv_items = 0
+
+    if csv_text:
+        records = _parse_products_csv(csv_text)
+        wine_records = [r for r in records if _is_wine_product(r)]
+
+        seen = {}
+        for record in wine_records:
+            name = _extract_appellation_name(record)
+            sign = _extract_sign_type(record)
+            if name and name not in seen:
+                seen[name] = sign
+
+        count = 0
+        for name, sign in seen.items():
+            if count >= TEST_RUN_LIMIT:
+                break
+
+            region = _resolve_region(name)
+
+            # Apply region filter
+            if region_filter:
+                target = REGION_ALIASES.get(region_filter.lower(), region_filter)
+                if region and region != target:
+                    continue
+                if not region and target:
+                    continue
+
+            facts = _build_basic_facts(name, sign, region, source_id)
+            csv_facts.extend(facts)
+            count += 1
+
+        csv_items = count
+    else:
+        logger.warning("No CSV data available for test run.")
+
+    # Deduplicate within category
+    seen_texts = set()
+    unique_csv = []
+    for f in csv_facts:
+        if f["fact_text"] not in seen_texts:
+            seen_texts.add(f["fact_text"])
+            unique_csv.append(f)
+
+    csv_inserted, csv_ids = _insert_facts_tracked(unique_csv)
+    category_stats["csv_appellations"] = {
+        "items_processed": csv_items,
+        "facts_generated": len(unique_csv),
+        "facts_inserted": csv_inserted,
+    }
+    all_facts_collected.extend(unique_csv)
+    all_inserted_ids.extend(csv_ids)
+
+    # ── Category 2: curated_appellations ──────────────────────────────────
+    curated_facts = []
+    curated_items = 0
+    count = 0
+
+    for name, info in KNOWN_APPELLATIONS.items():
+        if count >= TEST_RUN_LIMIT:
+            break
+
+        region = info.get("region", "")
+
+        # Apply region filter
+        if region_filter:
+            target = REGION_ALIASES.get(region_filter.lower(), region_filter)
+            if region != target:
+                continue
+
+        detailed = _build_detailed_facts(name, info, source_id)
+        curated_facts.extend(detailed)
+        count += 1
+
+    curated_items = count
+
+    # Deduplicate within category (also against csv facts already seen)
+    unique_curated = []
+    for f in curated_facts:
+        if f["fact_text"] not in seen_texts:
+            seen_texts.add(f["fact_text"])
+            unique_curated.append(f)
+
+    curated_inserted, curated_ids = _insert_facts_tracked(unique_curated)
+    category_stats["curated_appellations"] = {
+        "items_processed": curated_items,
+        "facts_generated": len(unique_curated),
+        "facts_inserted": curated_inserted,
+    }
+    all_facts_collected.extend(unique_curated)
+    all_inserted_ids.extend(curated_ids)
+
+    # ── Report ────────────────────────────────────────────────────────────
+    _print_test_report(category_stats, all_facts_collected, all_inserted_ids)
+
+    # ── Cleanup ───────────────────────────────────────────────────────────
+    if cleanup:
+        deleted = _cleanup_test_facts(all_inserted_ids)
+        click.echo(f"\n  Cleaned up {deleted} test facts from database.")
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _print_sample_facts(facts: list[dict], count: int = 10) -> None:
@@ -1473,6 +1793,8 @@ def _print_summary(summary: dict) -> None:
 @click.option("--validate", "do_validate", is_flag=True, help="Run quality checks on generated facts")
 @click.option("--list", "list_regions", is_flag=True, help="List available regions")
 @click.option("--template", "gen_template", is_flag=True, help="Generate JSON template for manual data entry")
+@click.option("--test-run", is_flag=True, help="Process 5 items per category, insert, and report")
+@click.option("--cleanup", is_flag=True, help="With --test-run, delete inserted facts after reporting")
 def main(
     run_all: bool,
     region: Optional[str],
@@ -1480,6 +1802,8 @@ def main(
     do_validate: bool,
     list_regions: bool,
     gen_template: bool,
+    test_run: bool,
+    cleanup: bool,
 ):
     """OenoBench INAO Scraper — Extract French wine appellation data from INAO."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1505,6 +1829,10 @@ def main(
         run_validate()
         return
 
+    if test_run:
+        run_test(region_filter=region, cleanup=cleanup)
+        return
+
     if run_all or region:
         summary = extract_all(
             region_filter=region,
@@ -1517,6 +1845,7 @@ def main(
     click.echo("--dry-run to preview, or --validate for quality checks.")
     click.echo("Use --list to see available regions.")
     click.echo("Use --template to generate a manual data entry template.")
+    click.echo("Use --test-run to process 5 items per category and report.")
 
 
 if __name__ == "__main__":
