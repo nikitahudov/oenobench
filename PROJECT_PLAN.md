@@ -1,4 +1,4 @@
-# Wine Knowledge LLM Benchmark
+# OenoBench — Wine Knowledge LLM Benchmark
 ## Project Plan v2.0
 
 ---
@@ -11,7 +11,7 @@ This project aims to develop a comprehensive benchmark for evaluating Large Lang
 
 The project will culminate in a **peer-reviewed scientific publication** documenting the benchmark methodology, dataset characteristics, and baseline LLM evaluation results.
 
-**Project Name:** WineBench  
+**Project Name:** OenoBench (formerly WineBench)
 **Version Target:** 1.0  
 **Total Questions:** 5,000  
 **Primary Methodology:** AI-driven with human expert validation
@@ -68,7 +68,7 @@ The project will culminate in a **peer-reviewed scientific publication** documen
 
 ### 3.3 Key Scientific Contributions
 
-1. **WineBench Dataset:** First large-scale, comprehensive wine knowledge benchmark (5,000 questions)
+1. **OenoBench Dataset:** First large-scale, comprehensive wine knowledge benchmark (5,000 questions)
 2. **AI-Driven Methodology:** Reproducible pipeline for domain-specific benchmark creation using LLMs and automation
 3. **Methodological Validity Framework:** Novel approach to mitigating LLM-generation bias with multi-model generation, held-out evaluation, and human control sets
 4. **Bias Analysis:** Empirical analysis of self-preference effects in LLM-generated benchmarks
@@ -1102,7 +1102,7 @@ Respond with ONLY the letter of your answer (A, B, C, or D).
 
 | Deliverable | Format | Release |
 |-------------|--------|---------|
-| **WineBench Dataset (5,000 Q)** | JSON, CSV, HuggingFace Dataset | Public |
+| **OenoBench Dataset (5,000 Q)** | JSON, CSV, HuggingFace Dataset | Public |
 | **Human-Authored Control Set (300 Q)** | JSON, CSV (separate subset) | Public |
 | **Evaluation Code** | Python package | Open-source (GitHub) |
 | **Data Collection Pipelines** | Python/Scrapy | Open-source |

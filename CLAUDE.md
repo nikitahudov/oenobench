@@ -10,47 +10,88 @@ The key innovation is an AI-driven pipeline: automated data collection → multi
 
 ```
 ~/oenobench/
-├── CLAUDE.md                  # ← You are here. Read this first.
-├── README.md                  # Public-facing project overview
-├── requirements.txt           # Python dependencies
-├── .env                       # Database credentials (not in git)
+├── CLAUDE.md                     # ← You are here. Read this first.
+├── README.md                     # Public-facing project overview
+├── PROJECT_PLAN.md               # Full project plan with methodology
+├── DATA_SOURCES.md               # Data source inventory & scraping strategy
+├── SCRAPER_PROMPTS.md            # Detailed prompts for each scraper
+├── CURRENT_STATUS.md             # Progress tracking
+├── requirements.txt              # Python dependencies
+├── docker-compose.yml            # PostgreSQL, Elasticsearch, Neo4j, Redis
+├── .env.example                  # Environment template (copy to .env)
+├── .env                          # Database credentials (not in git)
+├── .gitignore
+├── config/
+│   └── postgres/
+│       └── init.sql              # PostgreSQL schema (auto-runs on first docker compose up)
+├── scripts/
+│   ├── setup.sh                  # First-time infrastructure setup
+│   ├── health.sh                 # Service health check
+│   └── backup.sh                 # PostgreSQL & Neo4j backup
 ├── src/
+│   ├── __init__.py
 │   ├── utils/
-│   │   ├── db.py              # PostgreSQL, Elasticsearch, Neo4j, Redis connections
-│   │   └── facts.py           # ensure_source(), insert_facts_batch(), get_fact_count()
-│   └── scrapers/
-│       ├── wikidata.py        # ✅ Done — 20,910 facts
-│       ├── wikipedia.py       # ✅ Done — reference scraper
-│       ├── huggingface.py     # ✅ Done — 16,514 facts
-│       ├── ucdavis.py         # Scraper 4
-│       ├── kaggle_data.py     # Scraper 5 (not kaggle.py — avoid naming conflict)
-│       ├── inao.py            # Scraper 6 — French appellations
-│       ├── italy.py           # Scraper 7 — Italian registries
-│       ├── ttb.py             # Scraper 8 — US regulations
-│       ├── europe.py          # Scraper 9 — Spain, Germany, Portugal
-│       ├── newworld.py        # Scraper 10 — Australia, NZ, South Africa, South America
-│       ├── eu_oiv.py          # Scraper 11 — EU regulations & OIV
-│       ├── regional_france.py # Scraper 12 — Burgundy, Champagne, Bordeaux
-│       ├── consortiums_italy.py # Scraper 13 — Italian consortiums
-│       ├── academic.py        # Scraper 14 — Journal abstracts
-│       └── verify.py          # Post-scraping gap analysis tool
-├── data/
-│   ├── raw/                   # Downloaded datasets (not in git)
-│   ├── logs/                  # Scraper run logs
-│   └── reports/               # Verification reports
-└── docs/
-    ├── PROJECT_PLAN.md        # Full project plan with methodology
-    ├── DATA_SOURCES.md        # Data source inventory & scraping strategy
-    ├── SCRAPER_PROMPTS.md     # Detailed prompts for each scraper
-    └── CURRENT_STATUS.md      # Progress tracking
+│   │   ├── __init__.py
+│   │   ├── db.py                 # PostgreSQL, Elasticsearch, Neo4j, Redis connections
+│   │   └── facts.py              # ensure_source(), insert_facts_batch(), get_fact_count()
+│   ├── scrapers/
+│   │   ├── __init__.py
+│   │   ├── wikidata.py           # ✅ Done — Wikidata SPARQL (20,910 facts)
+│   │   ├── wikipedia.py          # ✅ Done — Wikipedia MediaWiki API
+│   │   ├── huggingface.py        # ✅ Done — HuggingFace datasets (16,514 facts)
+│   │   └── ucdavis.py            # ✅ Done — UC Davis ontology, AVA, FPS
+│   ├── evaluation/
+│   │   └── __init__.py           # Placeholder — future evaluation pipeline
+│   ├── generators/
+│   │   └── __init__.py           # Placeholder — future question generation
+│   ├── processors/
+│   │   └── __init__.py           # Placeholder — future data processing
+│   └── validators/
+│       └── __init__.py           # Placeholder — future validation pipeline
+├── tests/
+│   └── __init__.py
+└── data/                         # Not in git (see .gitignore)
+    ├── raw/                      # Downloaded datasets
+    ├── processed/                # Processed outputs
+    ├── logs/                     # Scraper run logs
+    ├── reports/                  # Verification reports
+    ├── backups/                  # Database backups
+    └── exports/                  # Data exports
 ```
+
+### Files Not Yet Created (Planned)
+
+These scrapers are specified in `SCRAPER_PROMPTS.md` but have not been implemented yet:
+
+| File | Scraper | Target |
+|------|---------|--------|
+| `src/scrapers/kaggle_data.py` | Kaggle datasets | 500-1,000 facts |
+| `src/scrapers/inao.py` | INAO French appellations | 2,000-3,000 facts |
+| `src/scrapers/italy.py` | Italian registries | 1,500-2,000 facts |
+| `src/scrapers/ttb.py` | US TTB regulations | 500-800 facts |
+| `src/scrapers/europe.py` | Spain, Germany, Portugal | 1,500-2,400 facts |
+| `src/scrapers/newworld.py` | Australia, NZ, South Africa, South America | 800-1,200 facts |
+| `src/scrapers/eu_oiv.py` | EU regulations & OIV | 500-800 facts |
+| `src/scrapers/regional_france.py` | Burgundy, Champagne, Bordeaux | 800-1,500 facts |
+| `src/scrapers/consortiums_italy.py` | Italian consortiums | 400-600 facts |
+| `src/scrapers/academic.py` | Journal abstracts | 500-800 facts |
+| `src/scrapers/verify.py` | Post-scraping gap analysis | N/A |
 
 ## Current Status (as of March 2026)
 
-**Phase:** Data Collection (Phase 1)  
-**Facts collected:** ~38,000+ raw facts  
-**Completed scrapers:** Wikidata (20,910), HuggingFace (16,514), Wikipedia  
-**Remaining scrapers:** 4-14 (see docs/SCRAPER_PROMPTS.md)
+**Phase:** Data Collection (Phase 1)
+**Facts collected:** ~38,000+ raw facts
+**Completed scrapers:** 4 of 14 + verify tool
+
+| # | Scraper | Status | Facts |
+|---|---------|--------|-------|
+| 1 | Wikidata (`wikidata.py`) | ✅ Complete | 20,910 |
+| 2 | Wikipedia (`wikipedia.py`) | ✅ Complete | — |
+| 3 | HuggingFace (`huggingface.py`) | ✅ Complete | 16,514 |
+| 4 | UC Davis (`ucdavis.py`) | ✅ Complete | — |
+| 5-14 | Remaining scrapers | Not started | See `SCRAPER_PROMPTS.md` |
+
+**Remaining scrapers:** 5-14 (see `SCRAPER_PROMPTS.md`)
 
 ## Critical Patterns — READ BEFORE WRITING CODE
 
@@ -59,34 +100,56 @@ The key innovation is an AI-driven pipeline: automated data collection → multi
 Always use the existing utilities in `src/utils/`:
 
 ```python
-from src.utils.facts import ensure_source, insert_facts_batch, get_fact_count
-from src.utils.db import get_pg_connection, get_es_client, get_neo4j_driver
+from src.utils.db import get_pg, get_es, get_neo4j, get_redis
+from src.utils.facts import ensure_source, insert_facts_batch, insert_fact, get_fact_count
 ```
 
-- `ensure_source(name, url, tier)` — Register a data source before inserting facts
-- `insert_facts_batch(facts)` — Bulk insert with dedup on exact `fact_text`
-- `get_fact_count(source=None)` — Count facts, optionally filtered by source
+**`src/utils/db.py`** — Connection helpers (all cached with `@lru_cache`):
+- `get_pg()` — Returns a `psycopg2` connection (with `RealDictCursor`)
+- `get_es()` — Returns an `Elasticsearch` client
+- `get_neo4j()` — Returns a Neo4j `GraphDatabase.driver`
+- `get_redis()` — Returns a Redis client
+
+**`src/utils/facts.py`** — Fact storage:
+- `ensure_source(name, url, source_type, tier="tier_3_reliable", language="en")` — Register a data source, returns UUID. Deduplicates on URL.
+- `insert_facts_batch(facts, batch_size=100)` — Bulk insert list of fact dicts. Deduplicates on exact `fact_text`. Returns count inserted.
+- `insert_fact(fact_text, domain, source_id, subdomain=None, entities=None, confidence=1.0, tags=None)` — Insert a single fact. Returns UUID or None if duplicate.
+- `get_fact_count(domain=None)` — Count facts, optionally filtered by domain.
+
+**Fact dict format** (for `insert_facts_batch`):
+```python
+{
+    "fact_text": "Barolo DOCG requires 100% Nebbiolo.",
+    "domain": "wine_regions",
+    "source_id": "<uuid from ensure_source>",
+    "subdomain": "italy_piedmont",     # optional
+    "entities": [{"type": "grape", "name": "Nebbiolo"}],  # optional
+    "confidence": 1.0,                 # optional, default 1.0
+    "tags": ["docg", "piedmont"],      # optional
+}
+```
 
 ### Scraper CLI Pattern
 
-Every scraper MUST follow this CLI pattern:
+Every scraper MUST follow this CLI pattern (using `click`):
 
 ```bash
 python -m src.scrapers.<name> --all          # Run full extraction
 python -m src.scrapers.<name> --dry-run      # Preview without DB writes
 python -m src.scrapers.<name> --validate     # Quality checks on extracted data
 python -m src.scrapers.<name> --list         # List available sub-sources
-# Plus source-specific filters (--region, --country, --dataset, etc.)
+python -m src.scrapers.<name> --test-run     # Small test run with cleanup option
+# Plus source-specific filters (--region, --country, --dataset, --source, etc.)
 ```
 
 ### Fact Quality Rules
 
 1. **Atomic facts only** — One fact per sentence: "Barolo DOCG requires 100% Nebbiolo."
 2. **Never store verbatim source text** — Always rephrase into atomic facts
-3. **Domain values:** `wine_regions`, `grape_varieties`, `producers`, `viticulture`, `winemaking`, `wine_business`
-4. **Rate limiting:** All HTTP requests must be rate-limited (see per-scraper specs in docs/SCRAPER_PROMPTS.md)
+3. **Domain values** (PostgreSQL enum): `wine_regions`, `grape_varieties`, `producers`, `viticulture`, `winemaking`, `wine_business`
+4. **Rate limiting:** All HTTP requests must be rate-limited (see per-scraper specs in `SCRAPER_PROMPTS.md`)
 5. **User-Agent:** `"OenoBench-Research/1.0 (academic wine benchmark)"`
-6. **Logging:** Write to `data/logs/<scraper_name>_{timestamp}.log`
+6. **Logging:** Use `loguru`. Write to `data/logs/<scraper_name>_{timestamp}.log`
 
 ### Validation Flag (--validate)
 
@@ -108,34 +171,55 @@ Every scraper must include `--validate` that reports:
 
 ## Infrastructure
 
-- **PostgreSQL** — Structured facts, sources, metadata
-- **Elasticsearch** — Full-text search across facts
-- **Neo4j** — Knowledge graph of wine entity relationships
-- **Redis** — Caching layer
-- All running in Docker containers on a dedicated server
+- **PostgreSQL 16** (pgvector) — Structured facts, sources, metadata, questions, evaluation results
+- **Elasticsearch 8.x** — Full-text search with wine-specific synonym analyzer
+- **Neo4j 5.x** (community) — Knowledge graph of wine entity relationships
+- **Redis 7.x** — Caching layer, job queues, rate-limit tracking
+- All running in Docker containers (`docker-compose.yml`)
 - Database credentials in `.env` file (not committed to git)
+- Schema initialized automatically via `config/postgres/init.sql`
+
+**Key Docker container names:** `wb-postgres`, `wb-elasticsearch`, `wb-neo4j`, `wb-redis`
+
+**Database name:** `winebench` (historical, predates rename to OenoBench)
+
+### PostgreSQL Schema (key tables)
+
+| Table | Purpose |
+|-------|---------|
+| `sources` | Data source registry (name, URL, tier) |
+| `facts` | Atomic facts with domain, entities, embeddings |
+| `questions` | Benchmark questions (5,000 target) |
+| `question_facts` | Links questions to supporting facts |
+| `generation_metadata` | Which LLM generated each question |
+| `validation_records` | AI + human review results |
+| `evaluation_runs` | LLM benchmark run metadata |
+| `evaluation_answers` | Per-question LLM answers |
+
+See `config/postgres/init.sql` for full schema with enums, indexes, views, and triggers.
 
 ## Quick Reference: Fact Targets by Domain
 
 | Domain | Target Facts | Status |
 |--------|-------------|--------|
-| Wine Regions | 5,000 | In progress |
-| Grape Varieties | 2,000 | In progress |
-| Producers | 3,000 | In progress |
+| Wine Regions | 5,000 | In progress (best coverage from Wikidata) |
+| Grape Varieties | 2,000 | In progress (good from Wikidata + UC Davis) |
+| Producers | 3,000 | In progress (some from Wikidata + HuggingFace) |
 | Viticulture | 1,500 | Needs more coverage |
 | Winemaking | 1,500 | Needs more coverage |
 | Wine Business | 1,000 | Needs more coverage |
 
 ## What to Work On Next
 
-1. **Implement remaining scrapers** (4-14) using prompts in `docs/SCRAPER_PROMPTS.md`
+1. **Implement remaining scrapers** (5-14) using prompts in `SCRAPER_PROMPTS.md`
 2. **Run verify.py** after each batch of scrapers to check coverage gaps
 3. **Transition to question generation** once fact collection reaches targets
-4. See `docs/CURRENT_STATUS.md` for detailed phase tracking
+4. See `CURRENT_STATUS.md` for detailed phase tracking
 
 ## Important Links
 
-- **Full project plan:** `docs/PROJECT_PLAN.md`
-- **Data sources:** `docs/DATA_SOURCES.md`
-- **Scraper implementation specs:** `docs/SCRAPER_PROMPTS.md`
+- **Full project plan:** `PROJECT_PLAN.md`
+- **Data sources:** `DATA_SOURCES.md`
+- **Scraper implementation specs:** `SCRAPER_PROMPTS.md`
+- **Progress tracking:** `CURRENT_STATUS.md`
 - **NeurIPS 2026 D&B Track:** Target submission venue

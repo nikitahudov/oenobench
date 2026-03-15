@@ -1,7 +1,8 @@
 # OenoBench — Claude Code Scraper Prompts
 
 Each prompt below is a standalone task for a separate Claude Code session.
-Run them in order (2→11). Scraper 1 (Wikidata) and 2 (Wikipedia) are already done.
+Scrapers 1-4 (Wikidata, Wikipedia, HuggingFace, UC Davis) are complete.
+Run remaining scrapers in order (5→14).
 
 After each session: `git push` from Claude Code, then on server: `git pull && python -m src.scrapers.<name> --dry-run`
 
@@ -15,13 +16,15 @@ CONTEXT FOR ALL SCRAPERS:
 I'm building OenoBench, a wine knowledge LLM benchmark targeting NeurIPS 2026.
 The repo is at ~/oenobench. The codebase has:
 
-- src/utils/db.py — PostgreSQL, Elasticsearch, Neo4j, Redis connections (via .env)
-- src/utils/facts.py — ensure_source(), insert_facts_batch(), get_fact_count()
-- src/scrapers/wikidata.py — reference scraper (21K facts already inserted)
+- src/utils/db.py — Connection helpers: get_pg(), get_es(), get_neo4j(), get_redis()
+- src/utils/facts.py — ensure_source(name, url, source_type, tier, language), insert_facts_batch(), insert_fact(), get_fact_count()
+- src/scrapers/wikidata.py — reference scraper (20,910 facts)
 - src/scrapers/wikipedia.py — Wikipedia scraper (reference for patterns)
+- src/scrapers/huggingface.py — HuggingFace datasets (16,514 facts)
+- src/scrapers/ucdavis.py — UC Davis ontology/AVA/FPS (reference for multi-source scraper pattern)
 - requirements.txt — all dependencies
 
-READ src/utils/facts.py AND src/scrapers/wikidata.py FIRST to understand the patterns.
+READ src/utils/facts.py AND src/scrapers/ucdavis.py FIRST to understand the patterns.
 
 Every scraper MUST:
 1. Follow the same CLI pattern: --all, --list, --dry-run, plus source-specific options
@@ -799,9 +802,9 @@ REQUIREMENTS:
 | # | Scraper | File | Target Facts | Week |
 |---|---------|------|-------------|------|
 | 1 | Wikidata | wikidata.py | ✅ 20,910 done | 1 |
-| 2 | Wikipedia | wikipedia.py | 3,000-4,000 | 1-2 |
-| 3 | HuggingFace | huggingface.py | 1,500-2,500 | 1 |
-| 4 | UC Davis | ucdavis.py | 1,000-2,000 | 1-2 |
+| 2 | Wikipedia | wikipedia.py | ✅ done | 1-2 |
+| 3 | HuggingFace | huggingface.py | ✅ 16,514 done | 1 |
+| 4 | UC Davis | ucdavis.py | ✅ done | 1-2 |
 | 5 | Kaggle | kaggle_data.py | 500-1,000 | 1-2 |
 | 6 | INAO France | inao.py | 2,000-3,000 | 2-3 |
 | 7 | Italy | italy.py | 1,500-2,000 | 3 |
