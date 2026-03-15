@@ -93,6 +93,41 @@ These scrapers are specified in `SCRAPER_PROMPTS.md` but have not been implement
 
 **Remaining scrapers:** 5-14 (see `SCRAPER_PROMPTS.md`)
 
+## Documentation Maintenance — MANDATORY
+
+After every PR or significant change, update all relevant documentation before committing. This is not optional — accurate docs are critical for this multi-session project where each Claude Code session relies on CLAUDE.md and other docs to understand the current state.
+
+### What to update and when
+
+**After implementing a new scraper:**
+1. `CLAUDE.md` — Move the scraper from "Files Not Yet Created" table to the repo structure tree (mark with ✅ Done). Update the "Current Status" scraper table. Update fact counts if known.
+2. `CURRENT_STATUS.md` — Update the scraper status table (status, actual fact count). Add a "Completed Scraper Details" entry describing what the scraper does. Update "Total raw facts collected" count. Update "Domain Coverage Assessment" if coverage changed.
+3. `SCRAPER_PROMPTS.md` — Mark the scraper as done in the "Execution Order Summary" table. Update the shared context block if the new scraper serves as a good reference for future scrapers.
+
+**After changing utility code (`src/utils/`):**
+1. `CLAUDE.md` — Update the "Database Utilities" section with any new/changed function signatures, parameters, or return values. Update the "Fact dict format" example if the schema changed.
+2. `SCRAPER_PROMPTS.md` — Update the shared context block that all future scraper prompts reference.
+
+**After changing infrastructure (`docker-compose.yml`, `config/`, `scripts/`):**
+1. `CLAUDE.md` — Update the "Infrastructure" section and "Repository Structure" tree.
+2. `README.md` — Update the "Tech Stack" and "Getting Started" sections if setup steps changed.
+
+**After changing the database schema (`config/postgres/init.sql`):**
+1. `CLAUDE.md` — Update the "PostgreSQL Schema" table.
+2. `PROJECT_PLAN.md` — Update if schema changes affect the methodology or data model sections.
+
+**After reaching a project milestone (e.g., completing all scrapers, starting question generation):**
+1. `CURRENT_STATUS.md` — Update the phase status table, mark phases complete, update next steps.
+2. `CLAUDE.md` — Update "Current Status" and "What to Work On Next".
+3. `README.md` — Update the "Current Status" paragraph.
+
+### Rules
+
+- Always update `CURRENT_STATUS.md` "Last updated" date when making changes to it.
+- Never leave stale fact counts — if you know the count, update it; if you don't, use "—" (not a guess).
+- Keep the "Repository Structure" tree in `CLAUDE.md` in sync with the actual filesystem. If you add a file, add it to the tree.
+- The `SCRAPER_PROMPTS.md` shared context block is pasted into every new scraper session — it must always reflect the current state of utilities and completed scrapers.
+
 ## Critical Patterns — READ BEFORE WRITING CODE
 
 ### Database Utilities
