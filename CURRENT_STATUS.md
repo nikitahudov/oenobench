@@ -1,7 +1,7 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** March 2026  
-**Project phase:** Phase 1 — Data Collection  
+**Last updated:** March 15, 2026
+**Project phase:** Phase 1 — Data Collection
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ---
@@ -10,77 +10,110 @@
 
 | Phase | Weeks | Status |
 |-------|-------|--------|
-| 1. Infrastructure & Data Collection | 1-6 | 🟡 In progress |
-| 2. Question Generation | 7-12 | ⬜ Not started |
-| 3. AI Validation | 13-16 | ⬜ Not started |
-| 4. Human Review & Control Set | 17-20 | ⬜ Not started |
-| 5. Evaluation & Analysis | 21-24 | ⬜ Not started |
-| 6. Publication & Release | 25-30 | ⬜ Not started |
+| 1. Infrastructure & Data Collection | 1-6 | In progress |
+| 2. Question Generation | 7-12 | Not started |
+| 3. AI Validation | 13-16 | Not started |
+| 4. Human Review & Control Set | 17-20 | Not started |
+| 5. Evaluation & Analysis | 21-24 | Not started |
+| 6. Publication & Release | 25-30 | Not started |
 
 ---
 
 ## Phase 1: Data Collection Progress
 
-### Infrastructure ✅
+### Infrastructure (Complete)
 
-- PostgreSQL, Elasticsearch, Neo4j, Redis all running in Docker containers
+- PostgreSQL 16 (pgvector), Elasticsearch 8.x, Neo4j 5.x, Redis 7.x all configured in `docker-compose.yml`
 - Git repository structure established
-- `src/utils/db.py` and `src/utils/facts.py` utilities working
-- pgAdmin available for data inspection
-- Universal `--test-run` feature across scrapers
+- `src/utils/db.py` — connection helpers (`get_pg`, `get_es`, `get_neo4j`, `get_redis`)
+- `src/utils/facts.py` — fact storage (`ensure_source`, `insert_facts_batch`, `insert_fact`, `get_fact_count`)
+- `config/postgres/init.sql` — full schema with enums, indexes, views, triggers
+- `scripts/setup.sh` — automated first-time setup
+- `scripts/health.sh` — service health checks
+- `scripts/backup.sh` — PostgreSQL & Neo4j backup
+- `.env.example` — environment template
+- Universal `--test-run` and `--validate` flags across scrapers
 
 ### Scraper Status
 
 | # | Scraper | File | Target | Actual | Status |
 |---|---------|------|--------|--------|--------|
-| 1 | Wikidata | `wikidata.py` | 3,000-5,000 | **20,910** | ✅ Complete |
-| 2 | Wikipedia | `wikipedia.py` | 3,000-4,000 | — | ✅ Complete (reference) |
-| 3 | HuggingFace | `huggingface.py` | 1,500-2,500 | **16,514** | ✅ Complete |
-| 4 | UC Davis | `ucdavis.py` | 1,000-2,000 | — | ⬜ Prompt ready |
-| 5 | Kaggle | `kaggle_data.py` | 500-1,000 | — | ⬜ Prompt ready |
-| 6 | INAO (France) | `inao.py` | 2,000-3,000 | — | ⬜ Prompt ready |
-| 7 | Italy | `italy.py` | 1,500-2,000 | — | ⬜ Prompt ready |
-| 8 | TTB (US) | `ttb.py` | 500-800 | — | ⬜ Prompt ready |
-| 9 | Europe (ES/DE/PT) | `europe.py` | 1,500-2,400 | — | ⬜ Prompt ready |
-| 10 | New World | `newworld.py` | 800-1,200 | — | ⬜ Prompt ready |
-| 11 | EU/OIV | `eu_oiv.py` | 500-800 | — | ⬜ Prompt ready |
-| 12 | Regional France | `regional_france.py` | 800-1,500 | — | ⬜ Prompt ready |
-| 13 | Italian Consortiums | `consortiums_italy.py` | 400-600 | — | ⬜ Prompt ready |
-| 14 | Academic | `academic.py` | 500-800 | — | ⬜ Prompt ready |
-| — | Verify | `verify.py` | — | — | ⬜ Prompt ready |
+| 1 | Wikidata | `src/scrapers/wikidata.py` | 3,000-5,000 | **20,910** | Complete |
+| 2 | Wikipedia | `src/scrapers/wikipedia.py` | 3,000-4,000 | — | Complete |
+| 3 | HuggingFace | `src/scrapers/huggingface.py` | 1,500-2,500 | **16,514** | Complete |
+| 4 | UC Davis | `src/scrapers/ucdavis.py` | 1,000-2,000 | — | Complete |
+| 5 | Kaggle | `src/scrapers/kaggle_data.py` | 500-1,000 | — | Not started (prompt ready in `SCRAPER_PROMPTS.md`) |
+| 6 | INAO (France) | `src/scrapers/inao.py` | 2,000-3,000 | — | Not started (prompt ready) |
+| 7 | Italy | `src/scrapers/italy.py` | 1,500-2,000 | — | Not started (prompt ready) |
+| 8 | TTB (US) | `src/scrapers/ttb.py` | 500-800 | — | Not started (prompt ready) |
+| 9 | Europe (ES/DE/PT) | `src/scrapers/europe.py` | 1,500-2,400 | — | Not started (prompt ready) |
+| 10 | New World | `src/scrapers/newworld.py` | 800-1,200 | — | Not started (prompt ready) |
+| 11 | EU/OIV | `src/scrapers/eu_oiv.py` | 500-800 | — | Not started (prompt ready) |
+| 12 | Regional France | `src/scrapers/regional_france.py` | 800-1,500 | — | Not started (prompt ready) |
+| 13 | Italian Consortiums | `src/scrapers/consortiums_italy.py` | 400-600 | — | Not started (prompt ready) |
+| 14 | Academic | `src/scrapers/academic.py` | 500-800 | — | Not started (prompt ready) |
+| — | Verify | `src/scrapers/verify.py` | — | — | Not started (prompt ready) |
 
-**Total raw facts collected:** ~38,000+  
+**Total raw facts collected:** ~38,000+
 **Target after dedup:** 15,000-20,000 unique facts
+
+### Completed Scraper Details
+
+**Scraper 1 — Wikidata (`wikidata.py`):**
+- Uses SPARQL queries against Wikidata endpoint
+- Extracts wine regions, grape varieties, appellations, producers, classifications
+- 20,910 facts — significantly exceeded 3,000-5,000 target
+- CC0 licensed data (public domain)
+
+**Scraper 2 — Wikipedia (`wikipedia.py`):**
+- Uses MediaWiki API for category-based article crawling
+- Extracts from infoboxes and lead paragraphs
+- Covers regions, grapes, wineries, appellations, viticulture, oenology categories
+- Rephrases all text into atomic facts (never stores verbatim Wikipedia text)
+- CC BY-SA 3.0 licensed
+
+**Scraper 3 — HuggingFace (`huggingface.py`):**
+- Processes spawn99/wine-reviews (281K rows) and christopher/winesensed datasets
+- Extracts variety-region associations, producer-region links, price tiers
+- 16,514 facts from structured dataset analysis
+
+**Scraper 4 — UC Davis (`ucdavis.py`):**
+- Three data sources: Wine Ontology (RDF), AVA Digitizing Project (GeoJSON), FPS Grape Database (HTML)
+- Parses RDF with rdflib, GeoJSON natively, HTML with BeautifulSoup
+- Covers wine classifications, 267+ US AVAs, 595 grape varieties with clones
+- Full implementation with --all, --source, --dry-run, --validate, --test-run, --list flags
 
 ### Key Learnings So Far
 
 1. **Quality over quantity** — Atomic fact extraction works better than accepting verbose or compound statements
-2. **Validation before full runs** — Always use SQL queries in pgAdmin to inspect data quality before committing to full scraper runs
-3. **Claude Code workflow** — Using Claude Code prompts rather than direct code implementation has been more effective. 14 comprehensive scraper prompts have been created.
+2. **Validation before full runs** — Always inspect data quality before committing to full scraper runs
+3. **Claude Code workflow** — Using Claude Code prompts for scraper implementation has been effective
 4. **Wikidata overperformed** — 20,910 facts vs 3,000-5,000 target, excellent structured data source
 5. **HuggingFace contributed well** — 16,514 facts from wine review datasets
+6. **UC Davis provides authoritative data** — Ontology + AVA + FPS covers varieties and US regions comprehensively
 
 ---
 
 ## Domain Coverage Assessment (Estimated)
 
-Based on completed scrapers, coverage is currently weighted toward regions and varieties. Upcoming scrapers should balance this:
+Based on completed scrapers (1-4), coverage is weighted toward regions and varieties. Upcoming scrapers should balance this:
 
 | Domain | Current Coverage | Scrapers That Will Help |
 |--------|-----------------|-------------------------|
-| Wine Regions | 🟢 Good | Scrapers 6-10, 12 |
-| Grape Varieties | 🟢 Good | Scrapers 4, 6-10 |
-| Producers | 🟡 Moderate | Scrapers 12, 13 |
-| Viticulture | 🔴 Low | Scrapers 14 (academic) |
-| Winemaking | 🔴 Low | Scrapers 11, 14 (academic) |
-| Wine Business | 🔴 Low | Scrapers 8, 11 |
+| Wine Regions | Good | Scrapers 6-10, 12 |
+| Grape Varieties | Good | Scrapers 5, 6-10 |
+| Producers | Moderate | Scrapers 12, 13 |
+| Viticulture | Low | Scrapers 14 (academic) |
+| Winemaking | Low | Scrapers 11, 14 (academic) |
+| Wine Business | Low | Scrapers 8, 11 |
 
 ---
 
 ## Next Steps
 
-1. Implement scrapers 4-14 using prompts in `docs/SCRAPER_PROMPTS.md`
-2. Run `verify.py` gap analysis after completing scraper batch
-3. Begin question generation pipeline design (Phase 2)
-4. Set up multi-model LLM API access for question generation
-5. Design evaluation framework and scoring pipeline
+1. Implement scrapers 5-14 using prompts in `SCRAPER_PROMPTS.md`
+2. Implement `verify.py` gap analysis tool
+3. Run verify.py after completing scraper batches
+4. Begin question generation pipeline design (Phase 2)
+5. Set up multi-model LLM API access for question generation
+6. Design evaluation framework and scoring pipeline

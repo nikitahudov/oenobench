@@ -1,8 +1,8 @@
-# WineBench — Data Source Inventory & Scraping Strategy
+# OenoBench — Data Source Inventory & Scraping Strategy
 
 ## Overview
 
-This document catalogues every data source for the WineBench fact database,
+This document catalogues every data source for the OenoBench fact database,
 prioritized by value, ease of access, and legal safety. The goal is 15,000+
 verified facts across 6 domains.
 
@@ -534,7 +534,7 @@ grape variety reference pages. Do NOT scrape pricing or review data.
 
 1. **Always check robots.txt** before scraping any domain
 2. **Rate limit all scrapers** — max 1 request per 3-5 seconds
-3. **Identify your scraper** — set User-Agent to `WineBench-Research/1.0 (academic research; contact@email)`
+3. **Identify your scraper** — set User-Agent to `OenoBench-Research/1.0 (academic wine benchmark)`
 4. **Government/regulatory data** — generally safe to scrape (public information)
 5. **Interprofession/consortium data** — public promotional information, generally safe
 6. **Commercial websites** — check ToS carefully, only extract public reference data
