@@ -109,9 +109,9 @@ def _build_wine_quality_facts(source_id: str, test_run: bool = False) -> list[di
     red_path = RAW_DIR / WINE_QUALITY_RED
     white_path = RAW_DIR / WINE_QUALITY_WHITE
 
-    # Read CSVs — UCI dataset uses semicolons as separator
-    red_df = pd.read_csv(red_path, sep=";")
-    white_df = pd.read_csv(white_path, sep=";")
+    # Read CSVs — UCI source uses semicolons, Kaggle download uses commas
+    red_df = pd.read_csv(red_path, sep=None, engine="python")
+    white_df = pd.read_csv(white_path, sep=None, engine="python")
 
     logger.info(f"Wine Quality: {len(red_df)} red rows, {len(white_df)} white rows")
 
