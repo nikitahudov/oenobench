@@ -42,3 +42,6 @@ orjson==3.10.3                 # Fast JSON
 click==8.1.7                   # CLI interface
 loguru==0.7.2                  # Better logging
 tenacity==8.3.0                # Retry logic for API calls
+
+# ─── Dashboard ────────────────────────────────────────────────────────────────
+Flask==3.0.3                   # Monitoring dashboard

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OenoBench Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <h1>OenoBench Dashboard</h1>
+            <span class="subtitle">Wine AI Benchmark — NeurIPS 2026</span>
+        </div>
+        <div class="header-right">
+            <span id="last-refresh" class="meta-text">Loading...</span>
+            <span class="refresh-indicator">Auto-refresh: 30s</span>
+        </div>
+    </header>
+
+    <main>
+        <!-- Section 1: Fact Collection -->
+        <section class="card full-width">
+            <h2>Fact Collection</h2>
+            <div class="summary-row" id="facts-summary">
+                <div class="stat-box">
+                    <span class="stat-value" id="total-facts">—</span>
+                    <span class="stat-label">Total Facts</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-value" id="total-sources">—</span>
+                    <span class="stat-label">Sources</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-value" id="total-questions">—</span>
+                    <span class="stat-label">Questions</span>
+                </div>
+                <div class="stat-box wide">
+                    <span class="stat-label">Overall Progress</span>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="overall-progress" style="width: 0%"></div>
+                    </div>
+                    <span class="stat-pct" id="overall-pct">0%</span>
+                </div>
+            </div>
+
+            <div class="domain-grid" id="domain-grid"></div>
+
+            <h3>Recent Facts</h3>
+            <table class="data-table" id="recent-facts-table">
+                <thead>
+                    <tr>
+                        <th>Fact</th>
+                        <th>Domain</th>
+                        <th>Added</th>
+                    </tr>
+                </thead>
+                <tbody id="recent-facts-body"></tbody>
+            </table>
+        </section>
+
+        <!-- Section 2: Scraper Status -->
+        <section class="card full-width">
+            <h2>Scraper Status</h2>
+            <div class="summary-row" id="phase-summary">
+                <div class="stat-box">
+                    <span class="stat-value" id="phase-name">—</span>
+                    <span class="stat-label">Current Phase</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-value" id="scrapers-done">—</span>
+                    <span class="stat-label">Scrapers Complete</span>
+                </div>
+                <div class="stat-box wide">
+                    <span class="stat-label">Scraper Progress</span>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="scraper-progress" style="width: 0%"></div>
+                    </div>
+                    <span class="stat-pct" id="scraper-pct">0%</span>
+                </div>
+            </div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Scraper</th>
+                        <th>File</th>
+                        <th>Status</th>
+                        <th>Facts</th>
+                    </tr>
+                </thead>
+                <tbody id="scraper-table-body"></tbody>
+            </table>
+        </section>
+
+        <!-- Section 3: Infrastructure Health -->
+        <section class="card full-width">
+            <h2>Infrastructure Health</h2>
+            <div class="health-grid" id="health-grid"></div>
+
+            <h3>Container Resources</h3>
+            <table class="data-table" id="docker-table">
+                <thead>
+                    <tr>
+                        <th>Container</th>
+                        <th>Memory</th>
+                        <th>CPU</th>
+                    </tr>
+                </thead>
+                <tbody id="docker-table-body"></tbody>
+            </table>
+        </section>
+    </main>
+
+    <footer>
+        <span class="meta-text">OenoBench &copy; 2026 — Monitoring Dashboard</span>
+    </footer>
+
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>

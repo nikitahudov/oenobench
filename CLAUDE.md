@@ -40,6 +40,14 @@ The key innovation is an AI-driven pipeline: automated data collection → multi
 │   │   ├── wikipedia.py          # ✅ Done — Wikipedia MediaWiki API
 │   │   ├── huggingface.py        # ✅ Done — HuggingFace datasets (16,514 facts)
 │   │   └── ucdavis.py            # ✅ Done — UC Davis ontology, AVA, FPS
+│   ├── dashboard/
+│   │   ├── __init__.py
+│   │   ├── app.py                # Flask monitoring dashboard (python -m src.dashboard.app)
+│   │   ├── templates/
+│   │   │   └── index.html        # Dashboard single-page template
+│   │   └── static/
+│   │       ├── css/style.css     # Dark theme styles
+│   │       └── js/dashboard.js   # Auto-refresh polling logic
 │   ├── evaluation/
 │   │   └── __init__.py           # Placeholder — future evaluation pipeline
 │   ├── generators/
@@ -217,6 +225,8 @@ Every scraper must include `--validate` that reports:
 **Key Docker container names:** `wb-postgres`, `wb-elasticsearch`, `wb-neo4j`, `wb-redis`
 
 **Database name:** `winebench` (historical, predates rename to OenoBench)
+
+**Monitoring Dashboard:** `python -m src.dashboard.app` — Flask app on port 5555 (configurable via `DASHBOARD_PORT`). HTTP Basic Auth via `DASHBOARD_USER`/`DASHBOARD_PASSWORD` in `.env`. Shows fact collection progress, scraper status, and infrastructure health with 30s auto-refresh.
 
 ### PostgreSQL Schema (key tables)
 
