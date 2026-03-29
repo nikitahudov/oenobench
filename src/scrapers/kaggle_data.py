@@ -429,6 +429,128 @@ def _build_wine_quality_facts(source_id: str, test_run: bool = False) -> list[di
         "tags": ["dataset", "uci", "vinho_verde"],
     })
 
+    # --- Quality-tier breakdowns: chemistry by quality level ---
+    PROPERTIES = [
+        ("pH", "pH", 2, ""),
+        ("alcohol", "alcohol content", 1, "%"),
+        ("volatile acidity", "volatile acidity", 2, " g/L"),
+        ("residual sugar", "residual sugar", 1, " g/L"),
+        ("total sulfur dioxide", "total sulfur dioxide", 0, " mg/L"),
+    ]
+    QUALITY_TIERS = [
+        ("low", lambda q: q <= 4, "rated 4 or below"),
+        ("medium", lambda q: (q >= 5) & (q <= 6), "rated 5-6"),
+        ("high", lambda q: q >= 7, "rated 7 or above"),
+    ]
+
+    for wine_type, df in [("red", red_df), ("white", white_df)]:
+        for prop_col, prop_name, decimals, unit in PROPERTIES:
+            for tier_name, tier_filter, tier_desc in QUALITY_TIERS:
+                subset = df[tier_filter(df["quality"])]
+                if len(subset) < 10:
+                    continue
+                med = subset[prop_col].median()
+                facts.append({
+                    "fact_text": (
+                        f"{wine_type.capitalize()} wines {tier_desc} have a median "
+                        f"{prop_name} of {_round_val(med, decimals)}{unit}."
+                    ),
+                    "domain": "winemaking",
+                    "subdomain": "quality",
+                    "source_id": source_id,
+                    "entities": [],
+                    "confidence": 0.85,
+                    "tags": ["statistics", prop_col.replace(" ", "_"), "quality_tier",
+                             wine_type, tier_name, "uci"],
+                })
+
+    # --- Percentile breakdowns ---
+    PERCENTILE_PROPS = [
+        ("alcohol", "alcohol content", 1, "% ABV"),
+        ("pH", "pH level", 2, ""),
+        ("residual sugar", "residual sugar level", 1, " g/L"),
+    ]
+    PERCENTILES = [(25, "25%"), (75, "75%")]
+
+    for wine_type, df in [("red", red_df), ("white", white_df)]:
+        for prop_col, prop_name, decimals, unit in PERCENTILE_PROPS:
+            for pct, pct_label in PERCENTILES:
+                val = df[prop_col].quantile(pct / 100)
+                direction = "below" if pct <= 50 else "above"
+                facts.append({
+                    "fact_text": (
+                        f"{pct_label} of {wine_type} wines have an {prop_name} "
+                        f"{direction} {_round_val(val, decimals)}{unit}."
+                    ),
+                    "domain": "winemaking",
+                    "subdomain": "chemistry",
+                    "source_id": source_id,
+                    "entities": [],
+                    "confidence": 0.9,
+                    "tags": ["statistics", "percentile", prop_col.replace(" ", "_"),
+                             wine_type, "uci"],
+                })
+
+    # --- Correlation facts: property vs quality ---
+    CORR_PROPS = [
+        ("volatile acidity", "volatile acidity"),
+        ("citric acid", "citric acid"),
+        ("sulphates", "sulphate concentration"),
+        ("residual sugar", "residual sugar"),
+        ("chlorides", "chloride levels"),
+        ("total sulfur dioxide", "total sulfur dioxide"),
+    ]
+
+    for wine_type, df in [("red", red_df), ("white", white_df)]:
+        for prop_col, prop_name in CORR_PROPS:
+            corr = df[prop_col].corr(df["quality"])
+            if np.isnan(corr) or abs(corr) < 0.1:
+                continue
+            direction = "positively" if corr > 0 else "negatively"
+            strength = "strongly" if abs(corr) > 0.3 else "moderately"
+            facts.append({
+                "fact_text": (
+                    f"In {wine_type} wines, {prop_name} is {strength} {direction} "
+                    f"correlated with quality ratings (r={_round_val(corr, 2)})."
+                ),
+                "domain": "winemaking",
+                "subdomain": "quality",
+                "source_id": source_id,
+                "entities": [],
+                "confidence": 0.8,
+                "tags": ["statistics", "correlation", prop_col.replace(" ", "_"),
+                         wine_type, "uci"],
+            })
+
+    # --- Outlier / rarity facts ---
+    OUTLIER_THRESHOLDS = [
+        ("residual sugar", 10, "g/L", "high residual sugar"),
+        ("alcohol", 13, "% ABV", "alcohol above 13%"),
+        ("volatile acidity", 1.0, "g/L", "volatile acidity above 1.0 g/L"),
+        ("pH", 3.8, "", "a pH above 3.8"),
+    ]
+
+    for wine_type, df in [("red", red_df), ("white", white_df)]:
+        total = len(df)
+        for prop_col, threshold, unit, desc in OUTLIER_THRESHOLDS:
+            count = (df[prop_col] > threshold).sum()
+            pct = count / total * 100
+            if pct < 0.5 or pct > 40:
+                continue
+            facts.append({
+                "fact_text": (
+                    f"Only {_round_val(pct)}% of {wine_type} wines have {desc}, "
+                    f"making them relatively uncommon."
+                ),
+                "domain": "winemaking",
+                "subdomain": "chemistry",
+                "source_id": source_id,
+                "entities": [],
+                "confidence": 0.85,
+                "tags": ["statistics", "outlier", prop_col.replace(" ", "_"),
+                         wine_type, "uci"],
+            })
+
     # Tag all wine-quality facts with their category
     for f in facts:
         f["_category"] = "wine_quality_stats"
