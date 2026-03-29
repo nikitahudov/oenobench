@@ -751,13 +751,16 @@ def run_dataset(dataset_name: str, dry_run: bool = False) -> tuple[int, int]:
     # Check files exist
     _check_files(dataset_name)
 
-    # Register source
-    source_id = ensure_source(
-        name=f"Kaggle: {dataset_name}",
-        url=config["source_url"],
-        source_type="dataset",
-        tier=config["tier"],
-    )
+    # Register source (skip DB call in dry-run mode)
+    if dry_run:
+        source_id = "dry-run-placeholder"
+    else:
+        source_id = ensure_source(
+            name=f"Kaggle: {dataset_name}",
+            url=config["source_url"],
+            source_type="dataset",
+            tier=config["tier"],
+        )
 
     # Build facts
     if dataset_name == "wine-quality":
