@@ -123,6 +123,70 @@ def insert_facts_batch(facts: list[dict], batch_size: int = 100) -> int:
     return inserted
 
 
+def insert_facts_batch_tracked(facts: list[dict], batch_size: int = 100) -> tuple[int, list[str]]:
+    """Insert multiple facts, returning (count_inserted, list_of_inserted_ids).
+
+    Same logic as insert_facts_batch but tracks which fact IDs were created.
+    """
+    conn = get_pg()
+    cur = conn.cursor()
+    inserted = 0
+    inserted_ids: list[str] = []
+
+    import orjson
+
+    for i in range(0, len(facts), batch_size):
+        batch = facts[i : i + batch_size]
+        for fact in batch:
+            cur.execute("SELECT 1 FROM facts WHERE fact_text = %s", (fact["fact_text"],))
+            if cur.fetchone():
+                continue
+
+            fact_id = str(uuid.uuid4())
+            cur.execute(
+                """
+                INSERT INTO facts (id, fact_text, domain, subdomain, entities, source_id, confidence, tags)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    fact_id,
+                    fact["fact_text"],
+                    fact["domain"],
+                    fact.get("subdomain"),
+                    orjson.dumps(fact.get("entities", [])).decode(),
+                    fact["source_id"],
+                    fact.get("confidence", 1.0),
+                    fact.get("tags", []),
+                ),
+            )
+            inserted += 1
+            inserted_ids.append(fact_id)
+
+        conn.commit()
+        logger.info(f"Batch committed: {inserted} facts inserted so far")
+
+    return inserted, inserted_ids
+
+
+def delete_facts_by_ids(fact_ids: list[str]) -> int:
+    """Delete facts by their UUIDs. Returns count deleted."""
+    if not fact_ids:
+        return 0
+    conn = get_pg()
+    cur = conn.cursor()
+    deleted = 0
+    # Delete in batches to avoid overly long IN clauses
+    for i in range(0, len(fact_ids), 100):
+        batch = fact_ids[i : i + 100]
+        cur.execute(
+            "DELETE FROM facts WHERE id = ANY(%s::uuid[])",
+            (batch,),
+        )
+        deleted += cur.rowcount
+    conn.commit()
+    return deleted
+
+
 def get_fact_count(domain: Optional[str] = None) -> int:
     """Get total fact count, optionally filtered by domain."""
     conn = get_pg()
