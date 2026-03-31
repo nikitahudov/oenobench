@@ -6,6 +6,29 @@ OenoBench (formerly WineBench) is a comprehensive AI benchmark for evaluating LL
 
 The key innovation is an AI-driven pipeline: automated data collection → multi-model question generation → AI validation → targeted human review.
 
+## Workflow Rules — READ FIRST
+
+### Git & GitHub
+
+- **GitHub is the single source of truth.** Always push commits to GitHub after making changes on the VM. Use `git push` after every commit or logical batch of commits.
+- **Always pull before starting work.** The user may also work via Claude Code on the web (claude.ai/code), creating PRs from separate branches. Before starting any task, run `git pull origin main` to pick up merged changes.
+- **Use descriptive commit messages.** Each commit should clearly explain what changed and why, so the user can review the git log for a full audit trail.
+- **Never force-push or rewrite history on main.** If conflicts arise, resolve them transparently.
+
+### Documentation & Dashboard Updates
+
+- **Update documentation after every change.** Follow the existing "Documentation Maintenance — MANDATORY" rules below. This applies to both code and infrastructure changes.
+- **Update the monitoring dashboard data** when scraper status or fact counts change. This means updating the `SCRAPERS` list in `src/dashboard/app.py` to reflect current scraper statuses and known fact counts.
+- **Update `CURRENT_STATUS.md`** with every significant change — it is the user's primary progress-tracking document.
+
+### Transparency & Verification
+
+- **The project owner is a wine domain expert.** All wine-related facts, classifications, and domain knowledge can and will be verified by the user. Never fabricate or guess wine facts — use only data from authoritative sources.
+- **Show your work.** When running scrapers or making data changes, report: what was run, how many facts were inserted/modified, any errors encountered, and sample outputs.
+- **Log all scraper runs.** Every scraper execution must produce a log file in `data/logs/` as specified in the scraper patterns.
+- **Flag uncertainty.** If you're unsure about a wine-related classification, domain assignment, or fact accuracy, explicitly flag it for the user's review rather than making assumptions.
+- **Provide verification commands.** After making changes, suggest commands the user can run to verify the results (e.g., `--validate` flag, SQL queries, dashboard checks).
+
 ## Repository Structure
 
 ```
