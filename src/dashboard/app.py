@@ -42,7 +42,7 @@ SCRAPERS = [
     {"name": "Italy Registries", "file": "italy.py", "status": "complete", "facts": 606},
     {"name": "US TTB", "file": "ttb.py", "status": "complete", "facts": 515},
     {"name": "Europe (ES/DE/PT)", "file": "europe.py", "status": "complete", "facts": 1605},
-    {"name": "New World", "file": "newworld.py", "status": "complete", "facts": None},
+    {"name": "New World", "file": "newworld.py", "status": "complete", "facts": 903},
     {"name": "EU/OIV Regulations", "file": "eu_oiv.py", "status": "complete", "facts": None},
     {"name": "Burgundy", "file": "burgundy.py", "status": "complete", "facts": None},
     {"name": "Bordeaux", "file": "bordeaux.py", "status": "complete", "facts": None},

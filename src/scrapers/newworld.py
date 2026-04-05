@@ -2293,8 +2293,8 @@ def run_test(
     if country_filter:
         slugs = [country_filter]
     else:
-        # Test mode: only the first country
-        slugs = [COUNTRY_SLUGS[0]]
+        # Test mode: all countries with limited facts each
+        slugs = list(COUNTRY_SLUGS)
 
     category_stats = {}
     all_facts_collected = []
