@@ -6,6 +6,11 @@ Extracts wine knowledge from major Italian wine consortium websites:
   - Consorzio del Barolo e Barbaresco (langhevini.it)
   - Consorzio del Chianti Classico (chianticlassico.com)
   - Consorzio di Tutela Prosecco DOC (prosecco.wine)
+  - Consorzio Franciacorta (franciacorta.wine)
+  - Consorzio per la Tutela dei Vini Valpolicella (consorziovalpolicella.it)
+  - Consorzio del Vino Nobile di Montepulciano (consorziovinonobile.it)
+  - Consorzio Tutela Soave (ilsoave.com)
+  - Trentodoc — Istituto Trento DOC (trentodoc.com)
 
 Usage:
     python -m src.scrapers.consortiums_italy --all
@@ -13,6 +18,11 @@ Usage:
     python -m src.scrapers.consortiums_italy --consortium barolo
     python -m src.scrapers.consortiums_italy --consortium chianti
     python -m src.scrapers.consortiums_italy --consortium prosecco
+    python -m src.scrapers.consortiums_italy --consortium franciacorta
+    python -m src.scrapers.consortiums_italy --consortium valpolicella
+    python -m src.scrapers.consortiums_italy --consortium vinonobile
+    python -m src.scrapers.consortiums_italy --consortium soave
+    python -m src.scrapers.consortiums_italy --consortium trentodoc
     python -m src.scrapers.consortiums_italy --dry-run
     python -m src.scrapers.consortiums_italy --validate
     python -m src.scrapers.consortiums_italy --list
@@ -107,6 +117,72 @@ CONSORTIUMS = {
             "/en/production-regulations/",
         ],
         "description": "Prosecco DOC consortium — Glera grape, sparkling production, territory",
+    },
+    "franciacorta": {
+        "name": "Consorzio Franciacorta",
+        "base_url": "https://www.franciacorta.wine",
+        "source_type": "consortium",
+        "tier": "tier_2_authoritative",
+        "language": "it",
+        "pages": [
+            "/en/",
+            "/en/franciacorta/",
+            "/en/territory/",
+            "/en/production-method/",
+        ],
+        "description": "Franciacorta DOCG consortium — traditional method sparkling, Lombardy",
+    },
+    "valpolicella": {
+        "name": "Consorzio per la Tutela dei Vini Valpolicella",
+        "base_url": "https://www.consorziovalpolicella.it",
+        "source_type": "consortium",
+        "tier": "tier_2_authoritative",
+        "language": "it",
+        "pages": [
+            "/en/",
+            "/en/the-wines/",
+            "/en/territory/",
+        ],
+        "description": "Valpolicella consortium — Amarone, Ripasso, Recioto, Corvina-based wines",
+    },
+    "vinonobile": {
+        "name": "Consorzio del Vino Nobile di Montepulciano",
+        "base_url": "https://www.consorziovinonobile.it",
+        "source_type": "consortium",
+        "tier": "tier_2_authoritative",
+        "language": "it",
+        "pages": [
+            "/en/",
+            "/en/the-wine/",
+            "/en/the-territory/",
+        ],
+        "description": "Vino Nobile di Montepulciano DOCG consortium — Prugnolo Gentile, Tuscany",
+    },
+    "soave": {
+        "name": "Consorzio Tutela Soave",
+        "base_url": "https://www.ilsoave.com",
+        "source_type": "consortium",
+        "tier": "tier_2_authoritative",
+        "language": "it",
+        "pages": [
+            "/en/",
+            "/en/the-wine/",
+            "/en/the-territory/",
+        ],
+        "description": "Soave consortium — Garganega, volcanic soils, Veneto white wines",
+    },
+    "trentodoc": {
+        "name": "Trentodoc — Istituto Trento DOC",
+        "base_url": "https://www.trentodoc.com",
+        "source_type": "consortium",
+        "tier": "tier_2_authoritative",
+        "language": "it",
+        "pages": [
+            "/en/",
+            "/en/trentodoc/",
+            "/en/territory/",
+        ],
+        "description": "Trentodoc consortium — traditional method sparkling, mountain viticulture, Trentino",
     },
 }
 
@@ -875,6 +951,777 @@ def _extract_prosecco_facts(
     return facts
 
 
+def _extract_franciacorta_facts(
+    text_blocks: list[str], source_id: str, page_url: str
+) -> list[dict]:
+    """Extract facts from Franciacorta consortium pages.
+
+    Core production regulation facts are always generated.
+    Web content is used for supplementary extraction.
+    """
+    facts = []
+
+    franciacorta_entities = [
+        {"type": "appellation", "name": "Franciacorta"},
+        {"type": "grape", "name": "Chardonnay"},
+    ]
+
+    # ── Production rules (always generated — official DOCG regulations) ──
+    facts.append(_make_fact(
+        "Franciacorta DOCG is produced using the traditional method (metodo classico) with secondary fermentation in bottle.",
+        "winemaking", source_id, franciacorta_entities,
+        subdomain="production_method",
+        tags=["franciacorta", "docg", "traditional_method", "sparkling"],
+    ))
+    facts.append(_make_fact(
+        "Franciacorta DOCG permits the grape varieties Chardonnay, Pinot Nero (Pinot Noir), and Pinot Bianco.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Franciacorta"},
+         {"type": "grape", "name": "Chardonnay"},
+         {"type": "grape", "name": "Pinot Nero"},
+         {"type": "grape", "name": "Pinot Bianco"}],
+        subdomain="production_rules",
+        tags=["franciacorta", "docg", "grape_requirement"],
+    ))
+    facts.append(_make_fact(
+        "Franciacorta DOCG Erbamat grape variety was authorized in 2017 as a permitted minor blending component.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Franciacorta"},
+         {"type": "grape", "name": "Erbamat"}],
+        subdomain="production_rules",
+        tags=["franciacorta", "docg", "grape_requirement", "erbamat"],
+    ))
+    facts.append(_make_fact(
+        "Franciacorta DOCG requires a minimum of 18 months aging on the lees for non-vintage wines.",
+        "winemaking", source_id, franciacorta_entities,
+        subdomain="aging",
+        tags=["franciacorta", "docg", "aging", "lees"],
+    ))
+    facts.append(_make_fact(
+        "Franciacorta DOCG Millesimato (vintage) requires a minimum of 30 months aging on the lees.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Franciacorta Millesimato"}],
+        subdomain="aging",
+        tags=["franciacorta", "millesimato", "docg", "aging"],
+    ))
+    facts.append(_make_fact(
+        "Franciacorta DOCG Riserva requires a minimum of 60 months aging on the lees.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Franciacorta Riserva"}],
+        subdomain="aging",
+        tags=["franciacorta", "riserva", "docg", "aging"],
+    ))
+
+    # ── Classification tiers ──
+    facts.append(_make_fact(
+        "Franciacorta DOCG is produced in several styles: Franciacorta, Satèn, Rosé, Millesimato, and Riserva.",
+        "winemaking", source_id, franciacorta_entities,
+        subdomain="classification",
+        tags=["franciacorta", "docg", "styles"],
+    ))
+    facts.append(_make_fact(
+        "Franciacorta Satèn DOCG is a blanc de blancs style made exclusively from Chardonnay and/or Pinot Bianco with a maximum pressure of 5 atmospheres.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Franciacorta Satèn"},
+         {"type": "grape", "name": "Chardonnay"},
+         {"type": "grape", "name": "Pinot Bianco"}],
+        subdomain="production_rules",
+        tags=["franciacorta", "satèn", "docg", "blanc_de_blancs"],
+    ))
+    facts.append(_make_fact(
+        "Franciacorta Satèn DOCG requires a minimum of 24 months aging on the lees.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Franciacorta Satèn"}],
+        subdomain="aging",
+        tags=["franciacorta", "satèn", "docg", "aging"],
+    ))
+    facts.append(_make_fact(
+        "Franciacorta Rosé DOCG must include a minimum of 25% Pinot Nero and requires at least 24 months on the lees.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Franciacorta Rosé"},
+         {"type": "grape", "name": "Pinot Nero"}],
+        subdomain="production_rules",
+        tags=["franciacorta", "rosé", "docg", "aging"],
+    ))
+
+    # ── Geography ──
+    facts.append(_make_fact(
+        "Franciacorta DOCG is produced in the province of Brescia in Lombardy, on the southern shore of Lake Iseo.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Franciacorta"},
+         {"type": "region", "name": "Brescia"},
+         {"type": "region", "name": "Lombardy"}],
+        subdomain="italy",
+        tags=["franciacorta", "geography", "lombardy"],
+    ))
+    facts.append(_make_fact(
+        "The Franciacorta production zone covers approximately 2,800 hectares of vineyards across 19 communes.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Franciacorta"}],
+        subdomain="italy",
+        tags=["franciacorta", "geography", "vineyard_area"],
+    ))
+
+    # ── Historical ──
+    facts.append(_make_fact(
+        "Franciacorta received DOCG status in 1995, becoming the first Italian sparkling wine to achieve DOCG designation solely for traditional method wines.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Franciacorta"}],
+        subdomain="appellations",
+        tags=["franciacorta", "docg", "history"],
+    ))
+    facts.append(_make_fact(
+        "The Consorzio Franciacorta was founded in 1990 to promote and protect Franciacorta wines.",
+        "wine_business", source_id,
+        [{"type": "organization", "name": "Consorzio Franciacorta"}],
+        subdomain="consortiums",
+        tags=["franciacorta", "consortium", "history"],
+    ))
+
+    # ── Viticulture ──
+    facts.append(_make_fact(
+        "The maximum permitted yield for Franciacorta DOCG is 10 tonnes per hectare.",
+        "viticulture", source_id, franciacorta_entities,
+        subdomain="yields",
+        tags=["franciacorta", "docg", "yield"],
+    ))
+    facts.append(_make_fact(
+        "Franciacorta vineyards benefit from the moderating influence of Lake Iseo and morainic soils deposited by ancient glaciers.",
+        "viticulture", source_id,
+        [{"type": "appellation", "name": "Franciacorta"},
+         {"type": "region", "name": "Lake Iseo"}],
+        subdomain="terrain",
+        tags=["franciacorta", "viticulture", "terroir"],
+    ))
+
+    # ── Production rules (additional) ──
+    facts.append(_make_fact(
+        "Franciacorta DOCG wines must have a minimum pressure of 5 atmospheres for Spumante styles, except Satèn which has a maximum of 5 atmospheres.",
+        "winemaking", source_id, franciacorta_entities,
+        subdomain="production_rules",
+        tags=["franciacorta", "docg", "pressure"],
+    ))
+    facts.append(_make_fact(
+        "Franciacorta is the only Italian DOCG where the word 'DOCG' is not required on the label, as the name itself denotes the production method and origin.",
+        "wine_business", source_id,
+        [{"type": "appellation", "name": "Franciacorta"}],
+        subdomain="labeling",
+        tags=["franciacorta", "docg", "labeling"],
+    ))
+
+    return facts
+
+
+def _extract_valpolicella_facts(
+    text_blocks: list[str], source_id: str, page_url: str
+) -> list[dict]:
+    """Extract facts from Valpolicella consortium pages.
+
+    Core production regulation facts are always generated.
+    Web content is used for supplementary extraction.
+    """
+    facts = []
+
+    valpolicella_entities = [
+        {"type": "appellation", "name": "Valpolicella"},
+        {"type": "grape", "name": "Corvina"},
+    ]
+    amarone_entities = [
+        {"type": "appellation", "name": "Amarone della Valpolicella"},
+        {"type": "grape", "name": "Corvina"},
+    ]
+
+    # ── Production rules (always generated — official regulations) ──
+    facts.append(_make_fact(
+        "Valpolicella DOC wines must contain Corvina Veronese at 45-95% of the blend, optionally supplemented by Corvinone (up to 50% as a substitute for Corvina), and Rondinella at 5-30%.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Valpolicella"},
+         {"type": "grape", "name": "Corvina Veronese"},
+         {"type": "grape", "name": "Corvinone"},
+         {"type": "grape", "name": "Rondinella"}],
+        subdomain="production_rules",
+        tags=["valpolicella", "doc", "grape_requirement"],
+    ))
+    facts.append(_make_fact(
+        "Amarone della Valpolicella DOCG is produced from partially dried grapes using the appassimento technique, where grapes are dried for 3-4 months after harvest.",
+        "winemaking", source_id, amarone_entities,
+        subdomain="production_method",
+        tags=["amarone", "docg", "appassimento"],
+    ))
+    facts.append(_make_fact(
+        "Amarone della Valpolicella DOCG must have a minimum alcohol content of 14%.",
+        "winemaking", source_id, amarone_entities,
+        subdomain="production_rules",
+        tags=["amarone", "docg", "alcohol"],
+    ))
+    facts.append(_make_fact(
+        "Amarone della Valpolicella DOCG requires a minimum aging of 2 years from January 1 following the harvest, of which no specific time in wood is mandated by law.",
+        "winemaking", source_id, amarone_entities,
+        subdomain="aging",
+        tags=["amarone", "docg", "aging"],
+    ))
+    facts.append(_make_fact(
+        "Amarone della Valpolicella Riserva DOCG requires a minimum aging of 4 years from January 1 following the harvest.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Amarone della Valpolicella Riserva"},
+         {"type": "grape", "name": "Corvina"}],
+        subdomain="aging",
+        tags=["amarone", "riserva", "docg", "aging"],
+    ))
+
+    # ── Recioto ──
+    facts.append(_make_fact(
+        "Recioto della Valpolicella DOCG is a sweet red wine produced from the same dried grapes as Amarone, but fermentation is stopped to retain residual sugar.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Recioto della Valpolicella"},
+         {"type": "grape", "name": "Corvina"}],
+        subdomain="production_method",
+        tags=["recioto", "docg", "sweet_wine", "appassimento"],
+    ))
+    facts.append(_make_fact(
+        "Recioto della Valpolicella DOCG must have a minimum alcohol content of 12%, with residual sugar typically above 50 grams per liter.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Recioto della Valpolicella"}],
+        subdomain="production_rules",
+        tags=["recioto", "docg", "alcohol", "residual_sugar"],
+    ))
+
+    # ── Ripasso ──
+    facts.append(_make_fact(
+        "Valpolicella Ripasso DOC is produced by re-fermenting Valpolicella wine on the pomace (grape skins) left over from Amarone or Recioto production.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Valpolicella Ripasso"},
+         {"type": "appellation", "name": "Amarone della Valpolicella"}],
+        subdomain="production_method",
+        tags=["ripasso", "doc", "production_method"],
+    ))
+    facts.append(_make_fact(
+        "Valpolicella Ripasso DOC Superiore must have a minimum alcohol content of 12.5% and requires at least 1 year of aging.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Valpolicella Ripasso Superiore"}],
+        subdomain="production_rules",
+        tags=["ripasso", "doc", "alcohol", "aging"],
+    ))
+
+    # ── Geography ──
+    facts.append(_make_fact(
+        "Valpolicella DOC is produced in the province of Verona in the Veneto region of northeastern Italy.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Valpolicella"},
+         {"type": "region", "name": "Verona"},
+         {"type": "region", "name": "Veneto"}],
+        subdomain="italy",
+        tags=["valpolicella", "geography", "veneto"],
+    ))
+    facts.append(_make_fact(
+        "Valpolicella Classico refers to wines produced in the original historic zone comprising the valleys of Fumane, Marano, and Negrar.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Valpolicella Classico"}],
+        subdomain="geography",
+        tags=["valpolicella", "classico", "geography"],
+    ))
+
+    # ── Historical ──
+    facts.append(_make_fact(
+        "Amarone della Valpolicella received DOCG status in 2009.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Amarone della Valpolicella"}],
+        subdomain="appellations",
+        tags=["amarone", "docg", "history"],
+    ))
+    facts.append(_make_fact(
+        "Recioto della Valpolicella received DOCG status in 2010.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Recioto della Valpolicella"}],
+        subdomain="appellations",
+        tags=["recioto", "docg", "history"],
+    ))
+    facts.append(_make_fact(
+        "The Consorzio per la Tutela dei Vini Valpolicella was founded in 1924 to protect and promote the wines of Valpolicella.",
+        "wine_business", source_id,
+        [{"type": "organization", "name": "Consorzio per la Tutela dei Vini Valpolicella"}],
+        subdomain="consortiums",
+        tags=["valpolicella", "consortium", "history"],
+    ))
+
+    # ── Viticulture ──
+    facts.append(_make_fact(
+        "The maximum permitted yield for Amarone della Valpolicella DOCG is 12 tonnes per hectare of fresh grapes before drying.",
+        "viticulture", source_id, amarone_entities,
+        subdomain="yields",
+        tags=["amarone", "docg", "yield"],
+    ))
+    facts.append(_make_fact(
+        "In the appassimento process for Amarone, grapes typically lose 30-40% of their weight during the drying period.",
+        "winemaking", source_id, amarone_entities,
+        subdomain="production_method",
+        tags=["amarone", "appassimento", "drying"],
+    ))
+    facts.append(_make_fact(
+        "Valpolicella vineyards are predominantly trained using the Pergola Veronese system, though Guyot is increasingly used.",
+        "viticulture", source_id, valpolicella_entities,
+        subdomain="training_systems",
+        tags=["valpolicella", "viticulture", "pergola"],
+    ))
+
+    return facts
+
+
+def _extract_vinonobile_facts(
+    text_blocks: list[str], source_id: str, page_url: str
+) -> list[dict]:
+    """Extract facts from Vino Nobile di Montepulciano consortium pages.
+
+    Core production regulation facts are always generated.
+    Web content is used for supplementary extraction.
+    """
+    facts = []
+
+    vinonobile_entities = [
+        {"type": "appellation", "name": "Vino Nobile di Montepulciano"},
+        {"type": "grape", "name": "Sangiovese"},
+    ]
+
+    # ── Production rules (always generated — official DOCG regulations) ──
+    facts.append(_make_fact(
+        "Vino Nobile di Montepulciano DOCG must contain a minimum of 70% Sangiovese, locally known as Prugnolo Gentile.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Vino Nobile di Montepulciano"},
+         {"type": "grape", "name": "Sangiovese"},
+         {"type": "grape", "name": "Prugnolo Gentile"}],
+        subdomain="production_rules",
+        tags=["vino_nobile", "docg", "grape_requirement"],
+    ))
+    facts.append(_make_fact(
+        "Vino Nobile di Montepulciano DOCG permits up to 30% of other authorized red grape varieties, including Canaiolo Nero and Mammolo.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Vino Nobile di Montepulciano"},
+         {"type": "grape", "name": "Canaiolo Nero"},
+         {"type": "grape", "name": "Mammolo"}],
+        subdomain="production_rules",
+        tags=["vino_nobile", "docg", "grape_blending"],
+    ))
+    facts.append(_make_fact(
+        "Vino Nobile di Montepulciano DOCG must have a minimum alcohol content of 12.5%.",
+        "winemaking", source_id, vinonobile_entities,
+        subdomain="production_rules",
+        tags=["vino_nobile", "docg", "alcohol"],
+    ))
+
+    # ── Aging ──
+    facts.append(_make_fact(
+        "Vino Nobile di Montepulciano DOCG requires a minimum of 2 years aging from January 1 following the harvest.",
+        "winemaking", source_id, vinonobile_entities,
+        subdomain="aging",
+        tags=["vino_nobile", "docg", "aging"],
+    ))
+    facts.append(_make_fact(
+        "Vino Nobile di Montepulciano Riserva DOCG requires a minimum of 3 years aging from January 1 following the harvest.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Vino Nobile di Montepulciano Riserva"},
+         {"type": "grape", "name": "Sangiovese"}],
+        subdomain="aging",
+        tags=["vino_nobile", "riserva", "docg", "aging"],
+    ))
+    facts.append(_make_fact(
+        "Vino Nobile di Montepulciano DOCG must include at least 12 months of aging in oak barrels.",
+        "winemaking", source_id, vinonobile_entities,
+        subdomain="aging",
+        tags=["vino_nobile", "docg", "aging", "oak"],
+    ))
+
+    # ── Related appellations ──
+    facts.append(_make_fact(
+        "Rosso di Montepulciano DOC is produced from the same grape varieties as Vino Nobile but requires only 1 year of aging.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Rosso di Montepulciano"},
+         {"type": "grape", "name": "Sangiovese"}],
+        subdomain="production_rules",
+        tags=["rosso_di_montepulciano", "doc", "aging"],
+    ))
+
+    # ── Geography ──
+    facts.append(_make_fact(
+        "Vino Nobile di Montepulciano DOCG is produced exclusively in the commune of Montepulciano in the province of Siena, Tuscany.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Vino Nobile di Montepulciano"},
+         {"type": "region", "name": "Montepulciano"},
+         {"type": "region", "name": "Siena"},
+         {"type": "region", "name": "Tuscany"}],
+        subdomain="italy",
+        tags=["vino_nobile", "geography", "tuscany"],
+    ))
+    facts.append(_make_fact(
+        "Montepulciano vineyards are planted at elevations between 250 and 600 meters above sea level.",
+        "viticulture", source_id,
+        [{"type": "region", "name": "Montepulciano"}],
+        subdomain="terrain",
+        tags=["vino_nobile", "elevation", "viticulture"],
+    ))
+    facts.append(_make_fact(
+        "The Vino Nobile di Montepulciano production zone covers approximately 2,000 hectares of vineyards.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Vino Nobile di Montepulciano"}],
+        subdomain="italy",
+        tags=["vino_nobile", "geography", "vineyard_area"],
+    ))
+
+    # ── Historical ──
+    facts.append(_make_fact(
+        "Vino Nobile di Montepulciano received DOCG status in 1980, among the first Italian wines to achieve this designation.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Vino Nobile di Montepulciano"}],
+        subdomain="appellations",
+        tags=["vino_nobile", "docg", "history"],
+    ))
+    facts.append(_make_fact(
+        "The Consorzio del Vino Nobile di Montepulciano was founded in 1965 to protect and promote Vino Nobile wines.",
+        "wine_business", source_id,
+        [{"type": "organization", "name": "Consorzio del Vino Nobile di Montepulciano"}],
+        subdomain="consortiums",
+        tags=["vino_nobile", "consortium", "history"],
+    ))
+    facts.append(_make_fact(
+        "The name Vino Nobile di Montepulciano was first documented in 1685, when the poet Francesco Redi praised it in his poem Bacco in Toscana.",
+        "wine_business", source_id,
+        [{"type": "appellation", "name": "Vino Nobile di Montepulciano"}],
+        subdomain="history",
+        tags=["vino_nobile", "history", "naming"],
+    ))
+
+    # ── Viticulture ──
+    facts.append(_make_fact(
+        "The maximum permitted yield for Vino Nobile di Montepulciano DOCG is 8 tonnes per hectare.",
+        "viticulture", source_id, vinonobile_entities,
+        subdomain="yields",
+        tags=["vino_nobile", "docg", "yield"],
+    ))
+    facts.append(_make_fact(
+        "Prugnolo Gentile is the local name for the Sangiovese clone grown in the Montepulciano area of Tuscany.",
+        "grape_varieties", source_id,
+        [{"type": "grape", "name": "Prugnolo Gentile"},
+         {"type": "grape", "name": "Sangiovese"},
+         {"type": "region", "name": "Montepulciano"}],
+        subdomain="clones",
+        tags=["prugnolo_gentile", "sangiovese", "clone"],
+    ))
+
+    return facts
+
+
+def _extract_soave_facts(
+    text_blocks: list[str], source_id: str, page_url: str
+) -> list[dict]:
+    """Extract facts from Soave consortium pages.
+
+    Core production regulation facts are always generated.
+    Web content is used for supplementary extraction.
+    """
+    facts = []
+
+    soave_entities = [
+        {"type": "appellation", "name": "Soave"},
+        {"type": "grape", "name": "Garganega"},
+    ]
+
+    # ── Production rules (always generated — official regulations) ──
+    facts.append(_make_fact(
+        "Soave DOC must contain a minimum of 70% Garganega, with the remainder from Trebbiano di Soave, Chardonnay, or Pinot Bianco.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Soave"},
+         {"type": "grape", "name": "Garganega"},
+         {"type": "grape", "name": "Trebbiano di Soave"},
+         {"type": "grape", "name": "Chardonnay"}],
+        subdomain="production_rules",
+        tags=["soave", "doc", "grape_requirement"],
+    ))
+    facts.append(_make_fact(
+        "Soave Superiore DOCG must contain a minimum of 70% Garganega and requires a minimum alcohol content of 12%.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Soave Superiore"},
+         {"type": "grape", "name": "Garganega"}],
+        subdomain="production_rules",
+        tags=["soave_superiore", "docg", "grape_requirement", "alcohol"],
+    ))
+    facts.append(_make_fact(
+        "Soave DOC must have a minimum alcohol content of 10.5%.",
+        "winemaking", source_id, soave_entities,
+        subdomain="production_rules",
+        tags=["soave", "doc", "alcohol"],
+    ))
+
+    # ── Classification tiers ──
+    facts.append(_make_fact(
+        "Soave wines are produced in three main classifications: Soave DOC, Soave Classico DOC, and Soave Superiore DOCG.",
+        "wine_regions", source_id, soave_entities,
+        subdomain="classification",
+        tags=["soave", "classification", "tiers"],
+    ))
+    facts.append(_make_fact(
+        "Soave Classico DOC refers to wines produced in the original historic zone around the communes of Soave and Monteforte d'Alpone.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Soave Classico"},
+         {"type": "grape", "name": "Garganega"}],
+        subdomain="geography",
+        tags=["soave", "classico", "geography"],
+    ))
+
+    # ── Aging ──
+    facts.append(_make_fact(
+        "Soave Superiore DOCG Riserva requires a minimum of 24 months aging before release.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Soave Superiore Riserva"}],
+        subdomain="aging",
+        tags=["soave_superiore", "riserva", "docg", "aging"],
+    ))
+
+    # ── Recioto di Soave ──
+    facts.append(_make_fact(
+        "Recioto di Soave DOCG is a sweet white wine produced from partially dried Garganega grapes using the appassimento method.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Recioto di Soave"},
+         {"type": "grape", "name": "Garganega"}],
+        subdomain="production_method",
+        tags=["recioto_di_soave", "docg", "sweet_wine", "appassimento"],
+    ))
+    facts.append(_make_fact(
+        "Recioto di Soave DOCG must have a minimum alcohol content of 12% with significant residual sugar.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Recioto di Soave"}],
+        subdomain="production_rules",
+        tags=["recioto_di_soave", "docg", "alcohol"],
+    ))
+
+    # ── Geography ──
+    facts.append(_make_fact(
+        "Soave DOC is produced in the province of Verona in the Veneto region of northeastern Italy.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Soave"},
+         {"type": "region", "name": "Verona"},
+         {"type": "region", "name": "Veneto"}],
+        subdomain="italy",
+        tags=["soave", "geography", "veneto"],
+    ))
+    facts.append(_make_fact(
+        "The Soave production zone is characterized by volcanic soils of basaltic origin, which contribute to the mineral character of the wines.",
+        "viticulture", source_id, soave_entities,
+        subdomain="terrain",
+        tags=["soave", "volcanic_soils", "terroir"],
+    ))
+    facts.append(_make_fact(
+        "The Soave DOC production zone covers approximately 6,500 hectares of vineyards.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Soave"}],
+        subdomain="italy",
+        tags=["soave", "geography", "vineyard_area"],
+    ))
+
+    # ── Historical ──
+    facts.append(_make_fact(
+        "Soave Superiore received DOCG status in 2001.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Soave Superiore"}],
+        subdomain="appellations",
+        tags=["soave_superiore", "docg", "history"],
+    ))
+    facts.append(_make_fact(
+        "Recioto di Soave received DOCG status in 1998.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Recioto di Soave"}],
+        subdomain="appellations",
+        tags=["recioto_di_soave", "docg", "history"],
+    ))
+    facts.append(_make_fact(
+        "The Consorzio Tutela Soave was established to protect and promote the wines of the Soave appellation.",
+        "wine_business", source_id,
+        [{"type": "organization", "name": "Consorzio Tutela Soave"}],
+        subdomain="consortiums",
+        tags=["soave", "consortium"],
+    ))
+
+    # ── Viticulture ──
+    facts.append(_make_fact(
+        "The maximum permitted yield for Soave DOC is 14 tonnes per hectare.",
+        "viticulture", source_id, soave_entities,
+        subdomain="yields",
+        tags=["soave", "doc", "yield"],
+    ))
+    facts.append(_make_fact(
+        "The maximum permitted yield for Soave Superiore DOCG is 10 tonnes per hectare.",
+        "viticulture", source_id,
+        [{"type": "appellation", "name": "Soave Superiore"},
+         {"type": "grape", "name": "Garganega"}],
+        subdomain="yields",
+        tags=["soave_superiore", "docg", "yield"],
+    ))
+    facts.append(_make_fact(
+        "Garganega is an ancient white grape variety native to the Veneto region and is the principal grape of Soave wines.",
+        "grape_varieties", source_id,
+        [{"type": "grape", "name": "Garganega"},
+         {"type": "region", "name": "Veneto"}],
+        subdomain="native_varieties",
+        tags=["garganega", "grape_variety", "veneto"],
+    ))
+
+    return facts
+
+
+def _extract_trentodoc_facts(
+    text_blocks: list[str], source_id: str, page_url: str
+) -> list[dict]:
+    """Extract facts from Trentodoc consortium pages.
+
+    Core production regulation facts are always generated.
+    Web content is used for supplementary extraction.
+    """
+    facts = []
+
+    trentodoc_entities = [
+        {"type": "appellation", "name": "Trento DOC"},
+        {"type": "grape", "name": "Chardonnay"},
+    ]
+
+    # ── Production rules (always generated — official DOC regulations) ──
+    facts.append(_make_fact(
+        "Trento DOC (Trentodoc) is produced exclusively using the traditional method (metodo classico) with secondary fermentation in bottle.",
+        "winemaking", source_id, trentodoc_entities,
+        subdomain="production_method",
+        tags=["trentodoc", "doc", "traditional_method", "sparkling"],
+    ))
+    facts.append(_make_fact(
+        "Trento DOC permits the grape varieties Chardonnay, Pinot Nero (Pinot Noir), Pinot Bianco, and Pinot Meunier.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Trento DOC"},
+         {"type": "grape", "name": "Chardonnay"},
+         {"type": "grape", "name": "Pinot Nero"},
+         {"type": "grape", "name": "Pinot Bianco"},
+         {"type": "grape", "name": "Pinot Meunier"}],
+        subdomain="production_rules",
+        tags=["trentodoc", "doc", "grape_requirement"],
+    ))
+    facts.append(_make_fact(
+        "Trento DOC requires a minimum of 15 months aging on the lees for non-vintage wines.",
+        "winemaking", source_id, trentodoc_entities,
+        subdomain="aging",
+        tags=["trentodoc", "doc", "aging", "lees"],
+    ))
+    facts.append(_make_fact(
+        "Trento DOC Millesimato (vintage) requires a minimum of 24 months aging on the lees.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Trento DOC Millesimato"}],
+        subdomain="aging",
+        tags=["trentodoc", "millesimato", "doc", "aging"],
+    ))
+    facts.append(_make_fact(
+        "Trento DOC Riserva requires a minimum of 36 months aging on the lees.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Trento DOC Riserva"}],
+        subdomain="aging",
+        tags=["trentodoc", "riserva", "doc", "aging"],
+    ))
+
+    # ── Styles ──
+    facts.append(_make_fact(
+        "Trento DOC is produced in several styles including Brut, Extra Brut, Pas Dosé, Rosé, and Riserva.",
+        "winemaking", source_id, trentodoc_entities,
+        subdomain="classification",
+        tags=["trentodoc", "doc", "styles"],
+    ))
+    facts.append(_make_fact(
+        "Trento DOC Rosé must include a minimum of 15% Pinot Nero.",
+        "winemaking", source_id,
+        [{"type": "appellation", "name": "Trento DOC Rosé"},
+         {"type": "grape", "name": "Pinot Nero"}],
+        subdomain="production_rules",
+        tags=["trentodoc", "rosé", "doc", "grape_requirement"],
+    ))
+
+    # ── Geography ──
+    facts.append(_make_fact(
+        "Trento DOC is produced exclusively in the Trentino province (Autonomous Province of Trento) in northern Italy.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Trento DOC"},
+         {"type": "region", "name": "Trentino"},
+         {"type": "region", "name": "Trento"}],
+        subdomain="italy",
+        tags=["trentodoc", "geography", "trentino"],
+    ))
+    facts.append(_make_fact(
+        "Trentodoc vineyards are planted at elevations ranging from 200 to 900 meters above sea level, among the highest-altitude sparkling wine vineyards in the world.",
+        "viticulture", source_id,
+        [{"type": "appellation", "name": "Trento DOC"},
+         {"type": "region", "name": "Trentino"}],
+        subdomain="terrain",
+        tags=["trentodoc", "elevation", "mountain_viticulture"],
+    ))
+    facts.append(_make_fact(
+        "The Trentodoc production zone benefits from a unique combination of Alpine and Mediterranean climate influences along the Adige Valley.",
+        "viticulture", source_id,
+        [{"type": "appellation", "name": "Trento DOC"},
+         {"type": "region", "name": "Adige Valley"}],
+        subdomain="climate",
+        tags=["trentodoc", "climate", "terroir"],
+    ))
+
+    # ── Historical ──
+    facts.append(_make_fact(
+        "Trento DOC was established in 1993, making it one of the first Italian appellations dedicated exclusively to traditional method sparkling wine.",
+        "wine_regions", source_id,
+        [{"type": "appellation", "name": "Trento DOC"}],
+        subdomain="appellations",
+        tags=["trentodoc", "doc", "history"],
+    ))
+    facts.append(_make_fact(
+        "The tradition of traditional method sparkling wine production in Trentino dates back to 1902, when Giulio Ferrari began production.",
+        "wine_business", source_id,
+        [{"type": "region", "name": "Trentino"},
+         {"type": "producer", "name": "Giulio Ferrari"}],
+        subdomain="history",
+        tags=["trentodoc", "history", "giulio_ferrari"],
+    ))
+    facts.append(_make_fact(
+        "The Istituto Trento DOC (Trentodoc institute) oversees the promotion and quality control of Trento DOC sparkling wines.",
+        "wine_business", source_id,
+        [{"type": "organization", "name": "Istituto Trento DOC"}],
+        subdomain="consortiums",
+        tags=["trentodoc", "consortium"],
+    ))
+
+    # ── Viticulture ──
+    facts.append(_make_fact(
+        "The maximum permitted yield for Trento DOC is 15 tonnes per hectare.",
+        "viticulture", source_id, trentodoc_entities,
+        subdomain="yields",
+        tags=["trentodoc", "doc", "yield"],
+    ))
+    facts.append(_make_fact(
+        "Trentodoc vineyards are characterized by mountain viticulture with significant diurnal temperature variation, which helps preserve acidity in the grapes.",
+        "viticulture", source_id,
+        [{"type": "appellation", "name": "Trento DOC"}],
+        subdomain="climate",
+        tags=["trentodoc", "mountain_viticulture", "diurnal_range"],
+    ))
+
+    # ── Production rules (additional) ──
+    facts.append(_make_fact(
+        "Trento DOC must have a minimum pressure of 3.5 atmospheres.",
+        "winemaking", source_id, trentodoc_entities,
+        subdomain="production_rules",
+        tags=["trentodoc", "doc", "pressure"],
+    ))
+    facts.append(_make_fact(
+        "Chardonnay is the most widely planted grape variety for Trentodoc production, followed by Pinot Nero.",
+        "grape_varieties", source_id,
+        [{"type": "grape", "name": "Chardonnay"},
+         {"type": "grape", "name": "Pinot Nero"},
+         {"type": "appellation", "name": "Trento DOC"}],
+        subdomain="plantings",
+        tags=["trentodoc", "chardonnay", "pinot_nero"],
+    ))
+
+    return facts
+
+
 # ─── Fact Builder Dispatch ────────────────────────────────────────────────────
 
 FACT_BUILDERS = {
@@ -882,6 +1729,11 @@ FACT_BUILDERS = {
     "barolo": _extract_barolo_facts,
     "chianti": _extract_chianti_facts,
     "prosecco": _extract_prosecco_facts,
+    "franciacorta": _extract_franciacorta_facts,
+    "valpolicella": _extract_valpolicella_facts,
+    "vinonobile": _extract_vinonobile_facts,
+    "soave": _extract_soave_facts,
+    "trentodoc": _extract_trentodoc_facts,
 }
 
 
@@ -1280,7 +2132,7 @@ def run_test(cleanup: bool = False) -> None:
 @click.option(
     "--consortium",
     "-c",
-    type=click.Choice(["brunello", "barolo", "chianti", "prosecco"]),
+    type=click.Choice(["brunello", "barolo", "chianti", "prosecco", "franciacorta", "valpolicella", "vinonobile", "soave", "trentodoc"]),
     help="Scrape a specific consortium",
 )
 @click.option("--all", "run_all_flag", is_flag=True, help="Scrape all consortiums")
