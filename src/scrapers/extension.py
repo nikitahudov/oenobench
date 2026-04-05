@@ -152,6 +152,20 @@ def extract_main_text(html: str) -> str:
         for tag in soup.find_all(tag_name):
             tag.decompose()
 
+    # Remove sidebar/related-content blocks by CSS class/id patterns
+    _JUNK_SELECTORS = [
+        ".sidebar", ".related-content", ".related-articles", ".related-links",
+        ".share-links", ".social-share", ".author-info", ".author-bio",
+        ".byline", ".article-meta", ".article-footer", ".field--name-field-author",
+        ".field--name-field-date", ".field--name-field-tags",
+        ".views-row", ".view-content", ".pager", ".pagination",
+        ".breadcrumb", ".block-menu", ".block-facet",
+        "[role='complementary']", "[role='navigation']",
+    ]
+    for sel in _JUNK_SELECTORS:
+        for el in soup.select(sel):
+            el.decompose()
+
     # Try to find the main content container
     content_el = None
     for selector in MAIN_CONTENT_SELECTORS:
@@ -168,6 +182,28 @@ def extract_main_text(html: str) -> str:
     # Get text, collapse whitespace
     text = content_el.get_text(separator=" ", strip=True)
     # Normalize whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+
+    # Strip author/date bylines  ("Name | Date | Source ..." or "Name | Mon YYYY | ...")
+    text = re.sub(
+        r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s*\|\s*"
+        r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{4}\s*\|[^.]*(?:\.\s*|$)",
+        " ", text
+    )
+    # Strip "Credit: ..." photo attributions (up to next sentence boundary)
+    text = re.sub(r"Credit\s*:\s*[^.]*\.?\s*", " ", text, flags=re.IGNORECASE)
+    # Strip "Length X hours/minutes" metadata
+    text = re.sub(r"Length\s+\d+\s*(?:hours?|minutes?|hrs?|mins?)\b[^.]*\.?\s*", " ", text, flags=re.IGNORECASE)
+    # Strip section headers that are just category labels
+    text = re.sub(r"\b(?:Workshops?|Webinars?|Articles?|Videos?|Events?|Resources?)\s+(?:Workshops?|Webinars?|Articles?|Videos?|Events?|Resources?|\|)\s*", " ", text, flags=re.IGNORECASE)
+    # Strip standalone section headers (word at boundary followed by nothing useful)
+    text = re.sub(r"(?<=[.!?])\s+(?:Workshops?|Webinars?|Videos?|Events?)(?:\s+|$)(?=[A-Z]|$)", " ", text, flags=re.IGNORECASE)
+    # Strip "Learn how to ..." promotional sentences
+    text = re.sub(r"Learn\s+how\s+to\b[^.]*\.?\s*", " ", text, flags=re.IGNORECASE)
+    # Strip "Impact story" labels
+    text = re.sub(r"Impact\s+stor(?:y|ies)\b[^.]*\.?\s*", " ", text, flags=re.IGNORECASE)
+
+    # Final whitespace cleanup
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
@@ -266,6 +302,31 @@ _FACTUAL_INDICATORS = re.compile(
     re.VERBOSE | re.IGNORECASE,
 )
 
+# Keywords that signal wine/grape content on a page
+_WINE_CONTENT_TERMS = re.compile(
+    r"\b(?:wine|grape|vineyard|viticulture|enology|oenology|winemaking|vine\b|grapevine"
+    r"|varietal|vintage|appellation|terroir|sommelier|vintner"
+    r"|Cabernet|Merlot|Pinot|Chardonnay|Riesling|Sauvignon|Syrah|Shiraz|Zinfandel"
+    r"|Chambourcin|Traminette|Concord|Niagara|Vidal|Seyval|Norton|Catawba"
+    r"|Vitis\s+vinifera|Vitis\s+labrusca"
+    r"|trellis|rootstock|veraison|budbreak|canopy|pruning"
+    r"|ferment|maceration|malolactic|barrel\s+aging|fining|racking"
+    r"|powdery\s+mildew|downy\s+mildew|black\s+rot|Botrytis|phylloxera|Pierce.s\s+disease"
+    r"|must\b|crush\b|Brix|titratable\s+acidity|residual\s+sugar"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Terms that indicate non-wine agricultural content
+_NON_WINE_TERMS = re.compile(
+    r"\b(?:dairy|swine|poultry|cattle|livestock|hog|pig|chicken|turkey|sheep|goat"
+    r"|corn\s+silage|soybean|wheat\s+crop|hay\b|alfalfa|pasture\s+management"
+    r"|beef|pork|milk\s+production|calf|heifer|bull\b|steer"
+    r"|egg\s+production|broiler|layer\s+hen"
+    r")\b",
+    re.IGNORECASE,
+)
+
 # Patterns for generic/non-factual sentences to skip
 _SKIP_PATTERNS = re.compile(
     r"""^(?:
@@ -289,6 +350,51 @@ _SKIP_PATTERNS = re.compile(
     re.VERBOSE | re.IGNORECASE,
 )
 
+# Additional patterns to skip: metadata, UI text, bylines, non-wine content
+_SKIP_CONTENT_PATTERNS = re.compile(
+    r"""(?:
+        \bworkshops?\b
+        |\bwebinars?\b
+        |\bcredit\s*:
+        |\bcropped\s+from\s+original\b
+        |\blearn\s+how\b
+        |\blength\s+\d+\s*(?:hours?|minutes?|hrs?|mins?)
+        |\bimpact\s+story\b
+        |\bsign\s+up\s+for\b
+        |\bregister\s+(?:for|now|today)\b
+        |\bjoin\s+us\b
+        |\bfiled\s+under\b
+        |\btags?\s*:\b
+        |\bcategory\s*:\b
+        |\bshare\s+(?:on|via|this)\b
+        |\bfollow\s+us\b
+        |\bnewsletter\b
+    )""",
+    re.VERBOSE | re.IGNORECASE,
+)
+
+# Byline pattern: "Name Name | Date | Source" or similar
+_BYLINE_PATTERN = re.compile(
+    r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\s*\|",
+)
+
+# Require at least one wine/grape/viticulture term in the sentence
+_WINE_SENTENCE_TERMS = re.compile(
+    r"\b(?:wine|grape|vineyard|viticulture|enology|oenology|winemaking|vine\b|grapevine"
+    r"|varietal|vintage|appellation|terroir|vintner"
+    r"|trellis|rootstock|veraison|budbreak|canopy|pruning|harvest"
+    r"|ferment|maceration|malolactic|barrel|fining|racking|bottling"
+    r"|must\b|crush\b|Brix|pH|sulfite|SO2|tannin|phenol|anthocyanin"
+    r"|mildew|rot\b|Botrytis|phylloxera|Pierce|fungicide|spray"
+    r"|Cabernet|Merlot|Pinot|Chardonnay|Riesling|Sauvignon|Syrah|Shiraz|Zinfandel"
+    r"|Chambourcin|Traminette|Concord|Niagara|Vidal|Seyval|Norton"
+    r"|Vitis|rootstock|grafting|irrigation|vigor|yield"
+    r"|yeast|Saccharomyces|Brettanomyces|inocul"
+    r"|spotted\s+lanternfly|Japanese\s+beetle|grape\s+berry\s+moth"
+    r")\b",
+    re.IGNORECASE,
+)
+
 # Minimum word count for a viable fact
 MIN_WORDS = 5
 # Maximum word count — longer sentences should be split or skipped
@@ -310,7 +416,7 @@ def split_into_sentences(text: str) -> list[str]:
 
 
 def is_factual_sentence(sentence: str) -> bool:
-    """Return True if the sentence contains factual content markers."""
+    """Return True if the sentence contains factual wine/grape content markers."""
     # Must have enough words
     word_count = len(sentence.split())
     if word_count < MIN_WORDS:
@@ -322,8 +428,20 @@ def is_factual_sentence(sentence: str) -> bool:
     if _SKIP_PATTERNS.match(sentence):
         return False
 
-    # Must contain at least one factual indicator
-    if _FACTUAL_INDICATORS.search(sentence):
+    # Must not contain metadata/UI/byline patterns
+    if _SKIP_CONTENT_PATTERNS.search(sentence):
+        return False
+
+    # Must not be a byline ("Name Name | ...")
+    if _BYLINE_PATTERN.search(sentence):
+        return False
+
+    # Must not be about non-wine agricultural topics
+    if _NON_WINE_TERMS.search(sentence):
+        return False
+
+    # Must contain at least one factual indicator AND a wine-related term
+    if _FACTUAL_INDICATORS.search(sentence) and _WINE_SENTENCE_TERMS.search(sentence):
         return True
 
     return False
@@ -621,6 +739,27 @@ def discover_article_urls(source_key: str, max_pages: int = 5) -> list[str]:
     return all_urls
 
 
+def _page_is_wine_content(text: str) -> bool:
+    """Check if a page's text is primarily about wine/grape topics.
+
+    Returns True if at least 10% of sentences mention wine/grape/vine terms
+    and the page is not dominated by non-wine agricultural content.
+    """
+    sentences = split_into_sentences(text)
+    if not sentences:
+        return False
+
+    wine_count = sum(1 for s in sentences if _WINE_CONTENT_TERMS.search(s))
+    non_wine_count = sum(1 for s in sentences if _NON_WINE_TERMS.search(s))
+
+    # Skip pages dominated by non-wine content
+    if non_wine_count > wine_count:
+        return False
+
+    wine_pct = wine_count / len(sentences)
+    return wine_pct >= 0.10
+
+
 def scrape_article(url: str) -> list[str]:
     """Scrape a single article page and return a list of factual sentences."""
     html = fetch_page(url)
@@ -630,6 +769,11 @@ def scrape_article(url: str) -> list[str]:
     text = extract_main_text(html)
     if not text or len(text) < 100:
         logger.debug(f"Skipping page with insufficient content: {url}")
+        return []
+
+    # Content-based filtering: skip non-wine pages
+    if not _page_is_wine_content(text):
+        logger.info(f"Skipping non-wine content page: {url}")
         return []
 
     sentences = split_into_sentences(text)
@@ -644,6 +788,7 @@ def build_facts_from_source(
     source_id: str,
     max_articles: int = 100,
     max_pages: int = 5,
+    seen_texts: Optional[set] = None,
 ) -> list[dict]:
     """Build fact dicts from a single extension source.
 
@@ -653,6 +798,10 @@ def build_facts_from_source(
       3. Extract factual sentences
       4. Classify domain/subdomain, extract entities
       5. Build fact dicts
+
+    Args:
+        seen_texts: Optional shared set for cross-source deduplication.
+                    If None, a local set is created.
     """
     cfg = SOURCES[source_key]
     logger.info(f"Building facts from {cfg['name']}")
@@ -668,7 +817,8 @@ def build_facts_from_source(
         article_urls = article_urls[:max_articles]
 
     facts: list[dict] = []
-    seen_texts: set[str] = set()
+    if seen_texts is None:
+        seen_texts = set()
 
     for i, url in enumerate(article_urls, 1):
         logger.info(f"[{source_key}] Scraping article {i}/{len(article_urls)}: {url}")
@@ -815,11 +965,12 @@ def register_sources() -> dict[str, str]:
 
 
 def run_source(source_key: str, source_ids: dict, dry_run: bool = False,
-               max_articles: int = 100) -> list[dict]:
+               max_articles: int = 100, seen_texts: Optional[set] = None) -> list[dict]:
     """Run scraper for a single source. Returns list of facts."""
     logger.info(f"Running scraper for source: {source_key}")
     source_id = source_ids[source_key]
-    facts = build_facts_from_source(source_key, source_id, max_articles=max_articles)
+    facts = build_facts_from_source(source_key, source_id, max_articles=max_articles,
+                                     seen_texts=seen_texts)
 
     logger.info(f"{source_key}: generated {len(facts)} facts total")
 
@@ -842,8 +993,9 @@ def run_all(dry_run: bool = False) -> dict[str, list[dict]]:
     source_ids = register_sources()
     results = {}
     total_generated = 0
+    seen_texts: set[str] = set()  # Shared across all sources for dedup
     for key in SOURCE_KEYS:
-        facts = run_source(key, source_ids, dry_run=dry_run)
+        facts = run_source(key, source_ids, dry_run=dry_run, seen_texts=seen_texts)
         results[key] = facts
         total_generated += len(facts)
         time.sleep(1)  # Brief pause between sources
@@ -989,15 +1141,18 @@ def run_test(
     test_max_articles = 3
 
     all_facts: list[dict] = []
+    seen_texts: set[str] = set()  # Shared across all sources for dedup
     if source:
         facts = build_facts_from_source(
-            source, source_ids[source], max_articles=test_max_articles
+            source, source_ids[source], max_articles=test_max_articles,
+            seen_texts=seen_texts,
         )
         all_facts.extend(facts)
     else:
         for key in SOURCE_KEYS:
             facts = build_facts_from_source(
-                key, source_ids[key], max_articles=test_max_articles
+                key, source_ids[key], max_articles=test_max_articles,
+                seen_texts=seen_texts,
             )
             all_facts.extend(facts)
 
