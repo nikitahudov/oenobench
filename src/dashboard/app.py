@@ -38,7 +38,7 @@ SCRAPERS = [
     {"name": "HuggingFace", "file": "huggingface.py", "status": "complete", "facts": 16514},
     {"name": "UC Davis", "file": "ucdavis.py", "status": "complete", "facts": 3371},
     {"name": "Kaggle", "file": "kaggle_data.py", "status": "complete", "facts": 1509},
-    {"name": "INAO (France)", "file": "inao.py", "status": "complete", "facts": None},
+    {"name": "INAO (France)", "file": "inao.py", "status": "complete", "facts": 1473},
     {"name": "Italy Registries", "file": "italy.py", "status": "complete", "facts": None},
     {"name": "US TTB", "file": "ttb.py", "status": "complete", "facts": None},
     {"name": "Europe (ES/DE/PT)", "file": "europe.py", "status": "complete", "facts": None},
