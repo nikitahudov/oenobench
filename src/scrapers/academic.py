@@ -52,20 +52,23 @@ JOURNALS = {
         "description": "International vine and wine sciences journal",
         "issue_index_url": "https://oeno-one.eu/issue/archive",
         "scraper": "_scrape_oeno",
+        "verify_ssl": False,  # Site has SSL cert issues
     },
     "vitis": {
         "name": "Vitis - Journal of Grapevine Research",
-        "base_url": "https://pub.jki.bund.de/index.php/VITIS",
+        "base_url": "https://ojs.openagrar.de/index.php/VITIS",
         "description": "Grapevine research journal from Julius Kühn-Institut",
-        "issue_index_url": "https://pub.jki.bund.de/index.php/VITIS/issue/archive",
+        "issue_index_url": "https://ojs.openagrar.de/index.php/VITIS/issue/archive",
         "scraper": "_scrape_vitis",
+        "verify_ssl": True,
     },
     "catalyst": {
         "name": "Catalyst: Discovery into Practice (AJEV)",
         "base_url": "https://www.ajevonline.org",
         "description": "American Journal of Enology and Viticulture — Catalyst section",
-        "issue_index_url": "https://www.ajevonline.org/content/catalyst",
+        "issue_index_url": "https://www.ajevonline.org/content/early/recent",
         "scraper": "_scrape_catalyst",
+        "verify_ssl": False,  # Site has SSL cert issues
     },
 }
 
@@ -79,11 +82,11 @@ def _get_session() -> requests.Session:
     return session
 
 
-def _fetch_page(session: requests.Session, url: str) -> Optional[BeautifulSoup]:
+def _fetch_page(session: requests.Session, url: str, verify: bool = True) -> Optional[BeautifulSoup]:
     """Fetch a page with rate limiting and error handling. Returns parsed soup."""
     time.sleep(REQUEST_DELAY)
     try:
-        resp = session.get(url, timeout=REQUEST_TIMEOUT)
+        resp = session.get(url, timeout=REQUEST_TIMEOUT, verify=verify)
         resp.raise_for_status()
         return BeautifulSoup(resp.text, "lxml")
     except requests.RequestException as e:
@@ -383,9 +386,10 @@ def _scrape_oeno(session: requests.Session, dry_run: bool = False, max_issues: i
     """
     all_facts = []
     base_url = JOURNALS["oeno"]["base_url"]
+    verify = JOURNALS["oeno"].get("verify_ssl", True)
 
     logger.info("Scraping OENO One issue archive...")
-    archive_soup = _fetch_page(session, f"{base_url}/issue/archive")
+    archive_soup = _fetch_page(session, f"{base_url}/issue/archive", verify=verify)
     if not archive_soup:
         logger.error("Could not access OENO One archive page")
         return []
@@ -414,18 +418,27 @@ def _scrape_oeno(session: requests.Session, dry_run: bool = False, max_issues: i
 
     for issue_url in issue_links:
         logger.info(f"Processing issue: {issue_url}")
-        issue_soup = _fetch_page(session, issue_url)
+        issue_soup = _fetch_page(session, issue_url, verify=verify)
         if not issue_soup:
             continue
 
-        # Find article links within the issue
+        # Find article links — filter out galley sub-views, keep base article URLs only
+        article_ids_seen = set()
         article_links = []
         for link in issue_soup.select('a[href*="/article/view/"]'):
             href = link.get("href", "")
-            if href and href not in article_links:
-                if not href.startswith("http"):
-                    href = base_url + href
-                article_links.append(href)
+            if not href:
+                continue
+            if not href.startswith("http"):
+                href = base_url + href
+            # Extract base article URL (strip galley suffix)
+            match = re.search(r'(/article/view/\d+)', href)
+            if match:
+                base_article_url = href[:href.index(match.group(1)) + len(match.group(1))]
+                article_id = match.group(1)
+                if article_id not in article_ids_seen:
+                    article_ids_seen.add(article_id)
+                    article_links.append(base_article_url)
 
         if not article_links:
             for link in issue_soup.find_all("a", href=True):
@@ -433,13 +446,18 @@ def _scrape_oeno(session: requests.Session, dry_run: bool = False, max_issues: i
                 if "/article/" in href and "/view/" in href:
                     if not href.startswith("http"):
                         href = base_url + href
-                    if href not in article_links:
-                        article_links.append(href)
+                    match = re.search(r'(/article/view/\d+)', href)
+                    if match:
+                        base_article_url = href[:href.index(match.group(1)) + len(match.group(1))]
+                        article_id = match.group(1)
+                        if article_id not in article_ids_seen:
+                            article_ids_seen.add(article_id)
+                            article_links.append(base_article_url)
 
         logger.info(f"  Found {len(article_links)} articles in issue")
 
         for article_url in article_links:
-            article_facts = _scrape_oeno_article(session, article_url, dry_run)
+            article_facts = _scrape_oeno_article(session, article_url, dry_run, verify=verify)
             all_facts.extend(article_facts)
 
     logger.info(f"OENO One: extracted {len(all_facts)} total facts")
@@ -450,9 +468,10 @@ def _scrape_oeno_article(
     session: requests.Session,
     url: str,
     dry_run: bool = False,
+    verify: bool = True,
 ) -> list[dict]:
     """Scrape a single OENO One article page for abstract and metadata."""
-    soup = _fetch_page(session, url)
+    soup = _fetch_page(session, url, verify=verify)
     if not soup:
         return []
 
@@ -529,13 +548,14 @@ def _scrape_oeno_article(
 def _scrape_vitis(session: requests.Session, dry_run: bool = False, max_issues: int = 10) -> list[dict]:
     """Scrape Vitis journal for article abstracts.
 
-    Vitis also uses OJS at pub.jki.bund.de.
+    Vitis uses OJS at ojs.openagrar.de (migrated from pub.jki.bund.de).
     """
     all_facts = []
     base_url = JOURNALS["vitis"]["base_url"]
+    verify = JOURNALS["vitis"].get("verify_ssl", True)
 
     logger.info("Scraping Vitis issue archive...")
-    archive_soup = _fetch_page(session, f"{base_url}/issue/archive")
+    archive_soup = _fetch_page(session, f"{base_url}/issue/archive", verify=verify)
     if not archive_soup:
         logger.error("Could not access Vitis archive page")
         return []
@@ -555,24 +575,33 @@ def _scrape_vitis(session: requests.Session, dry_run: bool = False, max_issues: 
 
     for issue_url in issue_links:
         logger.info(f"Processing issue: {issue_url}")
-        issue_soup = _fetch_page(session, issue_url)
+        issue_soup = _fetch_page(session, issue_url, verify=verify)
         if not issue_soup:
             continue
 
-        # Find article links
+        # Find article links — filter out galley sub-views (e.g. /view/18180/17358)
+        # Keep only base article URLs like /article/view/XXXXX
+        article_ids_seen = set()
         article_links = []
         for link in issue_soup.find_all("a", href=True):
             href = link["href"]
             if "/article/view/" in href:
                 if not href.startswith("http"):
                     href = base_url.rsplit("/", 1)[0] + href if href.startswith("/") else base_url + "/" + href
-                if href not in article_links:
-                    article_links.append(href)
+                # Extract base article URL (strip galley suffix like /17358)
+                match = re.search(r'(/article/view/\d+)', href)
+                if match:
+                    base_article_url = href[:href.index(match.group(1)) + len(match.group(1))]
+                    # Deduplicate by article ID
+                    article_id = match.group(1)
+                    if article_id not in article_ids_seen:
+                        article_ids_seen.add(article_id)
+                        article_links.append(base_article_url)
 
         logger.info(f"  Found {len(article_links)} articles in issue")
 
         for article_url in article_links:
-            article_facts = _scrape_vitis_article(session, article_url, dry_run)
+            article_facts = _scrape_vitis_article(session, article_url, dry_run, verify=verify)
             all_facts.extend(article_facts)
 
     logger.info(f"Vitis: extracted {len(all_facts)} total facts")
@@ -583,9 +612,10 @@ def _scrape_vitis_article(
     session: requests.Session,
     url: str,
     dry_run: bool = False,
+    verify: bool = True,
 ) -> list[dict]:
     """Scrape a single Vitis article page for abstract and metadata."""
-    soup = _fetch_page(session, url)
+    soup = _fetch_page(session, url, verify=verify)
     if not soup:
         return []
 
@@ -660,10 +690,11 @@ def _scrape_catalyst(session: requests.Session, dry_run: bool = False, max_pages
     """
     all_facts = []
     base_url = JOURNALS["catalyst"]["base_url"]
-    listing_url = f"{base_url}/content/catalyst"
+    listing_url = JOURNALS["catalyst"]["issue_index_url"]
+    verify = JOURNALS["catalyst"].get("verify_ssl", True)
 
     logger.info("Scraping Catalyst (AJEV) listing...")
-    listing_soup = _fetch_page(session, listing_url)
+    listing_soup = _fetch_page(session, listing_url, verify=verify)
     if not listing_soup:
         logger.error("Could not access Catalyst listing page")
         return []
@@ -672,8 +703,8 @@ def _scrape_catalyst(session: requests.Session, dry_run: bool = False, max_pages
     article_links = []
     for link in listing_soup.find_all("a", href=True):
         href = link["href"]
-        # HighWire article URLs look like /content/X/Y/ZZZZ
-        if re.search(r'/content/\d+/\d+/', href) and ".full" not in href and ".pdf" not in href:
+        # HighWire article URLs look like /content/X/Y/ZZZZ or /content/early/...
+        if re.search(r'/content/(?:\d+/\d+/|early/)', href) and ".full" not in href and ".pdf" not in href:
             if not href.startswith("http"):
                 href = base_url + href
             if href not in article_links:
@@ -692,13 +723,13 @@ def _scrape_catalyst(session: requests.Session, dry_run: bool = False, max_pages
     # Crawl TOC pages for more articles
     for toc_url in toc_links[:max_pages]:
         logger.info(f"Processing TOC page: {toc_url}")
-        toc_soup = _fetch_page(session, toc_url)
+        toc_soup = _fetch_page(session, toc_url, verify=verify)
         if not toc_soup:
             continue
 
         for link in toc_soup.find_all("a", href=True):
             href = link["href"]
-            if re.search(r'/content/\d+/\d+/', href) and ".full" not in href and ".pdf" not in href:
+            if re.search(r'/content/(?:\d+/\d+/|early/)', href) and ".full" not in href and ".pdf" not in href:
                 if not href.startswith("http"):
                     href = base_url + href
                 if href not in article_links:
@@ -707,7 +738,7 @@ def _scrape_catalyst(session: requests.Session, dry_run: bool = False, max_pages
     logger.info(f"Found {len(article_links)} article links")
 
     for article_url in article_links:
-        article_facts = _scrape_catalyst_article(session, article_url, dry_run)
+        article_facts = _scrape_catalyst_article(session, article_url, dry_run, verify=verify)
         all_facts.extend(article_facts)
 
     logger.info(f"Catalyst: extracted {len(all_facts)} total facts")
@@ -718,6 +749,7 @@ def _scrape_catalyst_article(
     session: requests.Session,
     url: str,
     dry_run: bool = False,
+    verify: bool = True,
 ) -> list[dict]:
     """Scrape a single Catalyst/AJEV article page for abstract and metadata."""
     # Ensure we're fetching the abstract view
@@ -725,10 +757,10 @@ def _scrape_catalyst_article(
     if not url.endswith(".abstract") and ".full" not in url:
         abstract_url = url.rstrip("/") + ".abstract"
 
-    soup = _fetch_page(session, abstract_url)
+    soup = _fetch_page(session, abstract_url, verify=verify)
     if not soup:
         # Try the base URL if .abstract doesn't work
-        soup = _fetch_page(session, url)
+        soup = _fetch_page(session, url, verify=verify)
         if not soup:
             return []
 
@@ -970,7 +1002,7 @@ def validate_facts():
 
 # ─── Main Pipeline ────────────────────────────────────────────────────────────
 
-def run_journal(journal_key: str, dry_run: bool = False) -> int:
+def run_journal(journal_key: str, dry_run: bool = False, max_issues: int = 10) -> int:
     """Scrape a single journal and store results. Returns facts inserted."""
     if journal_key not in JOURNALS:
         logger.error(f"Unknown journal: {journal_key}. Available: {list(JOURNALS.keys())}")
@@ -982,7 +1014,10 @@ def run_journal(journal_key: str, dry_run: bool = False) -> int:
     session = _get_session()
     scraper_fn = SCRAPER_DISPATCH[config["scraper"]]
 
-    facts = scraper_fn(session, dry_run=dry_run)
+    if journal_key == "catalyst":
+        facts = scraper_fn(session, dry_run=dry_run, max_pages=max_issues)
+    else:
+        facts = scraper_fn(session, dry_run=dry_run, max_issues=max_issues)
 
     if dry_run:
         click.echo(f"\n[DRY RUN] Would insert {len(facts)} facts from {config['name']}")
@@ -1003,13 +1038,13 @@ def run_journal(journal_key: str, dry_run: bool = False) -> int:
     return inserted
 
 
-def run_all(dry_run: bool = False) -> dict:
+def run_all(dry_run: bool = False, max_issues: int = 10) -> dict:
     """Run all journal scrapers. Returns summary."""
     summary = {}
     total = 0
 
     for journal_key in JOURNALS:
-        count = run_journal(journal_key, dry_run=dry_run)
+        count = run_journal(journal_key, dry_run=dry_run, max_issues=max_issues)
         summary[journal_key] = count
         total += count
 
@@ -1152,8 +1187,8 @@ def run_test(journal_filter: Optional[str] = None, cleanup: bool = False) -> Non
     if journal_filter:
         journal_keys = [journal_filter]
     else:
-        # Just the first journal for a quick test
-        journal_keys = [list(JOURNALS.keys())[0]]
+        # All journals for a representative test
+        journal_keys = list(JOURNALS.keys())
 
     for journal_key in journal_keys:
         config = JOURNALS[journal_key]
@@ -1258,7 +1293,7 @@ def main(
         return
 
     if run_all_flag:
-        summary = run_all(dry_run=dry_run)
+        summary = run_all(dry_run=dry_run, max_issues=max_issues)
         click.echo(f"\n{'Summary':}")
         for name, count in summary.items():
             label = JOURNALS[name]["name"]
@@ -1267,7 +1302,7 @@ def main(
         return
 
     if journal:
-        count = run_journal(journal, dry_run=dry_run)
+        count = run_journal(journal, dry_run=dry_run, max_issues=max_issues)
         label = JOURNALS[journal]["name"]
         if dry_run:
             click.echo(f"\n[DRY RUN] Extracted facts shown above from {label}.")
