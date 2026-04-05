@@ -50,7 +50,7 @@ SCRAPERS = [
     {"name": "Italian Consortiums", "file": "consortiums_italy.py", "status": "complete", "facts": 72},
     {"name": "Academic Journals", "file": "academic.py", "status": "complete", "facts": 925},
     {"name": "UC IPM Grape", "file": "ucipm.py", "status": "complete", "facts": 1315},
-    {"name": "OIV Documents", "file": "oiv_docs.py", "status": "in_progress", "facts": None},
+    {"name": "OIV Documents", "file": "oiv_docs.py", "status": "complete", "facts": 519},
     {"name": "Extension Services", "file": "extension.py", "status": "in_progress", "facts": None},
 ]
 
