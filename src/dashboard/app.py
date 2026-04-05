@@ -41,7 +41,7 @@ SCRAPERS = [
     {"name": "INAO (France)", "file": "inao.py", "status": "complete", "facts": 1473},
     {"name": "Italy Registries", "file": "italy.py", "status": "complete", "facts": 606},
     {"name": "US TTB", "file": "ttb.py", "status": "complete", "facts": 515},
-    {"name": "Europe (ES/DE/PT)", "file": "europe.py", "status": "complete", "facts": None},
+    {"name": "Europe (ES/DE/PT)", "file": "europe.py", "status": "complete", "facts": 1605},
     {"name": "New World", "file": "newworld.py", "status": "complete", "facts": None},
     {"name": "EU/OIV Regulations", "file": "eu_oiv.py", "status": "complete", "facts": None},
     {"name": "Burgundy", "file": "burgundy.py", "status": "complete", "facts": None},
