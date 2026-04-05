@@ -33,12 +33,12 @@ DOMAIN_TARGETS = {
 }
 
 SCRAPERS = [
-    {"name": "Wikidata", "file": "wikidata.py", "status": "complete", "facts": 20910},
-    {"name": "Wikipedia", "file": "wikipedia.py", "status": "complete", "facts": None},
+    {"name": "Wikidata", "file": "wikidata.py", "status": "complete", "facts": 20911},
+    {"name": "Wikipedia", "file": "wikipedia.py", "status": "complete", "facts": 323},
     {"name": "HuggingFace", "file": "huggingface.py", "status": "complete", "facts": 16514},
-    {"name": "UC Davis", "file": "ucdavis.py", "status": "complete", "facts": None},
+    {"name": "UC Davis", "file": "ucdavis.py", "status": "complete", "facts": 3371},
     {"name": "Kaggle", "file": "kaggle_data.py", "status": "complete", "facts": 1509},
-    {"name": "INAO (France)", "file": "inao.py", "status": "complete", "facts": 1473},
+    {"name": "INAO (France)", "file": "inao.py", "status": "complete", "facts": None},
     {"name": "Italy Registries", "file": "italy.py", "status": "complete", "facts": None},
     {"name": "US TTB", "file": "ttb.py", "status": "complete", "facts": None},
     {"name": "Europe (ES/DE/PT)", "file": "europe.py", "status": "complete", "facts": None},
