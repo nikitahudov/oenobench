@@ -1209,60 +1209,60 @@ def _print_test_report(
 
 
 def run_test(cleanup: bool = False) -> None:
-    """Run a limited test extraction: first consortium only, limited facts, insert, report."""
-    # Use the first consortium (brunello) for testing
-    test_consortium = "brunello"
-    cfg = CONSORTIUMS[test_consortium]
-
-    # Register source
-    source_id = ensure_source(
-        name=cfg["name"],
-        url=cfg["base_url"],
-        source_type=cfg["source_type"],
-        tier=cfg["tier"],
-        language=cfg["language"],
-    )
-
-    # Build facts using the fact builder (no HTTP fetch needed — facts are hardcoded)
-    builder = FACT_BUILDERS[test_consortium]
-    all_generated = builder([], source_id, cfg["base_url"])
-
-    # Limit to TEST_RUN_FACT_LIMIT facts
-    test_facts = all_generated[:TEST_RUN_FACT_LIMIT]
-
-    # Deduplicate
-    seen_texts = set()
-    unique_facts = []
-    for f in test_facts:
-        if f["fact_text"] not in seen_texts:
-            seen_texts.add(f["fact_text"])
-            unique_facts.append(f)
-
-    # Insert individually to track IDs
+    """Run a limited test extraction: all consortiums, limited facts each, insert, report."""
+    category_stats = {}
+    all_facts = []
     inserted_ids = []
-    for f in unique_facts:
-        fact_id = insert_fact(
-            fact_text=f["fact_text"],
-            domain=f["domain"],
-            source_id=f["source_id"],
-            subdomain=f.get("subdomain"),
-            entities=f.get("entities"),
-            confidence=f.get("confidence", 1.0),
-            tags=f.get("tags"),
-        )
-        if fact_id:
-            inserted_ids.append(fact_id)
 
-    # Build stats
-    category_stats = {
-        test_consortium: {
+    for consortium_key, cfg in CONSORTIUMS.items():
+        # Register source
+        source_id = ensure_source(
+            name=cfg["name"],
+            url=cfg["base_url"],
+            source_type=cfg["source_type"],
+            tier=cfg["tier"],
+            language=cfg["language"],
+        )
+
+        # Build facts using the fact builder
+        builder = FACT_BUILDERS[consortium_key]
+        all_generated = builder([], source_id, cfg["base_url"])
+
+        # Limit to TEST_RUN_FACT_LIMIT facts
+        test_facts = all_generated[:TEST_RUN_FACT_LIMIT]
+
+        # Deduplicate
+        seen_texts = set()
+        unique_facts = []
+        for f in test_facts:
+            if f["fact_text"] not in seen_texts:
+                seen_texts.add(f["fact_text"])
+                unique_facts.append(f)
+
+        # Insert individually to track IDs
+        cat_inserted = 0
+        for f in unique_facts:
+            fact_id = insert_fact(
+                fact_text=f["fact_text"],
+                domain=f["domain"],
+                source_id=f["source_id"],
+                subdomain=f.get("subdomain"),
+                entities=f.get("entities"),
+                confidence=f.get("confidence", 1.0),
+                tags=f.get("tags"),
+            )
+            if fact_id:
+                inserted_ids.append(fact_id)
+                cat_inserted += 1
+
+        all_facts.extend(unique_facts)
+        category_stats[consortium_key] = {
             "items_processed": 1,
             "facts_generated": len(unique_facts),
-            "facts_inserted": len(inserted_ids),
+            "facts_inserted": cat_inserted,
         }
-    }
 
-    _print_test_report(category_stats, unique_facts, inserted_ids)
+    _print_test_report(category_stats, all_facts, inserted_ids)
 
     # Cleanup
     if cleanup and inserted_ids:
