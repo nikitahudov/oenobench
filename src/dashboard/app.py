@@ -33,9 +33,9 @@ DOMAIN_TARGETS = {
 }
 
 SCRAPERS = [
-    {"name": "Wikidata", "file": "wikidata.py", "status": "complete", "facts": 20911},
+    {"name": "Wikidata", "file": "wikidata.py", "status": "complete", "facts": 2145},
     {"name": "Wikipedia", "file": "wikipedia.py", "status": "complete", "facts": 323},
-    {"name": "HuggingFace", "file": "huggingface.py", "status": "complete", "facts": 16514},
+    {"name": "HuggingFace", "file": "huggingface.py", "status": "complete", "facts": 3231},
     {"name": "UC Davis", "file": "ucdavis.py", "status": "complete", "facts": 3371},
     {"name": "Kaggle", "file": "kaggle_data.py", "status": "complete", "facts": 1509},
     {"name": "INAO (France)", "file": "inao.py", "status": "complete", "facts": 1473},

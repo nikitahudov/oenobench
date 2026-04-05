@@ -198,42 +198,133 @@ _ABBREV = {"e.g.", "i.e.", "etc.", "vs.", "approx.", "no.", "No.", "vol.", "Vol.
 
 
 def _split_sentences(text: str) -> list[str]:
-    """Split text into sentences, cleaning up whitespace and junk."""
-    # Normalize whitespace (collapse newlines within paragraphs)
-    text = re.sub(r"\s+", " ", text).strip()
-    if not text:
+    """Split text into sentences, handling PDF-specific quirks.
+
+    PDF text often has:
+    - Line breaks within sentences (should be joined)
+    - Bullet points that should be individual facts
+    - Table data mixed with prose
+    - Repeated page headers/footers
+    """
+    if not text or not text.strip():
         return []
 
-    raw_sentences = _SENTENCE_SPLIT_RE.split(text)
+    # Step 1: Remove common PDF page headers/footers that repeat
+    # e.g. "International Code of Oenological Practices" at top of every page
+    text = re.sub(
+        r"International\s+Code\s+of\s+Oenological\s+Practices",
+        "", text, flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"State\s+of\s+the\s+World\s+Vine\s+and\s+Wine\s+Sector\s+in\s+\d{4}",
+        "", text, flags=re.IGNORECASE,
+    )
+    # Remove bare page numbers (line that is just a number)
+    text = re.sub(r"\n\s*\d{1,3}\s*\n", "\n", text)
+    # Remove "OIV" alone on a line
+    text = re.sub(r"\n\s*OIV\s*\n", "\n", text)
+
+    # Step 2: Handle bullet points — convert bullets to sentence breaks
+    # Common bullet chars: •, -, –, —, ▪, ◦, *, and numbered lists (a), (b), (i), (ii)
+    text = re.sub(r"\n\s*[\u2022\u25AA\u25E6\u2023]\s*", "\n", text)
+    text = re.sub(r"\n\s*[-\u2013\u2014]\s+", "\n", text)
+    text = re.sub(r"\n\s*\([a-z]\)\s+", "\n", text)
+    text = re.sub(r"\n\s*\([ivx]+\)\s+", "\n", text)
+
+    # Step 3: Join lines that are mid-sentence (line break within a sentence).
+    # A line ending without sentence-ending punctuation followed by a line
+    # starting with a lowercase letter or number is likely a continuation.
+    lines = text.split("\n")
+    joined_lines = []
+    buffer = ""
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            # Empty line = paragraph break
+            if buffer:
+                joined_lines.append(buffer)
+                buffer = ""
+            continue
+        if buffer:
+            # Check if this line continues the previous sentence
+            # Continuation: previous line doesn't end with sentence punct, and
+            # this line starts with lowercase or a digit (mid-sentence)
+            if (
+                not buffer.rstrip().endswith((".", "!", "?", ":", ";"))
+                and stripped
+                and (stripped[0].islower() or stripped[0].isdigit())
+            ):
+                buffer = buffer.rstrip() + " " + stripped
+            else:
+                joined_lines.append(buffer)
+                buffer = stripped
+        else:
+            buffer = stripped
+    if buffer:
+        joined_lines.append(buffer)
+
+    # Step 4: Split each paragraph/joined-line into sentences
     result = []
-    for s in raw_sentences:
-        s = s.strip()
-        if len(s) < 15:
+    for paragraph in joined_lines:
+        # Normalize whitespace within the paragraph
+        paragraph = re.sub(r"\s+", " ", paragraph).strip()
+        if not paragraph:
             continue
-        # Skip page headers, footers, TOC lines
-        if re.match(r"^(Page\s+\d+|Table of Contents|\d+\s*$)", s, re.IGNORECASE):
-            continue
-        # Skip lines that are mostly numbers/punctuation (tables residue)
-        alpha_chars = sum(1 for c in s if c.isalpha())
-        if len(s) > 0 and alpha_chars / len(s) < 0.4:
-            continue
-        result.append(s)
+
+        raw_sentences = _SENTENCE_SPLIT_RE.split(paragraph)
+        for s in raw_sentences:
+            s = s.strip()
+            if len(s) < 15:
+                continue
+            # Skip page headers, footers, TOC lines
+            if re.match(r"^(Page\s+\d+|Table of Contents|\d+\s*$)", s, re.IGNORECASE):
+                continue
+            # Skip lines that are mostly numbers/punctuation (table residue)
+            alpha_chars = sum(1 for c in s if c.isalpha())
+            if len(s) > 0 and alpha_chars / len(s) < 0.4:
+                continue
+            # Skip ALL-CAPS section titles (common in PDFs)
+            words = s.split()
+            upper_words = sum(1 for w in words if w.isupper() and len(w) > 2)
+            if len(words) > 0 and upper_words / len(words) > 0.6 and len(words) < 10:
+                continue
+            # Skip TOC entries (text ... page number)
+            if re.search(r"\.{3,}\s*\d+\s*$", s):
+                continue
+            result.append(s)
 
     return result
 
 
 # ─── Fact Filtering & Classification ─────────────────────────────────────────
 
-# Keywords that indicate a factual sentence worth extracting
+# Keywords that indicate a factual sentence worth extracting.
+# Each alternative is designed to match SPECIFIC wine knowledge, not generic text.
 _FACTUAL_INDICATORS = re.compile(
     r"""
-    \d+[\.,]?\d*\s*(%|percent|per\s+cent|mg|g|kg|L|mL|hl|hectolitres?|tonnes?|million|billion|mha|kha|ha|hectares?|°C|degrees?)
-    | \b(maximum|minimum|must\s+not\s+exceed|shall\s+not\s+exceed|at\s+least|no\s+more\s+than|limit|threshold|permitted|prohibited|authorized|authorised)
-    | \b(sulphur\s+dioxide|SO2|volatile\s+acidity|total\s+acidity|alcohol|ethanol|residual\s+sugar|tartaric\s+acid|malic\s+acid|lactic\s+acid|citric\s+acid|ascorbic\s+acid|sorbic\s+acid)
-    | \b(ferment|vinif|oenolog|enolog|macerat|chaptalis|deacidif|acidif|clarif|filtrat|stabilis|pasteuris)
-    | \b(production|consumption|export|import|vineyard|planted|area|harvest|yield|trade|volume|value|growth|decline|increase|decrease)
-    | \b(country|countries|region|world|global|total|average|share|rank)
-    | \b(definition|defined\s+as|means|refers\s+to|is\s+a\s+wine|is\s+the\s+product)
+    # Specific numeric values with units (chemical limits, production stats)
+    \d+[\.,]?\d*\s*(mg/L|mg/l|g/L|g/l|%\s*vol|%\s*v/v|°C|ml/L|mL/L|hl|hectolitres?|tonnes?|million\s+hectolitres?|million\s+tonnes?|billion|mha|kha|hectares?|mg|g/hl)
+    # Percentage with context
+    | \d+[\.,]?\d*\s*(%|percent|per\s+cent)\s+(?:of|increase|decrease|decline|growth|higher|lower|more|less|compared)
+    # Chemical limits and regulatory thresholds
+    | \b(maximum\s+permitted|minimum\s+required|must\s+not\s+exceed|shall\s+not\s+exceed|no\s+more\s+than|at\s+least|upper\s+limit|maximum\s+dose|maximum\s+concentration|maximum\s+level)
+    # Specific chemical compounds in wine context
+    | \b(sulphur\s+dioxide|SO2|volatile\s+acidity|total\s+acidity|residual\s+sugar|tartaric\s+acid|malic\s+acid|lactic\s+acid|citric\s+acid|ascorbic\s+acid|sorbic\s+acid|potassium\s+sorbate|potassium\s+metabisulphite|bentonite|gelatin|casein|metatartaric\s+acid|copper\s+sulphate|diammonium\s+phosphate|thiamine|lysozyme|PVPP|polyvinylpolypyrrolidone|tannin|carbon\s+dioxide|CO2|acetic\s+acid|acetaldehyde)\b
+    # Specific winemaking process descriptions (require at least partial context)
+    | \b(fermentation\s+temperature|malolactic\s+fermentation|alcoholic\s+fermentation|cold\s+maceration|carbonic\s+maceration|cold\s+stabilisation|cold\s+stabilization|reverse\s+osmosis|micro-?filtration|cross-?flow|must\s+concentration|chaptalis[ae]tion|deacidification|acidification|dealcoholi[sz]ation)\b
+    # Permitted/prohibited with substance or practice
+    | \b(permitted\s+(?:additive|addition|practice|treatment|substance|dose|level|use)|prohibited\s+(?:in|for|practice|substance|additive))\b
+    # Production statistics with country or year context
+    | \b(production\s+(?:in\s+\d{4}|of\s+wine|reached|estimated|was|totall?ed|amounted)|consumption\s+(?:in\s+\d{4}|of\s+wine|reached|estimated|per\s+capita|was|totall?ed))\b
+    | \b(exports?\s+(?:of\s+wine|reached|totall?ed|amounted|in\s+value|in\s+volume)|imports?\s+(?:of\s+wine|reached|totall?ed|amounted|in\s+value|in\s+volume))\b
+    # Vineyard area with numbers
+    | \b(vineyard\s+area|planted\s+area|area\s+under\s+vines?)\b.*\d
+    # Wine type definitions
+    | \b(is\s+(?:a\s+wine|the\s+product|obtained\s+by|defined\s+as)|wine\s+(?:obtained|produced|made)\s+(?:from|by|exclusively|through))\b
+    # Specific country + wine stat combination
+    | \b(France|Italy|Spain|United\s+States|China|Germany|Argentina|Australia|Chile|South\s+Africa|Portugal)\b.*\b(produc|export|import|consump|vineyard|hectolitre|hectare|wine)\b
+    # Year-over-year comparisons
+    | \b(compared\s+to\s+\d{4}|year-over-year|between\s+\d{4}\s+and\s+\d{4}|since\s+\d{4}|from\s+\d{4}\s+to\s+\d{4})\b
     """,
     re.VERBOSE | re.IGNORECASE,
 )
@@ -280,6 +371,25 @@ _SKIP_PATTERNS = [
     re.compile(r"(present\s+edition|codification|regulatory\s+corpus)", re.IGNORECASE),
     re.compile(r"^(STATE\s+OF\s+THE\s+WORLD|APRIL\s+\d{4})", re.IGNORECASE),
     re.compile(r"^\s*—\s*\d+\s"),  # Page markers like "— 2"
+    # --- A) Additional skip patterns ---
+    # Document self-references
+    re.compile(r"\b(this\s+document|this\s+code|this\s+edition|present\s+edition)\b", re.IGNORECASE),
+    # OIV procedural/administrative language
+    re.compile(r"\b(Member\s+Countries|General\s+Assembly|adopted\s+by|was\s+adopted)\b", re.IGNORECASE),
+    re.compile(r"\b(Resolution\s+\w+/\d|OIV\s+Resolution)\b", re.IGNORECASE),
+    # Document metadata
+    re.compile(r"\b(published\s+in|edition\s+of|updated\s+on|last\s+updated|date\s+of\s+publication)\b", re.IGNORECASE),
+    # Page numbers and section markers
+    re.compile(r"^\s*\d+\s*$"),  # Bare page numbers
+    re.compile(r"^\s*\d+\s*[-/]\s*\d+\s*$"),  # Page ranges like "12/345"
+    re.compile(r"^(International\s+Code|Code\s+of\s+Oenological)", re.IGNORECASE),  # Repeated header
+    # TOC entries (text followed by dots and page number)
+    re.compile(r"\.{3,}\s*\d+\s*$"),
+    # Meta-descriptions about the document purpose
+    re.compile(r"\b(constitutes\s+a\s+(technical|legal)|aims\s+to\s+(describe|provide|present)|scope\s+of\s+this)\b", re.IGNORECASE),
+    re.compile(r"\b(the\s+purpose\s+of\s+this|the\s+objective\s+of\s+this|is\s+intended\s+to)\b", re.IGNORECASE),
+    # Acknowledgements and attribution
+    re.compile(r"\b(acknowledgement|contributors|prepared\s+by|compiled\s+by|drafted\s+by)\b", re.IGNORECASE),
 ]
 
 
@@ -312,27 +422,41 @@ def _classify_domain(sentence: str, default_domain: str) -> str:
 
 
 def _extract_entities(sentence: str) -> list[dict]:
-    """Extract simple entities from a sentence (countries, chemicals, numbers)."""
+    """Extract entities from a sentence: countries, chemicals, wine types, processes, measures."""
     entities = []
 
     # Countries commonly mentioned in wine context
     country_pattern = re.compile(
-        r"\b(France|Italy|Spain|United\s+States|USA|China|Germany|Argentina|"
+        r"\b(France|Italy|Spain|United\s+States|USA|U\.S\.|China|Germany|Argentina|"
         r"Australia|Chile|South\s+Africa|Portugal|Romania|Greece|New\s+Zealand|"
         r"Austria|Hungary|Brazil|Georgia|Moldova|Russia|Turkey|Switzerland|"
-        r"Canada|Japan|UK|United\s+Kingdom|India|Mexico|Uruguay)\b",
+        r"Canada|Japan|UK|United\s+Kingdom|India|Mexico|Uruguay|Algeria|"
+        r"Morocco|Tunisia|Croatia|Slovenia|Serbia|Bulgaria|Czech\s+Republic|"
+        r"Lebanon|Israel|Peru|Bolivia)\b",
         re.IGNORECASE,
     )
     for m in country_pattern.finditer(sentence):
-        entities.append({"type": "country", "name": m.group(0)})
+        name = m.group(0)
+        # Normalize abbreviations
+        if name.upper() in ("USA", "U.S."):
+            name = "United States"
+        elif name.upper() == "UK":
+            name = "United Kingdom"
+        entities.append({"type": "country", "name": name})
 
     # Chemical/oenological substances
     chem_pattern = re.compile(
-        r"\b(sulphur\s+dioxide|SO2|tartaric\s+acid|malic\s+acid|lactic\s+acid|"
-        r"citric\s+acid|ascorbic\s+acid|sorbic\s+acid|volatile\s+acidity|"
-        r"total\s+acidity|residual\s+sugar|ethanol|potassium\s+sorbate|"
-        r"potassium\s+metabisulphite|bentonite|gelatin|casein|albumin|"
-        r"copper\s+sulphate)\b",
+        r"\b(sulphur\s+dioxide|sulfur\s+dioxide|SO2|tartaric\s+acid|malic\s+acid|"
+        r"lactic\s+acid|citric\s+acid|ascorbic\s+acid|sorbic\s+acid|acetic\s+acid|"
+        r"volatile\s+acidity|total\s+acidity|residual\s+sugar|ethanol|alcohol|"
+        r"potassium\s+sorbate|potassium\s+metabisulphite|potassium\s+bitartrate|"
+        r"bentonite|gelatin|casein|albumin|isinglass|PVPP|"
+        r"polyvinylpolypyrrolidone|activated\s+carbon|silicon\s+dioxide|"
+        r"copper\s+sulphate|copper\s+sulfate|metatartaric\s+acid|"
+        r"diammonium\s+phosphate|DAP|thiamine|lysozyme|pectinase|"
+        r"carbon\s+dioxide|CO2|nitrogen|oxygen|argon|tannin|tannins|"
+        r"anthocyanin|anthocyanins|phenol|phenols|polyphenol|polyphenols|"
+        r"acetaldehyde|glycerol|methanol)\b",
         re.IGNORECASE,
     )
     for m in chem_pattern.finditer(sentence):
@@ -340,13 +464,57 @@ def _extract_entities(sentence: str) -> list[dict]:
 
     # Wine types
     wine_type_pattern = re.compile(
-        r"\b(red\s+wine|white\s+wine|rosé|sparkling\s+wine|fortified\s+wine|"
-        r"dessert\s+wine|still\s+wine|liqueur\s+wine|sweet\s+wine|dry\s+wine|"
-        r"semi-sweet\s+wine|semi-dry\s+wine|table\s+wine)\b",
+        r"\b(red\s+wine|white\s+wine|rosé\s+wine|rosé|sparkling\s+wine|"
+        r"fortified\s+wine|dessert\s+wine|still\s+wine|liqueur\s+wine|"
+        r"sweet\s+wine|dry\s+wine|semi-sweet\s+wine|semi-dry\s+wine|"
+        r"table\s+wine|natural\s+wine|ice\s+wine|noble\s+rot\s+wine|"
+        r"botrytised\s+wine|late\s+harvest\s+wine|aromatised\s+wine|"
+        r"aromatized\s+wine|special\s+wine|organic\s+wine|"
+        r"de-?alcoholi[sz]ed\s+wine|low[- ]alcohol\s+wine|"
+        r"reds?|whites?|sparkling|fortified)\b",
         re.IGNORECASE,
     )
     for m in wine_type_pattern.finditer(sentence):
-        entities.append({"type": "wine_type", "name": m.group(0)})
+        # Avoid bare "red", "white" without wine context nearby
+        name = m.group(0)
+        if name.lower() in ("red", "reds", "white", "whites", "sparkling", "fortified"):
+            # Only include if "wine" appears elsewhere in the sentence
+            if "wine" not in sentence.lower():
+                continue
+        entities.append({"type": "wine_type", "name": name})
+
+    # Winemaking processes
+    process_pattern = re.compile(
+        r"\b(fermentation|alcoholic\s+fermentation|malolactic\s+fermentation|"
+        r"maceration|cold\s+maceration|carbonic\s+maceration|"
+        r"chaptalisation|chaptalization|enrichment|"
+        r"fining|clarification|filtration|micro-?filtration|ultra-?filtration|"
+        r"cross-?flow\s+filtration|"
+        r"stabilisation|stabilization|cold\s+stabili[sz]ation|"
+        r"pasteurisation|pasteurization|flash\s+pasteurisation|"
+        r"acidification|deacidification|"
+        r"dealcoholi[sz]ation|reverse\s+osmosis|"
+        r"racking|lees\s+contact|sur\s+lie|bâtonnage|batonnage|"
+        r"riddling|disgorgement|dosage|"
+        r"blending|assemblage|coupage|"
+        r"ageing|aging|barrel\s+ageing|barrel\s+aging|oak\s+ageing|"
+        r"bottling|corking|"
+        r"must\s+concentration|cryoextraction|cryoconcentration|"
+        r"saignée|délestage|remontage|pigeage)\b",
+        re.IGNORECASE,
+    )
+    for m in process_pattern.finditer(sentence):
+        entities.append({"type": "process", "name": m.group(0)})
+
+    # Numeric measures (extract the value + unit as an entity)
+    measure_pattern = re.compile(
+        r"(\d+[\.,]?\d*)\s*(mg/L|mg/l|g/L|g/l|%\s*vol|°C|hl|hectolitres?|"
+        r"million\s+hectolitres?|tonnes?|million\s+tonnes?|hectares?|mha|kha|"
+        r"billion|million)\b",
+        re.IGNORECASE,
+    )
+    for m in measure_pattern.finditer(sentence):
+        entities.append({"type": "measure", "name": m.group(0).strip()})
 
     # Deduplicate
     seen = set()
