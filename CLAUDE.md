@@ -62,7 +62,9 @@ The key innovation is an AI-driven pipeline: automated data collection → multi
 │   │   ├── wikidata.py           # ✅ Done — Wikidata SPARQL (20,910 facts)
 │   │   ├── wikipedia.py          # ✅ Done — Wikipedia MediaWiki API
 │   │   ├── huggingface.py        # ✅ Done — HuggingFace datasets (16,514 facts)
-│   │   └── ucdavis.py            # ✅ Done — UC Davis ontology, AVA, FPS
+│   │   ├── ucdavis.py            # ✅ Done — UC Davis ontology, AVA, FPS
+│   │   ├── kaggle_data.py        # ✅ Done — Kaggle wine-quality & wine-reviews (1,509 facts)
+│   │   └── inao.py              # ✅ Done — INAO French appellations (1,473 facts)
 │   ├── dashboard/
 │   │   ├── __init__.py
 │   │   ├── app.py                # Flask monitoring dashboard (python -m src.dashboard.app)
@@ -96,8 +98,7 @@ These scrapers are specified in `SCRAPER_PROMPTS.md` but have not been implement
 
 | File | Scraper | Target |
 |------|---------|--------|
-| `src/scrapers/kaggle_data.py` | Kaggle datasets | 500-1,000 facts |
-| `src/scrapers/inao.py` | INAO French appellations | 2,000-3,000 facts |
+| ~~`src/scrapers/inao.py`~~ | ~~INAO French appellations~~ | ~~2,000-3,000 facts~~ ✅ Done (1,473 facts) |
 | `src/scrapers/italy.py` | Italian registries | 1,500-2,000 facts |
 | `src/scrapers/ttb.py` | US TTB regulations | 500-800 facts |
 | `src/scrapers/europe.py` | Spain, Germany, Portugal | 1,500-2,400 facts |
@@ -111,8 +112,8 @@ These scrapers are specified in `SCRAPER_PROMPTS.md` but have not been implement
 ## Current Status (as of March 2026)
 
 **Phase:** Data Collection (Phase 1)
-**Facts collected:** ~38,000+ raw facts
-**Completed scrapers:** 4 of 14 + verify tool
+**Facts collected:** ~41,000+ raw facts
+**Completed scrapers:** 6 of 14 + verify tool
 
 | # | Scraper | Status | Facts |
 |---|---------|--------|-------|
@@ -120,7 +121,9 @@ These scrapers are specified in `SCRAPER_PROMPTS.md` but have not been implement
 | 2 | Wikipedia (`wikipedia.py`) | ✅ Complete | — |
 | 3 | HuggingFace (`huggingface.py`) | ✅ Complete | 16,514 |
 | 4 | UC Davis (`ucdavis.py`) | ✅ Complete | — |
-| 5-14 | Remaining scrapers | Not started | See `SCRAPER_PROMPTS.md` |
+| 5 | Kaggle (`kaggle_data.py`) | ✅ Complete | 1,509 |
+| 6 | INAO (`inao.py`) | ✅ Complete | 1,473 |
+| 7-14 | Remaining scrapers | Not started | See `SCRAPER_PROMPTS.md` |
 
 **Remaining scrapers:** 5-14 (see `SCRAPER_PROMPTS.md`)
 

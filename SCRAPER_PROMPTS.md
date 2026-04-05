@@ -22,6 +22,7 @@ The repo is at ~/oenobench. The codebase has:
 - src/scrapers/wikipedia.py — Wikipedia scraper (reference for patterns)
 - src/scrapers/huggingface.py — HuggingFace datasets (16,514 facts)
 - src/scrapers/ucdavis.py — UC Davis ontology/AVA/FPS (reference for multi-source scraper pattern)
+- src/scrapers/kaggle_data.py — Kaggle datasets (1,509 facts)
 - requirements.txt — all dependencies
 
 READ src/utils/facts.py AND src/scrapers/ucdavis.py FIRST to understand the patterns.
@@ -805,8 +806,8 @@ REQUIREMENTS:
 | 2 | Wikipedia | wikipedia.py | ✅ done | 1-2 |
 | 3 | HuggingFace | huggingface.py | ✅ 16,514 done | 1 |
 | 4 | UC Davis | ucdavis.py | ✅ done | 1-2 |
-| 5 | Kaggle | kaggle_data.py | 500-1,000 | 1-2 |
-| 6 | INAO France | inao.py | 2,000-3,000 | 2-3 |
+| 5 | Kaggle | kaggle_data.py | ✅ 1,509 done | 1-2 |
+| 6 | INAO France | inao.py | ✅ 1,473 done | 2-3 |
 | 7 | Italy | italy.py | 1,500-2,000 | 3 |
 | 8 | TTB (US) | ttb.py | 500-800 | 3-4 |
 | 9 | Europe | europe.py | 1,500-2,400 | 3-4 |

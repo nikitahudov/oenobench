@@ -1,6 +1,6 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** March 15, 2026
+**Last updated:** April 5, 2026
 **Project phase:** Phase 1 — Data Collection
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
@@ -42,8 +42,8 @@
 | 2 | Wikipedia | `src/scrapers/wikipedia.py` | 3,000-4,000 | — | Complete |
 | 3 | HuggingFace | `src/scrapers/huggingface.py` | 1,500-2,500 | **16,514** | Complete |
 | 4 | UC Davis | `src/scrapers/ucdavis.py` | 1,000-2,000 | — | Complete |
-| 5 | Kaggle | `src/scrapers/kaggle_data.py` | 500-1,000 | — | Not started (prompt ready in `SCRAPER_PROMPTS.md`) |
-| 6 | INAO (France) | `src/scrapers/inao.py` | 2,000-3,000 | — | Not started (prompt ready) |
+| 5 | Kaggle | `src/scrapers/kaggle_data.py` | 500-1,000 | **1,509** | Complete |
+| 6 | INAO (France) | `src/scrapers/inao.py` | 2,000-3,000 | **1,473** | Complete |
 | 7 | Italy | `src/scrapers/italy.py` | 1,500-2,000 | — | Not started (prompt ready) |
 | 8 | TTB (US) | `src/scrapers/ttb.py` | 500-800 | — | Not started (prompt ready) |
 | 9 | Europe (ES/DE/PT) | `src/scrapers/europe.py` | 1,500-2,400 | — | Not started (prompt ready) |
@@ -54,7 +54,7 @@
 | 14 | Academic | `src/scrapers/academic.py` | 500-800 | — | Not started (prompt ready) |
 | — | Verify | `src/scrapers/verify.py` | — | — | Not started (prompt ready) |
 
-**Total raw facts collected:** ~38,000+
+**Total raw facts collected:** ~41,000+
 **Target after dedup:** 15,000-20,000 unique facts
 
 ### Completed Scraper Details
@@ -82,6 +82,20 @@
 - Parses RDF with rdflib, GeoJSON natively, HTML with BeautifulSoup
 - Covers wine classifications, 267+ US AVAs, 595 grape varieties with clones
 - Full implementation with --all, --source, --dry-run, --validate, --test-run, --list flags
+
+**Scraper 5 — Kaggle (`kaggle_data.py`):**
+- Two datasets: Wine Quality (UCI physicochemical stats) and Wine Reviews (zynicide/wine-reviews variety-region-producer associations)
+- CSVs pre-downloaded to `data/raw/kaggle/`
+- 1,509 facts total (1,434 from wine-reviews, 75 from wine-quality)
+- Exceeded 500-1,000 target
+
+**Scraper 6 — INAO (`inao.py`):**
+- Extracts French wine appellation data from INAO via data.gouv.fr open-data CSVs
+- Covers 1,210 unique appellations (AOC/AOP/IGP) across 13 French wine regions
+- Generates facts about appellation status, permitted grape varieties, minimum alcohol, maximum yields, wine types
+- 1,473 facts — below 2,000-3,000 target (CSV-only extraction; INAO website detail pages not scraped)
+- 100% entity population, 0% quality issues
+- Licence Ouverte (French open licence)
 
 ### Key Learnings So Far
 
@@ -111,7 +125,7 @@ Based on completed scrapers (1-4), coverage is weighted toward regions and varie
 
 ## Next Steps
 
-1. Implement scrapers 5-14 using prompts in `SCRAPER_PROMPTS.md`
+1. Implement scrapers 7-14 using prompts in `SCRAPER_PROMPTS.md`
 2. Implement `verify.py` gap analysis tool
 3. Run verify.py after completing scraper batches
 4. Begin question generation pipeline design (Phase 2)
