@@ -40,7 +40,7 @@ SCRAPERS = [
     {"name": "Kaggle", "file": "kaggle_data.py", "status": "complete", "facts": 1509},
     {"name": "INAO (France)", "file": "inao.py", "status": "complete", "facts": 1473},
     {"name": "Italy Registries", "file": "italy.py", "status": "complete", "facts": 606},
-    {"name": "US TTB", "file": "ttb.py", "status": "complete", "facts": None},
+    {"name": "US TTB", "file": "ttb.py", "status": "complete", "facts": 515},
     {"name": "Europe (ES/DE/PT)", "file": "europe.py", "status": "complete", "facts": None},
     {"name": "New World", "file": "newworld.py", "status": "complete", "facts": None},
     {"name": "EU/OIV Regulations", "file": "eu_oiv.py", "status": "complete", "facts": None},
