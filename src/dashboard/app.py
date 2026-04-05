@@ -45,7 +45,7 @@ SCRAPERS = [
     {"name": "New World", "file": "newworld.py", "status": "complete", "facts": 903},
     {"name": "EU/OIV Regulations", "file": "eu_oiv.py", "status": "complete", "facts": 130},
     {"name": "Burgundy", "file": "burgundy.py", "status": "complete", "facts": 982},
-    {"name": "Bordeaux", "file": "bordeaux.py", "status": "complete", "facts": None},
+    {"name": "Bordeaux", "file": "bordeaux.py", "status": "complete", "facts": 469},
     {"name": "Champagne", "file": "champagne.py", "status": "complete", "facts": None},
     {"name": "Italian Consortiums", "file": "consortiums_italy.py", "status": "complete", "facts": None},
     {"name": "Academic Journals", "file": "academic.py", "status": "complete", "facts": None},
