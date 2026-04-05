@@ -9,6 +9,8 @@ Usage:
     python -m src.scrapers.bordeaux --dry-run
     python -m src.scrapers.bordeaux --validate
     python -m src.scrapers.bordeaux --list
+    python -m src.scrapers.bordeaux --test-run
+    python -m src.scrapers.bordeaux --test-run --cleanup
 """
 
 import random
@@ -21,7 +23,11 @@ import requests
 from bs4 import BeautifulSoup
 from loguru import logger
 
-from src.utils.facts import ensure_source, insert_facts_batch, get_fact_count
+from src.utils.facts import ensure_source, insert_fact, insert_facts_batch, get_fact_count
+
+# ─── Test Run ────────────────────────────────────────────────────────────────
+
+TEST_RUN_LIMIT = 5  # items per category in --test-run mode
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -1059,6 +1065,184 @@ def collect_all_facts(source_id: str, scrape: bool = True) -> list[dict]:
     return all_facts
 
 
+# ─── Test Run ────────────────────────────────────────────────────────────────
+
+
+def _print_test_report(
+    category_stats: dict[str, dict],
+    all_facts: list[dict],
+    all_inserted_ids: list[str],
+) -> None:
+    """Print the structured test-run report with quality checks and warnings."""
+    click.echo("\n=== TEST RUN REPORT ===")
+    click.echo("")
+
+    # Table header
+    header = (
+        f"  {'Source/Category':<25s} {'Items Processed':>17s} "
+        f"{'Facts Generated':>17s} {'Facts Inserted (new)':>22s}"
+    )
+    separator = "  " + "─" * 83
+    click.echo(header)
+    click.echo(separator)
+
+    total_items = 0
+    total_generated = 0
+    total_inserted = 0
+
+    for cat_name, stats in category_stats.items():
+        items = stats["items_processed"]
+        generated = stats["facts_generated"]
+        inserted = stats["facts_inserted"]
+        total_items += items
+        total_generated += generated
+        total_inserted += inserted
+        click.echo(
+            f"  {cat_name:<25s} {items:>17d} {generated:>17d} {inserted:>22d}"
+        )
+
+    click.echo(separator)
+    click.echo(
+        f"  {'TOTAL':<25s} {total_items:>17d} {total_generated:>17d} "
+        f"{total_inserted:>22d}"
+    )
+
+    # Quality checks
+    if not all_facts:
+        click.echo("\n  No facts to analyze.")
+        return
+
+    total = len(all_facts)
+    too_short = []
+    too_long = []
+    missing_entities = 0
+    total_words = 0
+
+    for f in all_facts:
+        text = f["fact_text"]
+        wc = len(text.split())
+        total_words += wc
+
+        if wc < 5:
+            too_short.append(text)
+        if wc > 50:
+            too_long.append(text)
+        if not f.get("entities"):
+            missing_entities += 1
+
+    avg_words = total_words / total if total else 0
+
+    click.echo(f"\n  Quality Checks:")
+    click.echo(
+        f"    Too short (<5 words):  {len(too_short)} ({len(too_short)/total*100:.1f}%)"
+    )
+    click.echo(
+        f"    Too long (>50 words):  {len(too_long)} ({len(too_long)/total*100:.1f}%)"
+    )
+    click.echo(
+        f"    Missing entities:      {missing_entities} ({missing_entities/total*100:.1f}%)"
+    )
+    click.echo(f"    Avg words per fact:    {avg_words:.1f}")
+
+    # Sample facts
+    sample = random.sample(all_facts, min(10, len(all_facts)))
+    click.echo(f"\n  Sample Facts ({min(10, len(all_facts))} random from this run):")
+    for i, f in enumerate(sample, 1):
+        click.echo(f"    {i:2d}. \"{f['fact_text']}\"")
+
+    # Warnings
+    warnings = []
+
+    for cat_name, stats in category_stats.items():
+        if stats["facts_inserted"] == 0 and stats["items_processed"] > 0:
+            warnings.append(f"ERROR: No facts from {cat_name}")
+
+        items = stats["items_processed"]
+        generated = stats["facts_generated"]
+        if items > 0 and generated / items < 2:
+            warnings.append(
+                f"WARNING: Low extraction rate in {cat_name} "
+                f"({generated/items:.1f} facts/item)"
+            )
+
+        if items > 0 and generated > 0:
+            skipped = generated - stats["facts_inserted"]
+            if skipped / generated > 0.5:
+                warnings.append(
+                    f"WARNING: High duplicate rate in {cat_name} "
+                    f"({skipped}/{generated} = {skipped/generated*100:.0f}% skipped)"
+                )
+
+    if len(too_short) / total > 0.1:
+        warnings.append("WARNING: Too many trivial facts")
+
+    if len(too_long) / total > 0.1:
+        warnings.append("WARNING: Facts need better splitting")
+
+    if warnings:
+        click.echo(f"\n  Warnings:")
+        for w in warnings:
+            click.echo(f"    * {w}")
+    else:
+        click.echo(f"\n  No warnings — all checks passed.")
+
+
+def run_test(cleanup: bool = False) -> None:
+    """Run a limited test extraction: 5 items per category, insert, report."""
+    # Register source (real insert)
+    source_id = ensure_source(
+        name=SOURCE_NAME,
+        url=SOURCE_URL,
+        source_type=SOURCE_TYPE,
+        tier=SOURCE_TIER,
+    )
+
+    category_stats = {}
+    all_facts_collected = []
+    all_inserted_ids = []
+
+    # Process each section with a limit of TEST_RUN_LIMIT items
+    for section_name, config in SECTIONS.items():
+        section_facts = config["builder"](source_id)
+
+        # Limit to TEST_RUN_LIMIT facts per section
+        limited_facts = section_facts[:TEST_RUN_LIMIT]
+
+        # Insert individually to track IDs
+        inserted_count = 0
+        for fact in limited_facts:
+            fact_id = insert_fact(
+                fact_text=fact["fact_text"],
+                domain=fact["domain"],
+                source_id=fact["source_id"],
+                subdomain=fact.get("subdomain"),
+                entities=fact.get("entities"),
+                confidence=fact.get("confidence", 1.0),
+                tags=fact.get("tags"),
+            )
+            if fact_id:
+                all_inserted_ids.append(fact_id)
+                inserted_count += 1
+
+        all_facts_collected.extend(limited_facts)
+        category_stats[section_name] = {
+            "items_processed": len(limited_facts),
+            "facts_generated": len(limited_facts),
+            "facts_inserted": inserted_count,
+        }
+
+    _print_test_report(category_stats, all_facts_collected, all_inserted_ids)
+
+    # Cleanup if requested
+    if cleanup and all_inserted_ids:
+        from src.utils.db import get_pg
+        pg = get_pg()
+        cur = pg.cursor()
+        cur.execute("DELETE FROM facts WHERE id = ANY(%s::uuid[])", (all_inserted_ids,))
+        pg.commit()
+        click.echo(f"\n  Cleaned up {len(all_inserted_ids)} test facts from database.")
+
+
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
 @click.command()
@@ -1068,6 +1252,8 @@ def collect_all_facts(source_id: str, scrape: bool = True) -> list[dict]:
 @click.option("--validate", "validate", is_flag=True, help="Run quality checks on generated facts")
 @click.option("--section", "-s", type=str, help="Run a specific section only")
 @click.option("--no-scrape", is_flag=True, help="Skip web scraping, use only embedded data")
+@click.option("--test-run", is_flag=True, help="Process 5 items per category, insert, and report")
+@click.option("--cleanup", is_flag=True, help="With --test-run, delete inserted facts after reporting")
 def main(
     run_all: bool,
     list_sections: bool,
@@ -1075,6 +1261,8 @@ def main(
     validate: bool,
     section: Optional[str],
     no_scrape: bool,
+    test_run: bool,
+    cleanup: bool,
 ):
     """OenoBench Bordeaux Scraper — Extract Bordeaux wine knowledge from CIVB."""
     logger.add("data/logs/bordeaux_{time}.log", rotation="10 MB")
@@ -1089,6 +1277,10 @@ def main(
         # Use a dummy source_id for validation (no DB needed)
         facts = collect_all_facts(source_id="validation-dummy", scrape=False)
         validate_facts(facts)
+        return
+
+    if test_run:
+        run_test(cleanup=cleanup)
         return
 
     if dry_run:
@@ -1139,6 +1331,7 @@ def main(
 
     click.echo("Use --all to run full extraction, --dry-run to preview, or --validate for quality checks.")
     click.echo("Use --list to see available sections.")
+    click.echo("Use --test-run to process 5 items per category and report (add --cleanup to remove test data).")
 
 
 if __name__ == "__main__":

@@ -21,6 +21,9 @@ Usage:
     python -m src.scrapers.eu_oiv --dry-run
     python -m src.scrapers.eu_oiv --validate
     python -m src.scrapers.eu_oiv --list
+    python -m src.scrapers.eu_oiv --test-run
+    python -m src.scrapers.eu_oiv --test-run --cleanup
+    python -m src.scrapers.eu_oiv --test-run --source eurlex
 """
 
 import random
@@ -34,7 +37,7 @@ import requests
 from bs4 import BeautifulSoup
 from loguru import logger
 
-from src.utils.facts import ensure_source, insert_facts_batch, get_fact_count
+from src.utils.facts import ensure_source, insert_fact, insert_facts_batch, get_fact_count
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -1512,6 +1515,202 @@ def validate_facts(facts: list[dict]) -> None:
         click.echo(f'  {i:2d}. "{f["fact_text"]}"')
 
 
+# ─── Test Run ────────────────────────────────────────────────────────────────
+
+TEST_RUN_LIMIT = 5  # facts per fact-set category
+
+
+def _insert_facts_tracked(facts: list[dict]) -> tuple[int, list[str]]:
+    """Insert facts individually and track inserted IDs. Returns (count, ids)."""
+    if not facts:
+        return 0, []
+
+    inserted_count = 0
+    inserted_ids = []
+    for f in facts:
+        fid = insert_fact(
+            fact_text=f["fact_text"],
+            domain=f["domain"],
+            source_id=f["source_id"],
+            subdomain=f.get("subdomain"),
+            entities=f.get("entities"),
+            confidence=f.get("confidence", 1.0),
+            tags=f.get("tags"),
+        )
+        if fid:
+            inserted_count += 1
+            inserted_ids.append(str(fid))
+
+    return inserted_count, inserted_ids
+
+
+def _cleanup_test_facts(fact_ids: list[str]) -> int:
+    """Delete facts by their IDs. Returns count deleted."""
+    if not fact_ids:
+        return 0
+
+    from src.utils.db import get_pg
+
+    conn = get_pg()
+    cur = conn.cursor()
+    deleted = 0
+    for fid in fact_ids:
+        cur.execute("DELETE FROM facts WHERE id = %s", (fid,))
+        deleted += cur.rowcount
+    conn.commit()
+    return deleted
+
+
+def _print_test_report(
+    category_stats: dict[str, dict],
+    all_facts: list[dict],
+    all_inserted_ids: list[str],
+) -> None:
+    """Print the structured test-run report with quality checks."""
+    click.echo("\n=== TEST RUN REPORT ===")
+    click.echo("")
+
+    # Table header
+    header = (
+        f"  {'Source/Category':<25s} {'Items Processed':>17s} "
+        f"{'Facts Generated':>17s} {'Facts Inserted (new)':>22s}"
+    )
+    separator = "  " + "\u2500" * 83
+    click.echo(header)
+    click.echo(separator)
+
+    total_items = 0
+    total_generated = 0
+    total_inserted = 0
+
+    for cat_name, stats in category_stats.items():
+        items = stats["items_processed"]
+        generated = stats["facts_generated"]
+        inserted = stats["facts_inserted"]
+        total_items += items
+        total_generated += generated
+        total_inserted += inserted
+        click.echo(
+            f"  {cat_name:<25s} {items:>17d} {generated:>17d} {inserted:>22d}"
+        )
+
+    click.echo(separator)
+    click.echo(
+        f"  {'TOTAL':<25s} {total_items:>17d} {total_generated:>17d} "
+        f"{total_inserted:>22d}"
+    )
+
+    # Quality checks
+    if not all_facts:
+        click.echo("\n  No facts to analyze.")
+        return
+
+    total = len(all_facts)
+    too_short = 0
+    too_long = 0
+    missing_entities = 0
+    total_words = 0
+
+    for f in all_facts:
+        text = f["fact_text"]
+        wc = len(text.split())
+        total_words += wc
+        if wc < 5:
+            too_short += 1
+        if wc > 50:
+            too_long += 1
+        if not f.get("entities"):
+            missing_entities += 1
+
+    avg_words = total_words / total if total else 0
+
+    click.echo(f"\n  Quality Checks:")
+    click.echo(
+        f"    Too short (<5 words):  {too_short} ({too_short / total * 100:.1f}%)"
+    )
+    click.echo(
+        f"    Too long (>50 words):  {too_long} ({too_long / total * 100:.1f}%)"
+    )
+    click.echo(
+        f"    Missing entities:      {missing_entities} ({missing_entities / total * 100:.1f}%)"
+    )
+    click.echo(f"    Avg words per fact:    {avg_words:.1f}")
+
+    # Sample facts
+    sample = random.sample(all_facts, min(10, len(all_facts)))
+    click.echo(f"\n  Sample Facts ({min(10, len(all_facts))} random from this run):")
+    for i, f in enumerate(sample, 1):
+        click.echo(f'    {i:2d}. "{f["fact_text"]}"')
+
+
+def run_test(source_filter: Optional[str] = None, cleanup: bool = False) -> None:
+    """Run a limited test extraction: 5 facts per category, insert, report."""
+    category_stats: dict[str, dict] = {}
+    all_facts_collected: list[dict] = []
+    all_inserted_ids: list[str] = []
+
+    sources_to_run = [source_filter] if source_filter else list(SOURCES.keys())
+
+    for source_name in sources_to_run:
+        if source_name not in SOURCES:
+            logger.warning(f"Unknown source: {source_name}")
+            continue
+
+        src_config = SOURCES[source_name]
+        source_id = ensure_source(
+            name=src_config["name"],
+            url=src_config["base_url"],
+            source_type=src_config["source_type"],
+            tier=src_config["tier"],
+        )
+
+        # Build curated facts for this source
+        if source_name == "eurlex":
+            fact_sets = {
+                "eurlex_classification": _EURLEX_CLASSIFICATION_FACTS,
+                "eurlex_labeling": _EURLEX_LABELING_FACTS,
+                "eurlex_oenological": _EURLEX_OENOLOGICAL_FACTS,
+                "eurlex_pdo_pgi": _EURLEX_PDO_PGI_FACTS,
+                "eurlex_sparkling": _EURLEX_SPARKLING_FACTS,
+            }
+        elif source_name == "oiv":
+            fact_sets = {
+                "oiv_statistics": _OIV_STATISTICS_FACTS,
+                "oiv_codex": _OIV_OENOLOGICAL_CODEX_FACTS,
+                "oiv_varieties": _OIV_VARIETY_FACTS,
+                "oiv_sustainability": _OIV_SUSTAINABILITY_FACTS,
+                "oiv_additional": _OIV_ADDITIONAL_FACTS,
+            }
+        else:
+            continue
+
+        for cat_name, fact_set in fact_sets.items():
+            # Take up to TEST_RUN_LIMIT facts from each category
+            subset = fact_set[:TEST_RUN_LIMIT]
+            facts = []
+            for fact in subset:
+                fact_with_source = dict(fact)
+                fact_with_source["source_id"] = source_id
+                facts.append(fact_with_source)
+
+            inserted, ids = _insert_facts_tracked(facts)
+            category_stats[cat_name] = {
+                "items_processed": len(subset),
+                "facts_generated": len(facts),
+                "facts_inserted": inserted,
+            }
+            all_facts_collected.extend(facts)
+            all_inserted_ids.extend(ids)
+
+    # Report
+    _print_test_report(category_stats, all_facts_collected, all_inserted_ids)
+
+    # Cleanup
+    if cleanup and all_inserted_ids:
+        deleted = _cleanup_test_facts(all_inserted_ids)
+        click.echo(f"\n  Cleaned up {deleted} test facts from database.")
+
+
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
 @click.command()
@@ -1532,12 +1731,20 @@ def validate_facts(facts: list[dict]) -> None:
     is_flag=True,
     help="Run quality checks on extracted facts",
 )
+@click.option(
+    "--test-run", is_flag=True, help="Process 5 items per category, insert, and report"
+)
+@click.option(
+    "--cleanup", is_flag=True, help="With --test-run, delete inserted facts after reporting"
+)
 def main(
     source: Optional[str],
     run_all: bool,
     list_sources: bool,
     dry_run: bool,
     validate_flag: bool,
+    test_run: bool,
+    cleanup: bool,
 ):
     """OenoBench EU/OIV Scraper — Extract wine regulatory facts from EUR-Lex and OIV."""
     logger.add("data/logs/eu_oiv_{time}.log", rotation="10 MB")
@@ -1556,6 +1763,10 @@ def main(
         all_facts.extend(_build_eurlex_facts("dry-run"))
         all_facts.extend(_build_oiv_facts("dry-run"))
         validate_facts(all_facts)
+        return
+
+    if test_run:
+        run_test(source_filter=source, cleanup=cleanup)
         return
 
     if run_all:
@@ -1580,6 +1791,7 @@ def main(
     click.echo("Use --list to see available sources.")
     click.echo("Use --dry-run to preview without inserting.")
     click.echo("Use --validate to run quality checks.")
+    click.echo("Use --test-run to process 5 items per category and report.")
 
 
 if __name__ == "__main__":

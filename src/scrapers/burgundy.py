@@ -10,6 +10,8 @@ Usage:
     python -m src.scrapers.burgundy --dry-run
     python -m src.scrapers.burgundy --list
     python -m src.scrapers.burgundy --validate
+    python -m src.scrapers.burgundy --test-run
+    python -m src.scrapers.burgundy --test-run --cleanup
 """
 
 import random
@@ -1351,6 +1353,375 @@ def validate_facts(facts: list[dict]) -> None:
     click.echo("\n" + "=" * 70)
 
 
+# ─── Test Run ─────────────────────────────────────────────────────────────────
+
+TEST_RUN_LIMIT = 5  # items per category
+
+
+def _insert_facts_tracked(facts: list[dict]) -> tuple[int, list[str]]:
+    """Insert facts and return (inserted_count, list_of_inserted_fact_ids).
+
+    Wraps insert_facts_batch by querying back for inserted IDs.
+    """
+    if not facts:
+        return 0, []
+
+    fact_texts = [f["fact_text"] for f in facts]
+    inserted_count = insert_facts_batch(facts)
+
+    from src.utils.db import get_pg
+    conn = get_pg()
+    cur = conn.cursor()
+    inserted_ids = []
+    for text in fact_texts:
+        cur.execute("SELECT id FROM facts WHERE fact_text = %s", (text,))
+        row = cur.fetchone()
+        if row:
+            inserted_ids.append(str(row["id"]))
+
+    return inserted_count, inserted_ids
+
+
+def _cleanup_test_facts(fact_ids: list[str]) -> int:
+    """Delete facts by their IDs. Returns count deleted."""
+    if not fact_ids:
+        return 0
+
+    from src.utils.db import get_pg
+    pg = get_pg()
+    cur = pg.cursor()
+    cur.execute("DELETE FROM facts WHERE id = ANY(%s::uuid[])", (fact_ids,))
+    deleted = cur.rowcount
+    pg.commit()
+    return deleted
+
+
+def _print_test_report(
+    category_stats: dict[str, dict],
+    all_facts: list[dict],
+    all_inserted_ids: list[str],
+) -> None:
+    """Print the structured test-run report with quality checks."""
+    click.echo("\n=== TEST RUN REPORT ===")
+    click.echo("")
+
+    header = (
+        f"  {'Source/Category':<25s} {'Items Processed':>17s} "
+        f"{'Facts Generated':>17s} {'Facts Inserted (new)':>22s}"
+    )
+    separator = "  " + "─" * 83
+    click.echo(header)
+    click.echo(separator)
+
+    total_items = 0
+    total_generated = 0
+    total_inserted = 0
+
+    for cat_name, stats in category_stats.items():
+        items = stats["items_processed"]
+        generated = stats["facts_generated"]
+        inserted = stats["facts_inserted"]
+        total_items += items
+        total_generated += generated
+        total_inserted += inserted
+        click.echo(
+            f"  {cat_name:<25s} {items:>17d} {generated:>17d} {inserted:>22d}"
+        )
+
+    click.echo(separator)
+    click.echo(
+        f"  {'TOTAL':<25s} {total_items:>17d} {total_generated:>17d} "
+        f"{total_inserted:>22d}"
+    )
+
+    # Quality checks
+    if not all_facts:
+        click.echo("\n  No facts to analyze.")
+        return
+
+    total = len(all_facts)
+    too_short = []
+    too_long = []
+    missing_entities = 0
+    total_words = 0
+
+    for f in all_facts:
+        text = f["fact_text"]
+        wc = len(text.split())
+        total_words += wc
+
+        if wc < 5:
+            too_short.append(text)
+        if wc > 50:
+            too_long.append(text)
+        if not f.get("entities"):
+            missing_entities += 1
+
+    avg_words = total_words / total if total else 0
+
+    click.echo(f"\n  Quality Checks:")
+    click.echo(
+        f"    Too short (<5 words):  {len(too_short)} ({len(too_short)/total*100:.1f}%)"
+    )
+    click.echo(
+        f"    Too long (>50 words):  {len(too_long)} ({len(too_long)/total*100:.1f}%)"
+    )
+    click.echo(
+        f"    Missing entities:      {missing_entities} ({missing_entities/total*100:.1f}%)"
+    )
+    click.echo(f"    Avg words per fact:    {avg_words:.1f}")
+
+    # Sample facts
+    sample = random.sample(all_facts, min(10, len(all_facts)))
+    click.echo(f"\n  Sample Facts ({min(10, len(all_facts))} random from this run):")
+    for i, f in enumerate(sample, 1):
+        click.echo(f"    {i:2d}. \"{f['fact_text']}\"")
+
+    # Warnings
+    warnings = []
+
+    for cat_name, stats in category_stats.items():
+        if stats["facts_inserted"] == 0 and stats["items_processed"] > 0:
+            warnings.append(f"ERROR: No facts from {cat_name}")
+
+        items = stats["items_processed"]
+        generated = stats["facts_generated"]
+        if items > 0 and generated / items < 2:
+            warnings.append(
+                f"WARNING: Low extraction rate in {cat_name} "
+                f"({generated/items:.1f} facts/item)"
+            )
+
+        if items > 0 and generated > 0:
+            skipped = generated - stats["facts_inserted"]
+            if skipped / generated > 0.5:
+                warnings.append(
+                    f"WARNING: High duplicate rate in {cat_name} "
+                    f"({skipped}/{generated} = {skipped/generated*100:.0f}% skipped)"
+                )
+
+    if len(too_short) / total > 0.1:
+        warnings.append("WARNING: Too many trivial facts")
+
+    if len(too_long) / total > 0.1:
+        warnings.append("WARNING: Facts need better splitting")
+
+    if warnings:
+        click.echo(f"\n  Warnings:")
+        for w in warnings:
+            click.echo(f"    * {w}")
+
+    if not warnings:
+        click.echo(f"\n  No warnings — all checks passed.")
+
+
+def run_test(cleanup: bool = False) -> None:
+    """Run a limited test extraction: 5 items per category, insert, report."""
+    source_id = ensure_source(
+        name=SOURCE_NAME,
+        url=BASE_URL,
+        source_type="official_body",
+        tier=SOURCE_TIER,
+    )
+
+    category_stats = {}
+    all_facts_collected = []
+    all_inserted_ids = []
+    seen_texts = set()
+
+    def _add(fact_text: str, domain: str, subdomain: str,
+             entities: list, tags: list, confidence: float = 1.0):
+        if fact_text in seen_texts:
+            return
+        seen_texts.add(fact_text)
+        all_facts_collected.append({
+            "fact_text": fact_text,
+            "domain": domain,
+            "subdomain": subdomain,
+            "source_id": source_id,
+            "entities": entities,
+            "confidence": confidence,
+            "tags": tags,
+        })
+
+    # ── Category 1: Grand Crus (5 items) ─────────────────────────────────
+    gc_start = len(all_facts_collected)
+    gc_items = 0
+    for gc in GRAND_CRUS[:TEST_RUN_LIMIT]:
+        name = gc["name"]
+        commune = gc["commune"]
+        sub_region = gc["sub_region"]
+        colors = gc["color"]
+        grapes = gc["grapes"]
+
+        _add(
+            f"{name} is a Grand Cru appellation in the {sub_region} sub-region of Burgundy.",
+            "wine_regions", "burgundy",
+            [{"type": "appellation", "name": name}],
+            ["grand_cru", "burgundy"],
+        )
+        _add(
+            f"{name} Grand Cru is located in the commune of {commune}.",
+            "wine_regions", "burgundy",
+            [{"type": "appellation", "name": name}, {"type": "commune", "name": commune}],
+            ["grand_cru", "commune", "burgundy"],
+        )
+        for grape in grapes:
+            _add(
+                f"{name} Grand Cru wines are made from {grape}.",
+                "grape_varieties", "burgundy",
+                [{"type": "appellation", "name": name}, {"type": "grape", "name": grape}],
+                ["grand_cru", "grape", "burgundy"],
+            )
+        if "area_ha" in gc:
+            _add(
+                f"The {name} Grand Cru vineyard covers {gc['area_ha']} hectares.",
+                "wine_regions", "burgundy",
+                [{"type": "appellation", "name": name}],
+                ["grand_cru", "area", "burgundy"],
+            )
+        gc_items += 1
+
+    gc_facts = all_facts_collected[gc_start:]
+    gc_inserted, gc_ids = _insert_facts_tracked(gc_facts)
+    category_stats["grand_crus"] = {
+        "items_processed": gc_items,
+        "facts_generated": len(gc_facts),
+        "facts_inserted": gc_inserted,
+    }
+    all_inserted_ids.extend(gc_ids)
+
+    # ── Category 2: Village appellations (5 items) ───────────────────────
+    va_start = len(all_facts_collected)
+    va_items = 0
+    for village, info in list(VILLAGE_APPELLATIONS.items())[:TEST_RUN_LIMIT]:
+        sub_region = info["sub_region"]
+        colors = info["colors"]
+        grapes = info["grapes"]
+        premier_crus = info["premier_crus"]
+
+        _add(
+            f"{village} is a village appellation in the {sub_region} sub-region of Burgundy.",
+            "wine_regions", "burgundy",
+            [{"type": "appellation", "name": village}],
+            ["village", "burgundy"],
+        )
+        color_str = ", ".join(colors)
+        _add(
+            f"{village} produces {color_str} wines.",
+            "wine_regions", "burgundy",
+            [{"type": "appellation", "name": village}],
+            ["village", "color", "burgundy"],
+        )
+        for grape in grapes:
+            _add(
+                f"{grape} is a permitted grape variety in the {village} appellation.",
+                "grape_varieties", "burgundy",
+                [{"type": "appellation", "name": village}, {"type": "grape", "name": grape}],
+                ["village", "grape", "burgundy"],
+            )
+        if premier_crus:
+            _add(
+                f"The {village} appellation has {len(premier_crus)} Premier Cru vineyards.",
+                "wine_regions", "burgundy",
+                [{"type": "appellation", "name": village}],
+                ["village", "premier_cru", "burgundy"],
+            )
+            # Include first 3 Premier Crus as sample
+            for pc in premier_crus[:3]:
+                _add(
+                    f"{pc} is a Premier Cru vineyard in the {village} appellation.",
+                    "wine_regions", "burgundy",
+                    [{"type": "appellation", "name": village}, {"type": "vineyard", "name": pc}],
+                    ["premier_cru", "burgundy"],
+                )
+        va_items += 1
+
+    va_facts = all_facts_collected[va_start:]
+    va_inserted, va_ids = _insert_facts_tracked(va_facts)
+    category_stats["village_appellations"] = {
+        "items_processed": va_items,
+        "facts_generated": len(va_facts),
+        "facts_inserted": va_inserted,
+    }
+    all_inserted_ids.extend(va_ids)
+
+    # ── Category 3: Regional appellations (5 items) ──────────────────────
+    ra_start = len(all_facts_collected)
+    ra_items = 0
+    for ra_info in REGIONAL_APPELLATIONS[:TEST_RUN_LIMIT]:
+        appellation = ra_info["name"]
+        colors = ra_info["colors"]
+        grapes = ra_info["grapes"]
+
+        _add(
+            f"{appellation} is a regional appellation in Burgundy.",
+            "wine_regions", "burgundy",
+            [{"type": "appellation", "name": appellation}],
+            ["regional", "burgundy"],
+        )
+        color_str = ", ".join(colors)
+        _add(
+            f"{appellation} covers {color_str} wines.",
+            "wine_regions", "burgundy",
+            [{"type": "appellation", "name": appellation}],
+            ["regional", "color", "burgundy"],
+        )
+        for grape in grapes:
+            _add(
+                f"{grape} is a permitted grape variety in the {appellation} appellation.",
+                "grape_varieties", "burgundy",
+                [{"type": "appellation", "name": appellation}, {"type": "grape", "name": grape}],
+                ["regional", "grape", "burgundy"],
+            )
+        ra_items += 1
+
+    ra_facts = all_facts_collected[ra_start:]
+    ra_inserted, ra_ids = _insert_facts_tracked(ra_facts)
+    category_stats["regional_appellations"] = {
+        "items_processed": ra_items,
+        "facts_generated": len(ra_facts),
+        "facts_inserted": ra_inserted,
+    }
+    all_inserted_ids.extend(ra_ids)
+
+    # ── Category 4: Sub-regions (5 items) ────────────────────────────────
+    sr_start = len(all_facts_collected)
+    sr_items = 0
+    for sr_name, sr_info in list(SUB_REGIONS.items())[:TEST_RUN_LIMIT]:
+        _add(
+            f"{sr_name} is a sub-region of Burgundy.",
+            "wine_regions", "burgundy",
+            [{"type": "sub_region", "name": sr_name}],
+            ["sub_region", "burgundy"],
+        )
+        if "description" in sr_info:
+            _add(
+                f"{sr_name} is {sr_info['description']}.",
+                "wine_regions", "burgundy",
+                [{"type": "sub_region", "name": sr_name}],
+                ["sub_region", "burgundy"],
+            )
+        sr_items += 1
+
+    sr_facts = all_facts_collected[sr_start:]
+    sr_inserted, sr_ids = _insert_facts_tracked(sr_facts)
+    category_stats["sub_regions"] = {
+        "items_processed": sr_items,
+        "facts_generated": len(sr_facts),
+        "facts_inserted": sr_inserted,
+    }
+    all_inserted_ids.extend(sr_ids)
+
+    # ── Report ────────────────────────────────────────────────────────────
+    _print_test_report(category_stats, all_facts_collected, all_inserted_ids)
+
+    # ── Cleanup ───────────────────────────────────────────────────────────
+    if cleanup:
+        deleted = _cleanup_test_facts(all_inserted_ids)
+        click.echo(f"\n  Cleaned up {deleted} test facts from database.")
+
+
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
 @click.command()
@@ -1359,7 +1730,10 @@ def validate_facts(facts: list[dict]) -> None:
 @click.option("--list", "list_sources", is_flag=True, help="List data sources and expected counts")
 @click.option("--validate", is_flag=True, help="Run quality checks on generated facts")
 @click.option("--live/--no-live", default=True, help="Attempt live scraping of BIVB site (default: on)")
-def main(run_all: bool, dry_run: bool, list_sources: bool, validate: bool, live: bool):
+@click.option("--test-run", is_flag=True, help="Process 5 items per category, insert, and report")
+@click.option("--cleanup", is_flag=True, help="With --test-run, delete inserted facts after reporting")
+def main(run_all: bool, dry_run: bool, list_sources: bool, validate: bool, live: bool,
+         test_run: bool, cleanup: bool):
     """OenoBench Burgundy (BIVB) Scraper — Extract Burgundy wine knowledge."""
     logger.add("data/logs/burgundy_{time}.log", rotation="10 MB")
 
@@ -1373,6 +1747,10 @@ def main(run_all: bool, dry_run: bool, list_sources: bool, validate: bool, live:
         click.echo(f"  Premier Cru vineyards:    {total_pc:4d}")
         click.echo(f"\n  Base URL: {BASE_URL}")
         click.echo(f"  Source:   {SOURCE_NAME} ({SOURCE_TIER})")
+        return
+
+    if test_run:
+        run_test(cleanup=cleanup)
         return
 
     if validate or dry_run or run_all:
@@ -1426,6 +1804,7 @@ def main(run_all: bool, dry_run: bool, list_sources: bool, validate: bool, live:
 
     click.echo("Use --all to scrape and insert, --dry-run to preview, or --validate to check quality.")
     click.echo("Use --list to see data sources.")
+    click.echo("Use --test-run to process 5 items per category and report.")
 
 
 if __name__ == "__main__":

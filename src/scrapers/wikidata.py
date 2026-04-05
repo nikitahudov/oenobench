@@ -11,8 +11,11 @@ Usage:
     python -m src.scrapers.wikidata --query appellations
     python -m src.scrapers.wikidata --query producers
     python -m src.scrapers.wikidata --query classifications
+    python -m src.scrapers.wikidata --test-run
+    python -m src.scrapers.wikidata --test-run --cleanup
 """
 
+import random
 import time
 from typing import Optional
 
@@ -20,13 +23,14 @@ import click
 from loguru import logger
 from SPARQLWrapper import SPARQLWrapper, JSON
 
-from src.utils.facts import ensure_source, insert_fact, get_fact_count
+from src.utils.facts import ensure_source, insert_fact, insert_facts_batch, get_fact_count
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
 WIKIDATA_ENDPOINT = "https://query.wikidata.org/sparql"
 USER_AGENT = "OenoBench-Research/1.0 (academic wine benchmark; Python SPARQLWrapper)"
 REQUEST_DELAY = 1.5  # seconds between queries (respectful rate limiting)
+TEST_RUN_QUERIES = 2  # number of queries to run in --test-run mode
 
 # ─── SPARQL Queries ───────────────────────────────────────────────────────────
 
@@ -504,7 +508,6 @@ def run_query(query_name: str) -> int:
     logger.info(f"Built {len(facts)} facts from {len(rows)} results")
 
     # Insert into PostgreSQL
-    from src.utils.facts import insert_facts_batch
     inserted = insert_facts_batch(facts)
     logger.info(f"Inserted {inserted} new facts (duplicates skipped)")
 
@@ -529,13 +532,238 @@ def run_all_queries() -> dict:
     return summary
 
 
+# ─── Test Run Helpers ────────────────────────────────────────────────────────
+
+def _insert_facts_tracked(facts: list[dict]) -> tuple[int, list[str]]:
+    """Insert facts and return (inserted_count, list_of_inserted_fact_ids).
+
+    Wraps insert_facts_batch by querying back for inserted IDs.
+    """
+    if not facts:
+        return 0, []
+
+    fact_texts = [f["fact_text"] for f in facts]
+    inserted_count = insert_facts_batch(facts)
+
+    from src.utils.db import get_pg
+    conn = get_pg()
+    cur = conn.cursor()
+    inserted_ids = []
+    for text in fact_texts:
+        cur.execute("SELECT id FROM facts WHERE fact_text = %s", (text,))
+        row = cur.fetchone()
+        if row:
+            inserted_ids.append(str(row["id"]))
+
+    return inserted_count, inserted_ids
+
+
+def _cleanup_test_facts(fact_ids: list[str]) -> int:
+    """Delete facts by their IDs. Returns count deleted."""
+    if not fact_ids:
+        return 0
+
+    from src.utils.db import get_pg
+    conn = get_pg()
+    cur = conn.cursor()
+    deleted = 0
+    for fid in fact_ids:
+        cur.execute("DELETE FROM facts WHERE id = %s", (fid,))
+        deleted += cur.rowcount
+    conn.commit()
+    return deleted
+
+
+def _print_test_report(
+    category_stats: dict[str, dict],
+    all_facts: list[dict],
+    all_inserted_ids: list[str],
+) -> None:
+    """Print the structured test-run report with quality checks."""
+    click.echo("\n=== TEST RUN REPORT ===")
+    click.echo("")
+
+    # Table header
+    header = (
+        f"  {'Source/Category':<25s} {'Items Processed':>17s} "
+        f"{'Facts Generated':>17s} {'Facts Inserted (new)':>22s}"
+    )
+    separator = "  " + "─" * 83
+    click.echo(header)
+    click.echo(separator)
+
+    total_items = 0
+    total_generated = 0
+    total_inserted = 0
+
+    for cat_name, stats in category_stats.items():
+        items = stats["items_processed"]
+        generated = stats["facts_generated"]
+        inserted = stats["facts_inserted"]
+        total_items += items
+        total_generated += generated
+        total_inserted += inserted
+        click.echo(
+            f"  {cat_name:<25s} {items:>17d} {generated:>17d} {inserted:>22d}"
+        )
+
+    click.echo(separator)
+    click.echo(
+        f"  {'TOTAL':<25s} {total_items:>17d} {total_generated:>17d} "
+        f"{total_inserted:>22d}"
+    )
+
+    # Quality checks
+    if not all_facts:
+        click.echo("\n  No facts to analyze.")
+        return
+
+    total = len(all_facts)
+    too_short = []
+    too_long = []
+    missing_entities = 0
+    total_words = 0
+
+    for f in all_facts:
+        text = f["fact_text"]
+        wc = len(text.split())
+        total_words += wc
+
+        if wc < 5:
+            too_short.append(text)
+        if wc > 50:
+            too_long.append(text)
+        if not f.get("entities"):
+            missing_entities += 1
+
+    avg_words = total_words / total if total else 0
+
+    click.echo(f"\n  Quality Checks:")
+    click.echo(
+        f"    Too short (<5 words):  {len(too_short)} ({len(too_short)/total*100:.1f}%)"
+    )
+    click.echo(
+        f"    Too long (>50 words):  {len(too_long)} ({len(too_long)/total*100:.1f}%)"
+    )
+    click.echo(
+        f"    Missing entities:      {missing_entities} ({missing_entities/total*100:.1f}%)"
+    )
+    click.echo(f"    Avg words per fact:    {avg_words:.1f}")
+
+    # Sample facts
+    sample = random.sample(all_facts, min(10, len(all_facts)))
+    click.echo(f"\n  Sample Facts ({min(10, len(all_facts))} random from this run):")
+    for i, f in enumerate(sample, 1):
+        click.echo(f"    {i:2d}. \"{f['fact_text']}\"")
+
+    # Warnings
+    warnings = []
+
+    for cat_name, stats in category_stats.items():
+        if stats["facts_inserted"] == 0 and stats["items_processed"] > 0:
+            warnings.append(f"ERROR: No facts from {cat_name}")
+
+        items = stats["items_processed"]
+        generated = stats["facts_generated"]
+        if items > 0 and generated / items < 2:
+            warnings.append(
+                f"WARNING: Low extraction rate in {cat_name} "
+                f"({generated/items:.1f} facts/item)"
+            )
+
+        if items > 0 and generated > 0:
+            skipped = generated - stats["facts_inserted"]
+            if skipped / generated > 0.5:
+                warnings.append(
+                    f"WARNING: High duplicate rate in {cat_name} "
+                    f"({skipped}/{generated} = {skipped/generated*100:.0f}% skipped)"
+                )
+
+    if len(too_short) / total > 0.1:
+        warnings.append("WARNING: Too many trivial facts")
+
+    if len(too_long) / total > 0.1:
+        warnings.append("WARNING: Facts need better splitting")
+
+    if warnings:
+        click.echo(f"\n  Warnings:")
+        for w in warnings:
+            click.echo(f"    * {w}")
+
+    if not warnings:
+        click.echo(f"\n  No warnings — all checks passed.")
+
+
+def run_test(cleanup: bool = False) -> None:
+    """Run a limited test extraction: first 2 queries, insert, report."""
+    source_id = ensure_source(
+        name="Wikidata",
+        url="https://www.wikidata.org/wiki/Wikidata:Main_Page",
+        source_type="knowledge_base",
+        tier="tier_1_official",
+    )
+
+    query_names = list(QUERIES.keys())[:TEST_RUN_QUERIES]
+    category_stats = {}
+    all_facts_collected = []
+    all_inserted_ids = []
+
+    for query_name in query_names:
+        query_config = QUERIES[query_name]
+        logger.info(f"[test-run] Running query: {query_name} — {query_config['description']}")
+
+        # Execute SPARQL
+        rows = run_sparql_query(query_config["sparql"])
+        items_processed = len(rows)
+
+        if not rows:
+            logger.warning(f"No results for query: {query_name}")
+            category_stats[query_name] = {
+                "items_processed": 0,
+                "facts_generated": 0,
+                "facts_inserted": 0,
+            }
+            continue
+
+        # Build facts
+        builder_name = query_config["fact_builder"]
+        builder_fn = FACT_BUILDERS[builder_name]
+        facts = builder_fn(rows, source_id)
+        logger.info(f"[test-run] Built {len(facts)} facts from {len(rows)} results")
+
+        # Insert and track IDs
+        inserted_count, inserted_ids = _insert_facts_tracked(facts)
+
+        category_stats[query_name] = {
+            "items_processed": items_processed,
+            "facts_generated": len(facts),
+            "facts_inserted": inserted_count,
+        }
+        all_facts_collected.extend(facts)
+        all_inserted_ids.extend(inserted_ids)
+
+        if query_name != query_names[-1]:
+            logger.info(f"Waiting {REQUEST_DELAY}s before next query...")
+            time.sleep(REQUEST_DELAY)
+
+    # Report
+    _print_test_report(category_stats, all_facts_collected, all_inserted_ids)
+
+    # Cleanup
+    if cleanup:
+        deleted = _cleanup_test_facts(all_inserted_ids)
+        click.echo(f"\n  Cleaned up {deleted} test facts from database.")
+
+
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
 @click.command()
 @click.option("--query", "-q", type=str, help="Run a specific query (regions/grapes/appellations/producers/classifications)")
 @click.option("--all", "run_all", is_flag=True, help="Run all queries")
 @click.option("--list", "list_queries", is_flag=True, help="List available queries")
-def main(query: Optional[str], run_all: bool, list_queries: bool):
+@click.option("--test-run", is_flag=True, help="Process first 2 queries, insert, and report")
+@click.option("--cleanup", is_flag=True, help="With --test-run, delete inserted facts after reporting")
+def main(query: Optional[str], run_all: bool, list_queries: bool, test_run: bool, cleanup: bool):
     """OenoBench Wikidata Scraper — Extract wine knowledge from Wikidata."""
     logger.add("data/logs/wikidata_{time}.log", rotation="10 MB")
 
@@ -543,6 +771,10 @@ def main(query: Optional[str], run_all: bool, list_queries: bool):
         click.echo("\nAvailable queries:")
         for name, config in QUERIES.items():
             click.echo(f"  {name:20s} — {config['description']}")
+        return
+
+    if test_run:
+        run_test(cleanup=cleanup)
         return
 
     if run_all:
@@ -560,6 +792,7 @@ def main(query: Optional[str], run_all: bool, list_queries: bool):
 
     click.echo("Use --all to run all queries, or --query <name> for a specific one.")
     click.echo("Use --list to see available queries.")
+    click.echo("Use --test-run to process first 2 queries, insert, and report.")
 
 
 if __name__ == "__main__":
