@@ -1,0 +1,423 @@
+{
+  "generated_at": "2026-04-05T20:46:09.536866",
+  "total_facts": 50519,
+  "avg_words": 10.0,
+  "h1_domain_coverage": {
+    "pass": false,
+    "results": [
+      {
+        "domain": "wine_regions",
+        "actual": 28384,
+        "actual_pct": 56.184801757754514,
+        "target_pct": 35.0,
+        "ratio": 1.6052800502215576,
+        "status": "OK"
+      },
+      {
+        "domain": "winemaking",
+        "actual": 1236,
+        "actual_pct": 2.4466042479067283,
+        "target_pct": 20.0,
+        "ratio": 0.12233021239533641,
+        "status": "CRITICAL"
+      },
+      {
+        "domain": "viticulture",
+        "actual": 665,
+        "actual_pct": 1.3163364278786198,
+        "target_pct": 15.0,
+        "ratio": 0.08775576185857467,
+        "status": "CRITICAL"
+      },
+      {
+        "domain": "grape_varieties",
+        "actual": 3005,
+        "actual_pct": 5.9482570913913575,
+        "target_pct": 12.0,
+        "ratio": 0.4956880909492798,
+        "status": "LOW"
+      },
+      {
+        "domain": "wine_business",
+        "actual": 1332,
+        "actual_pct": 2.6366317623072506,
+        "target_pct": 10.0,
+        "ratio": 0.26366317623072505,
+        "status": "CRITICAL"
+      },
+      {
+        "domain": "producers",
+        "actual": 15897,
+        "actual_pct": 31.467368712761534,
+        "target_pct": 8.0,
+        "ratio": 3.9334210890951917,
+        "status": "OVER"
+      }
+    ],
+    "underrep_sources": {
+      "viticulture": [
+        [
+          "OENO One",
+          380
+        ],
+        [
+          "Vitis",
+          81
+        ],
+        [
+          "Spanish Ministry of Agriculture (MAPA)",
+          48
+        ],
+        [
+          "Deutsches Weininstitut (German Wine Institute)",
+          39
+        ],
+        [
+          "UC Davis",
+          20
+        ]
+      ],
+      "winemaking": [
+        [
+          "OENO One",
+          361
+        ],
+        [
+          "UC Davis",
+          325
+        ],
+        [
+          "Kaggle",
+          75
+        ],
+        [
+          "Deutsches Weininstitut (German Wine Institute)",
+          73
+        ],
+        [
+          "Comit\u00e9 Champagne",
+          59
+        ]
+      ],
+      "wine_business": [
+        [
+          "HuggingFace",
+          1136
+        ],
+        [
+          "Kaggle",
+          37
+        ],
+        [
+          "OIV \u2014 International Organisation of Vine and Wine",
+          29
+        ],
+        [
+          "EUR-Lex EU Wine Legislation",
+          23
+        ],
+        [
+          "OENO One",
+          17
+        ]
+      ]
+    },
+    "samples": {
+      "viticulture": [
+        "Priorat produces intensely concentrated red wines, often with very low yields of under 2 tons per hectare.",
+        "The ratio total anthocyanins: total polyphenols in 08 Alto grapes increased from 0.14 to 0.33, and in Solicchiata from 0.17 to 0.23.",
+        "Therefore, in the second phase of the study, only the 5BB rootstock was selected, and boron content in leaves as well as the expression levels of BOR-type transporter genes (VvBOR1, VvBOR3, VvBOR4) were analyzed in both seeded and seedless berries across five different phenological stages.",
+        "Valdeorras DO has slate soils that give Godello wines a distinctive mineral character.",
+        "Lisboa benefits from Atlantic breezes that moderate the climate and extend the growing season."
+      ],
+      "winemaking": [
+        "Chianti Classico Annata must be aged for a minimum of 12 months before release, including at least 3 months in bottle.",
+        "These two results combined suggest the potential for stronger red wines in future, with more flavour-related compounds and in particular tannins which often give greater ageing potential.",
+        "In the large-scale experiment, 200 L batches of pasteurised Gr\u00fcner Veltliner must were fermented withSt.lactis-condensi,Saccharomyces cerevisiaeor bothSt. lactis-condensiandS. cerevisiaeco-inoculation, with three replicates per vintage and variants over two vintages.",
+        "Fruit yield components and chemistry were not significantly altered by the fertiliser treatments.",
+        "Kabinett wines from the Mosel require a minimum must weight of 67 degrees Oechsle."
+      ]
+    }
+  },
+  "h2_source_quality": {
+    "pass": false,
+    "hhi": 0.2857162193633904,
+    "top2_share": 74.08103881707872,
+    "top_sources": [
+      [
+        "Wikidata",
+        20911
+      ],
+      [
+        "HuggingFace",
+        16514
+      ],
+      [
+        "UC Davis",
+        3371
+      ],
+      [
+        "Kaggle",
+        1509
+      ],
+      [
+        "INAO",
+        1473
+      ],
+      [
+        "BIVB (Bourgogne Wines)",
+        982
+      ],
+      [
+        "OENO One",
+        801
+      ],
+      [
+        "Spanish Ministry of Agriculture (MAPA)",
+        801
+      ],
+      [
+        "CIVB (Bordeaux Wine Council)",
+        469
+      ],
+      [
+        "Federdoc \u2014 Italian Wine Consortiums Federation",
+        453
+      ]
+    ],
+    "wikidata": {
+      "sample_size": 1000,
+      "classes": {
+        "region_boilerplate": 435,
+        "substantive": 126,
+        "geographic_boilerplate": 439
+      },
+      "boilerplate_pct": 87.4,
+      "examples": {
+        "region_boilerplate": [
+          "Donai is a wine region in Portugal.",
+          "S\u00e3o Pedro de Nordestinho is a wine region in Portugal.",
+          "Saint Ann Parish is a wine region in Jamaica."
+        ],
+        "substantive": [
+          "Ehemaliges Thormanngut is a wine producer located in Twann-T\u00fcscherz.",
+          "ch\u00e2teau Saint Georges is a wine producer located in Montagne.",
+          "Avondale Sky Winery was founded in 2009."
+        ],
+        "geographic_boilerplate": [
+          "Caires is located within the Amares wine area.",
+          "Gouveia (S\u00e3o Pedro e S\u00e3o Juli\u00e3o) is located within the Gouveia wine area.",
+          "W\u0142oc\u0142awek Voivodeship is located within the Polish People's Republic wine area."
+        ]
+      }
+    },
+    "huggingface": {
+      "sample_size": 1000,
+      "classes": {
+        "producer_region": 790,
+        "variety_region": 97,
+        "specific_knowledge": 41,
+        "price_statistical": 72
+      },
+      "examples": {
+        "producer_region": [
+          "Kusuda is a producer in Martinborough, New Zealand.",
+          "Contratto is a producer in Piedmont, Italy.",
+          "Greystone Cellars is a producer in California, US."
+        ],
+        "variety_region": [
+          "Pinot Meunier is grown in the California region of US.",
+          "Pinot Gris is grown in the Marlborough region of New Zealand.",
+          "Shiraz is grown in the New South Wales region of Australia."
+        ],
+        "specific_knowledge": [
+          "Casablanca & Leyda Valleys is a wine region in Chile.",
+          "The most widely reviewed variety in Swartland is Chenin Blanc.",
+          "Maule Valley is a wine region in Chile."
+        ],
+        "price_statistical": [
+          "Ros\u00e9 wines from Alentejano have a median price of $14.",
+          "Cabernet Sauvignon wines from Loncomilla Valley have a median price of $20.",
+          "Syrah wines from New York have a median price of $25."
+        ]
+      }
+    },
+    "trivial_count": 559
+  },
+  "h3_atomicity": {
+    "pass": true,
+    "sample_size": 1000,
+    "total_facts": 50519,
+    "multi_sentence": {
+      "count": 10,
+      "pct": 1.0,
+      "estimated_total": 505,
+      "examples": [
+        "J.K. Carri\u00e8re is a producer in Oregon, US.",
+        "Paula A. Cristini is a grape variety.",
+        "Chateau Ste. Michelle was founded in 1954.",
+        "Adriana C. Mancuso is a grape variety.",
+        "J. Christopher is a producer in Oregon, US."
+      ]
+    },
+    "compound": {
+      "count": 1,
+      "pct": 0.1,
+      "estimated_total": 50,
+      "examples": [
+        "Some of Australia's best-known wines like Penfolds Grange, Jacob's Creek, Yalumba and Henschke Hill of Grace are produced there, as well as many of Australia's mass-produced box wines."
+      ]
+    },
+    "combined_pct": 1.0999999999999999,
+    "histogram": [
+      [
+        "01-05",
+        230
+      ],
+      [
+        "06-10",
+        35705
+      ],
+      [
+        "11-15",
+        12367
+      ],
+      [
+        "16-20",
+        1151
+      ],
+      [
+        "21-30",
+        668
+      ],
+      [
+        "31+",
+        398
+      ]
+    ]
+  },
+  "additional": {
+    "near_duplicates": {
+      "groups": 20,
+      "top": [
+        [
+          "Tempranillo is a permitted red grape var",
+          35
+        ],
+        [
+          "Bordeaux-style Red Blend is grown in the",
+          33
+        ],
+        [
+          "The median price of reviewed wines from ",
+          27
+        ],
+        [
+          "Macabeo is a permitted white grape varie",
+          25
+        ],
+        [
+          "Cabernet Sauvignon is commonly produced ",
+          19
+        ],
+        [
+          "Cabernet Sauvignon is a permitted red gr",
+          16
+        ],
+        [
+          "Cabernet Sauvignon-Merlot is grown in th",
+          14
+        ],
+        [
+          "Sauvignon Blanc is commonly produced in ",
+          14
+        ],
+        [
+          "Garnacha Tinta is a permitted red grape ",
+          12
+        ],
+        [
+          "Chardonnay is a permitted white grape va",
+          11
+        ]
+      ]
+    },
+    "misclassification": {
+      "count": 1,
+      "sample_size": 1000,
+      "pct": 0.1,
+      "examples": [
+        {
+          "fact": "Ungrafted Ramisco vines grow in sandy soils, historically protected from phylloxera.",
+          "domain": "wine_regions",
+          "issue": "wine_regions fact has viticulture keywords"
+        }
+      ]
+    },
+    "confidence": [
+      [
+        "1.00",
+        33672
+      ],
+      [
+        "0.90-0.99",
+        1246
+      ],
+      [
+        "0.80-0.89",
+        3290
+      ],
+      [
+        "0.70-0.79",
+        847
+      ],
+      [
+        "0.50-0.69",
+        2019
+      ],
+      [
+        "<0.50",
+        9445
+      ]
+    ],
+    "entity_stats": [
+      {
+        "domain": "wine_regions",
+        "total": 28384,
+        "empty": 10,
+        "pct_empty": 0.0
+      },
+      {
+        "domain": "producers",
+        "total": 15897,
+        "empty": 0,
+        "pct_empty": 0.0
+      },
+      {
+        "domain": "grape_varieties",
+        "total": 3005,
+        "empty": 24,
+        "pct_empty": 0.8
+      },
+      {
+        "domain": "wine_business",
+        "total": 1332,
+        "empty": 34,
+        "pct_empty": 2.6
+      },
+      {
+        "domain": "winemaking",
+        "total": 1236,
+        "empty": 365,
+        "pct_empty": 29.5
+      },
+      {
+        "domain": "viticulture",
+        "total": 665,
+        "empty": 388,
+        "pct_empty": 58.3
+      }
+    ],
+    "trivial_facts": 559
+  }
+}
