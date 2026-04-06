@@ -52,6 +52,9 @@ SCRAPERS = [
     {"name": "UC IPM Grape", "file": "ucipm.py", "status": "complete", "facts": 1145},
     {"name": "Extension Services", "file": "extension.py", "status": "complete", "facts": 705},
     {"name": "Italian Wine Central", "file": "italian_wine_central.py", "status": "complete", "facts": 1556},
+    {"name": "Austrian Wine", "file": "austria.py", "status": "complete", "facts": 731},
+    {"name": "Greek Wine", "file": "greece.py", "status": "complete", "facts": 587},
+    {"name": "Rhône/Loire/Alsace", "file": "rhone_loire_alsace.py", "status": "complete", "facts": 763},
 ]
 
 

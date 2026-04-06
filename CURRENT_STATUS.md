@@ -53,6 +53,9 @@
 | 13 | Italian Consortiums | `src/scrapers/consortiums_italy.py` | 400-600 | — | Not started (prompt ready) |
 | 14 | Academic | `src/scrapers/academic.py` | 500-800 | — | Not started (prompt ready) |
 | 15 | Italian Wine Central | `src/scrapers/italian_wine_central.py` | 1,500-2,000 | **1,556** | Complete |
+| 16 | Austrian Wine | `src/scrapers/austria.py` | 800-1,200 | **731** | Complete |
+| 17 | Greek Wine | `src/scrapers/greece.py` | 600-900 | **587** | Complete |
+| 18 | Rhône/Loire/Alsace | `src/scrapers/rhone_loire_alsace.py` | 800-1,200 | **763** | Complete |
 | — | Verify | `src/scrapers/verify.py` | — | — | Not started (prompt ready) |
 
 **Total raw facts collected:** ~41,000+
@@ -106,6 +109,24 @@
 - 1,556 facts — 350 grape_varieties, 878 wine_regions, 201 viticulture, 112 winemaking, 40 wine_business
 - Covers 20 regions, 70 DOCG supplements, 111 DOC appellations, 58 grape varieties, 8 MeGA/UGA DOCGs
 - 0% quality issues, 0% overlaps with italy.py, 100% entity population
+
+**Scraper 16 — Austrian Wine (`austria.py`):**
+- Comprehensive Austrian wine data from Austrian Wine Marketing Board (austrianwine.com)
+- 19 wine regions with climate, soil, elevation; 26 grape varieties; DAC system; Prädikat levels; Wachau classifications
+- 731 facts — 209 wine_regions, 190 grape_varieties, 30 wine_business, 22 winemaking, 19 viticulture
+- 0% quality issues, 0% near-duplicates
+
+**Scraper 17 — Greek Wine (`greece.py`):**
+- Greek wine data from Wines of Greece (winesofgreece.org) and EL.G.O. DIMITRA
+- 10 wine regions, 32 PDO appellations, 22 grape varieties; unique winemaking traditions (kouloura, Retsina, Vinsanto)
+- 587 facts — 254 wine_regions, 132 grape_varieties, 101 winemaking, 42 viticulture, 18 wine_business
+
+**Scraper 18 — Rhône/Loire/Alsace (`rhone_loire_alsace.py`):**
+- French regional enrichment from Inter Rhône, InterLoire, CIVA
+- 18 Rhône appellations (Côte-Rôtie, Hermitage, Châteauneuf-du-Pape, etc.)
+- 20 Loire appellations (Sancerre, Vouvray, Muscadet, Chinon, etc.)
+- 51 Alsace Grand Cru vineyards with soil types and key grapes
+- 763 facts — 520 wine_regions, 193 grape_varieties, 35 viticulture
 
 ### Key Learnings So Far
 
