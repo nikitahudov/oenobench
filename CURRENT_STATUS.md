@@ -1,6 +1,6 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** April 5, 2026
+**Last updated:** April 6, 2026
 **Project phase:** Phase 1 — Data Collection
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
@@ -52,6 +52,7 @@
 | 12 | Regional France | `src/scrapers/regional_france.py` | 800-1,500 | — | Not started (prompt ready) |
 | 13 | Italian Consortiums | `src/scrapers/consortiums_italy.py` | 400-600 | — | Not started (prompt ready) |
 | 14 | Academic | `src/scrapers/academic.py` | 500-800 | — | Not started (prompt ready) |
+| 15 | Italian Wine Central | `src/scrapers/italian_wine_central.py` | 1,500-2,000 | **894** | Complete |
 | — | Verify | `src/scrapers/verify.py` | — | — | Not started (prompt ready) |
 
 **Total raw facts collected:** ~41,000+
@@ -96,6 +97,14 @@
 - 1,473 facts — below 2,000-3,000 target (CSV-only extraction; INAO website detail pages not scraped)
 - 100% entity population, 0% quality issues
 - Licence Ouverte (French open licence)
+
+**Scraper 15 — Italian Wine Central (`italian_wine_central.py`):**
+- Extracts structured data from Italian Wine Central reference database (italianwinecentral.com)
+- Focus: climate, soil, elevation, grape variety profiles, MeGA/UGA subzones, and production statistics
+- Covers 20 Italian wine regions, 70 DOCG supplements, 58 grape varieties, 8 MeGA/UGA DOCGs
+- Complements italy.py (which covers basic classification/aging/grape rules) with terroir and climate data
+- 894 facts — 350 grape_varieties, 439 wine_regions, 90 viticulture, 40 wine_business
+- 0% quality issues, 0% overlaps with italy.py, 100% entity population
 
 ### Key Learnings So Far
 
