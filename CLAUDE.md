@@ -65,7 +65,7 @@ The key innovation is an AI-driven pipeline: automated data collection → multi
 │   │   ├── ucdavis.py            # ✅ Done — UC Davis ontology, AVA, FPS
 │   │   ├── kaggle_data.py        # ✅ Done — Kaggle wine-quality & wine-reviews (1,509 facts)
 │   │   ├── inao.py              # ✅ Done — INAO French appellations (1,473 facts)
-│   │   └── italian_wine_central.py  # ✅ Done — Italian Wine Central (894 facts)
+│   │   └── italian_wine_central.py  # ✅ Done — Italian Wine Central (1,556 facts)
 │   ├── dashboard/
 │   │   ├── __init__.py
 │   │   ├── app.py                # Flask monitoring dashboard (python -m src.dashboard.app)
@@ -124,7 +124,7 @@ These scrapers are specified in `SCRAPER_PROMPTS.md` but have not been implement
 | 4 | UC Davis (`ucdavis.py`) | ✅ Complete | — |
 | 5 | Kaggle (`kaggle_data.py`) | ✅ Complete | 1,509 |
 | 6 | INAO (`inao.py`) | ✅ Complete | 1,473 |
-| 15 | Italian Wine Central (`italian_wine_central.py`) | ✅ Complete | 894 |
+| 15 | Italian Wine Central (`italian_wine_central.py`) | ✅ Complete | 1,556 |
 | 7-14 | Remaining scrapers | Not started | See `SCRAPER_PROMPTS.md` |
 
 **Remaining scrapers:** 5-14 (see `SCRAPER_PROMPTS.md`)

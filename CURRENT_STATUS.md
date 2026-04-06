@@ -52,7 +52,7 @@
 | 12 | Regional France | `src/scrapers/regional_france.py` | 800-1,500 | — | Not started (prompt ready) |
 | 13 | Italian Consortiums | `src/scrapers/consortiums_italy.py` | 400-600 | — | Not started (prompt ready) |
 | 14 | Academic | `src/scrapers/academic.py` | 500-800 | — | Not started (prompt ready) |
-| 15 | Italian Wine Central | `src/scrapers/italian_wine_central.py` | 1,500-2,000 | **894** | Complete |
+| 15 | Italian Wine Central | `src/scrapers/italian_wine_central.py` | 1,500-2,000 | **1,556** | Complete |
 | — | Verify | `src/scrapers/verify.py` | — | — | Not started (prompt ready) |
 
 **Total raw facts collected:** ~41,000+
@@ -103,7 +103,8 @@
 - Focus: climate, soil, elevation, grape variety profiles, MeGA/UGA subzones, and production statistics
 - Covers 20 Italian wine regions, 70 DOCG supplements, 58 grape varieties, 8 MeGA/UGA DOCGs
 - Complements italy.py (which covers basic classification/aging/grape rules) with terroir and climate data
-- 894 facts — 350 grape_varieties, 439 wine_regions, 90 viticulture, 40 wine_business
+- 1,556 facts — 350 grape_varieties, 878 wine_regions, 201 viticulture, 112 winemaking, 40 wine_business
+- Covers 20 regions, 70 DOCG supplements, 111 DOC appellations, 58 grape varieties, 8 MeGA/UGA DOCGs
 - 0% quality issues, 0% overlaps with italy.py, 100% entity population
 
 ### Key Learnings So Far

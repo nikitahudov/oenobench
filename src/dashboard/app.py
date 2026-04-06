@@ -51,7 +51,7 @@ SCRAPERS = [
     {"name": "Academic Journals", "file": "academic.py", "status": "complete", "facts": 925},
     {"name": "UC IPM Grape", "file": "ucipm.py", "status": "complete", "facts": 1145},
     {"name": "Extension Services", "file": "extension.py", "status": "complete", "facts": 705},
-    {"name": "Italian Wine Central", "file": "italian_wine_central.py", "status": "complete", "facts": 894},
+    {"name": "Italian Wine Central", "file": "italian_wine_central.py", "status": "complete", "facts": 1556},
 ]
 
 
