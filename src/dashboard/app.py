@@ -55,6 +55,12 @@ SCRAPERS = [
     {"name": "Austrian Wine", "file": "austria.py", "status": "complete", "facts": 731},
     {"name": "Greek Wine", "file": "greece.py", "status": "complete", "facts": 587},
     {"name": "Rhône/Loire/Alsace", "file": "rhone_loire_alsace.py", "status": "complete", "facts": 763},
+    {"name": "Spain Enrichment", "file": "spain_enrichment.py", "status": "complete", "facts": 493},
+    {"name": "Portugal Enrichment", "file": "portugal_enrichment.py", "status": "complete", "facts": 438},
+    {"name": "South America", "file": "south_america.py", "status": "complete", "facts": 393},
+    {"name": "Australia/NZ Enrichment", "file": "australia_nz_enrichment.py", "status": "complete", "facts": 391},
+    {"name": "Hungary & Georgia", "file": "hungary_georgia.py", "status": "complete", "facts": 429},
+    {"name": "Germany Enrichment", "file": "germany_enrichment.py", "status": "complete", "facts": 333},
 ]
 
 

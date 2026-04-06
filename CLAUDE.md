@@ -68,7 +68,13 @@ The key innovation is an AI-driven pipeline: automated data collection → multi
 │   │   ├── italian_wine_central.py  # ✅ Done — Italian Wine Central (1,556 facts)
 │   │   ├── austria.py              # ✅ Done — Austrian Wine (731 facts)
 │   │   ├── greece.py               # ✅ Done — Greek Wine (587 facts)
-│   │   └── rhone_loire_alsace.py   # ✅ Done — Rhône/Loire/Alsace (763 facts)
+│   │   ├── rhone_loire_alsace.py   # ✅ Done — Rhône/Loire/Alsace (763 facts)
+│   │   ├── spain_enrichment.py    # ✅ Done — Spain enrichment (493 facts)
+│   │   ├── portugal_enrichment.py # ✅ Done — Portugal enrichment (438 facts)
+│   │   ├── south_america.py       # ✅ Done — Argentina & Chile (393 facts)
+│   │   ├── australia_nz_enrichment.py # ✅ Done — Australia & NZ (391 facts)
+│   │   ├── hungary_georgia.py     # ✅ Done — Hungary & Georgia (429 facts)
+│   │   └── germany_enrichment.py  # ✅ Done — Germany enrichment (333 facts)
 │   ├── dashboard/
 │   │   ├── __init__.py
 │   │   ├── app.py                # Flask monitoring dashboard (python -m src.dashboard.app)
@@ -131,6 +137,12 @@ These scrapers are specified in `SCRAPER_PROMPTS.md` but have not been implement
 | 16 | Austrian Wine (`austria.py`) | ✅ Complete | 731 |
 | 17 | Greek Wine (`greece.py`) | ✅ Complete | 587 |
 | 18 | Rhône/Loire/Alsace (`rhone_loire_alsace.py`) | ✅ Complete | 763 |
+| 19 | Spain Enrichment (`spain_enrichment.py`) | ✅ Complete | 493 |
+| 20 | Portugal Enrichment (`portugal_enrichment.py`) | ✅ Complete | 438 |
+| 21 | South America (`south_america.py`) | ✅ Complete | 393 |
+| 22 | Australia/NZ (`australia_nz_enrichment.py`) | ✅ Complete | 391 |
+| 23 | Hungary & Georgia (`hungary_georgia.py`) | ✅ Complete | 429 |
+| 24 | Germany Enrichment (`germany_enrichment.py`) | ✅ Complete | 333 |
 | 7-14 | Remaining scrapers | Not started | See `SCRAPER_PROMPTS.md` |
 
 **Remaining scrapers:** 5-14 (see `SCRAPER_PROMPTS.md`)

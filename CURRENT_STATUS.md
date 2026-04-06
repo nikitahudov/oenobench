@@ -56,6 +56,12 @@
 | 16 | Austrian Wine | `src/scrapers/austria.py` | 800-1,200 | **731** | Complete |
 | 17 | Greek Wine | `src/scrapers/greece.py` | 600-900 | **587** | Complete |
 | 18 | Rhône/Loire/Alsace | `src/scrapers/rhone_loire_alsace.py` | 800-1,200 | **763** | Complete |
+| 19 | Spain Enrichment | `src/scrapers/spain_enrichment.py` | 800-1,000 | **493** | Complete |
+| 20 | Portugal Enrichment | `src/scrapers/portugal_enrichment.py` | 700-900 | **438** | Complete |
+| 21 | South America | `src/scrapers/south_america.py` | 700-900 | **393** | Complete |
+| 22 | Australia/NZ | `src/scrapers/australia_nz_enrichment.py` | 700-900 | **391** | Complete |
+| 23 | Hungary & Georgia | `src/scrapers/hungary_georgia.py` | 600-800 | **429** | Complete |
+| 24 | Germany Enrichment | `src/scrapers/germany_enrichment.py` | 500-700 | **333** | Complete |
 | — | Verify | `src/scrapers/verify.py` | — | — | Not started (prompt ready) |
 
 **Total raw facts collected:** ~41,000+
@@ -127,6 +133,31 @@
 - 20 Loire appellations (Sancerre, Vouvray, Muscadet, Chinon, etc.)
 - 51 Alsace Grand Cru vineyards with soil types and key grapes
 - 763 facts — 520 wine_regions, 193 grape_varieties, 35 viticulture
+
+**Scraper 19 — Spain Enrichment (`spain_enrichment.py`):**
+- Enriches Spain coverage with terroir depth for 25 DOs, Sherry styles/solera system, Cava, 20+ grape varieties
+- 493 facts — Rioja subzones, Priorat llicorella, Rías Baixas, Sherry triangle, aging classification
+
+**Scraper 20 — Portugal Enrichment (`portugal_enrichment.py`):**
+- Port styles (Ruby/Tawny/Vintage/LBV/Colheita), Madeira noble grapes, Douro terraces, Vinho Verde, Alentejo
+- 438 facts — 14 regions, Port classification, Madeira estufagem/canteiro, 20+ grape varieties
+
+**Scraper 21 — South America (`south_america.py`):**
+- Argentina (Mendoza subregions, Salta altitude, Patagonia) + Chile (regions N-S, transversal classification)
+- 393 facts — Malbec altitude terroir, Carménère rediscovery, Andes influence, 15 grape profiles
+
+**Scraper 22 — Australia/NZ Enrichment (`australia_nz_enrichment.py`):**
+- Australia (20 GIs with terroir, Barossa old vines, Hunter Semillon) + NZ (10 regions, Gimblett Gravels)
+- 391 facts — GI system, Old Vine Charter, Rutherglen fortified, Marlborough Sauvignon Blanc
+
+**Scraper 23 — Hungary & Georgia (`hungary_georgia.py`):**
+- Hungary: Tokaj (Aszú/Eszencia, 27 first-growth vineyards), Eger, Villány, Somló
+- Georgia: qvevri (UNESCO), 8,000-year wine history, Saperavi, amber wine tradition
+- 429 facts — first coverage of both countries
+
+**Scraper 24 — Germany Enrichment (`germany_enrichment.py`):**
+- 13 Anbaugebiete with terroir, VDP classification (Gutswein→Grosse Lage/GG), Prädikat Oechsle levels
+- 333 facts — Mosel slate, Rheingau history, notable Einzellagen, Sekt, 15 grape profiles
 
 ### Key Learnings So Far
 
