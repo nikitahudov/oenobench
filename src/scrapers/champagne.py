@@ -1,17 +1,13 @@
 """
-OenoBench — Comité Champagne Scraper
+OenoBench — Champagne Wine Scraper (genuine external data only)
 
-Extracts Champagne wine knowledge from the official Comité Champagne
-website (https://www.champagne.fr) and curated reference data.
+Extracts Champagne wine knowledge from:
+  1. Wikipedia — Champagne articles, Echelle des Crus, methode champenoise, dosage
+  2. Wikidata SPARQL — Grand Cru villages, grape varieties, producers
+  3. champagne.fr — supplementary scraping when accessible
 
-Covers:
-    - 17 Grand Cru villages (complete list)
-    - 42 Premier Cru villages (complete list)
-    - Permitted grape varieties (7 total)
-    - Champagne production rules (méthode champenoise)
-    - Aging requirements (NV 15 months, vintage 36 months)
-    - Champagne styles and dosage levels
-    - Terroir, geography, and appellations
+Every fact traces to a URL that was actually fetched and parsed.
+No hardcoded wine knowledge.
 
 Usage:
     python -m src.scrapers.champagne --all
@@ -23,6 +19,7 @@ Usage:
 """
 
 import random
+import re
 import time
 from collections import Counter
 from typing import Optional
@@ -33,1023 +30,878 @@ from bs4 import BeautifulSoup
 from loguru import logger
 
 from src.utils.facts import ensure_source, insert_facts_batch, get_fact_count
+from src.scrapers._wiki_helpers import (
+    wiki_session,
+    fetch_article,
+    fetch_full_extract,
+    crawl_category,
+    parse_infobox,
+    parse_wikitext_tables,
+    extract_lead_sentences,
+    run_sparql,
+    ensure_wiki_source,
+    ensure_wikidata_source,
+    clean_wiki_value,
+    is_wine_relevant,
+)
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
-BASE_URL = "https://www.champagne.fr"
-USER_AGENT = "OenoBench-Research/1.0 (academic wine benchmark)"
-REQUEST_DELAY = 5  # seconds between requests (1 per 5 seconds)
-
-SOURCE_NAME = "Comité Champagne"
-SOURCE_TIER = "tier_2_authoritative"
-TEST_RUN_LIMIT = 5  # items per category for --test-run
-
-# Pages to attempt scraping (English version)
-SCRAPE_PAGES = [
-    "/en/terroir/classification-of-the-vineyards",
-    "/en/terroir/the-champagne-vineyard",
-    "/en/terroir/grape-varieties",
-    "/en/champagne-appellation/champagne-appellation-regulations",
-    "/en/champagne-appellation/elaboration-of-champagne",
-    "/en/from-vine-to-wine/elaboration/blending",
-    "/en/from-vine-to-wine/elaboration/riddling-and-disgorging",
-    "/en/from-vine-to-wine/elaboration/dosage",
-    "/en/tasting-and-service/types-of-champagne",
-]
-
-SESSION = requests.Session()
-SESSION.headers.update({
-    "User-Agent": USER_AGENT,
+TEST_RUN_LIMIT = 5
+CHAMPAGNE_FR_BASE_URL = "https://www.champagne.fr"
+CHAMPAGNE_FR_REQUEST_DELAY = 5
+REQUEST_TIMEOUT = 30
+CHAMPAGNE_FR_HEADERS = {
+    "User-Agent": "OenoBench-Research/1.0 (academic wine benchmark)",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
-})
-
-# ─── Curated Champagne Knowledge ─────────────────────────────────────────────
-# Authoritative data from Comité Champagne publications and AOC regulations.
-# Used as primary fact source; web scraping supplements when available.
-
-GRAND_CRU_VILLAGES = [
-    "Ambonnay", "Avize", "Aÿ", "Beaumont-sur-Vesle", "Bouzy",
-    "Chouilly", "Cramant", "Louvois", "Mailly-Champagne", "Le Mesnil-sur-Oger",
-    "Oger", "Oiry", "Puisieulx", "Sillery", "Tours-sur-Marne",
-    "Verzenay", "Verzy",
-]
-
-PREMIER_CRU_VILLAGES = [
-    "Avenay-Val-d'Or", "Bergères-lès-Vertus", "Bezannes", "Billy-le-Grand",
-    "Bisseuil", "Chamery", "Champillon", "Chigny-les-Roses",
-    "Coligny", "Cormontreuil", "Coulommes-la-Montagne", "Cuis",
-    "Cumières", "Dizy", "Écueil", "Étréchy",
-    "Grauves", "Hautvillers", "Jouy-lès-Reims", "Ludes",
-    "Mareuil-sur-Aÿ", "Les Mesneux", "Montbré", "Mutigny",
-    "Pargny-lès-Reims", "Pierry", "Rilly-la-Montagne", "Sacy",
-    "Sermiers", "Taissy", "Tauxières-Mutry", "Trépail",
-    "Trois-Puits", "Vaudemange", "Vertus", "Ville-Dommange",
-    "Villeneuve-Renneville-Chevigny", "Villers-Allerand", "Villers-aux-Nœuds",
-    "Villers-Marmery", "Voipreux", "Vrigny",
-]
-
-PERMITTED_GRAPES = {
-    "Chardonnay": {"color": "white", "status": "principal", "pct": "about 30% of plantings"},
-    "Pinot Noir": {"color": "red", "status": "principal", "pct": "about 38% of plantings"},
-    "Pinot Meunier": {"color": "red", "status": "principal", "pct": "about 31% of plantings"},
-    "Arbane": {"color": "white", "status": "ancillary", "pct": "less than 0.1% of plantings"},
-    "Petit Meslier": {"color": "white", "status": "ancillary", "pct": "less than 0.1% of plantings"},
-    "Pinot Blanc": {"color": "white", "status": "ancillary", "pct": "less than 0.1% of plantings"},
-    "Pinot Gris": {"color": "red", "status": "ancillary", "pct": "less than 0.1% of plantings"},
-}
-
-DOSAGE_LEVELS = {
-    "Brut Nature": {"sugar": "0-3", "unit": "grams per litre", "aka": "zero dosage, pas dosé"},
-    "Extra Brut": {"sugar": "0-6", "unit": "grams per litre", "aka": ""},
-    "Brut": {"sugar": "0-12", "unit": "grams per litre", "aka": ""},
-    "Extra Dry": {"sugar": "12-17", "unit": "grams per litre", "aka": "Extra Sec"},
-    "Sec": {"sugar": "17-32", "unit": "grams per litre", "aka": "Dry"},
-    "Demi-Sec": {"sugar": "32-50", "unit": "grams per litre", "aka": ""},
-    "Doux": {"sugar": "over 50", "unit": "grams per litre", "aka": "Sweet"},
-}
-
-CHAMPAGNE_STYLES = {
-    "Blanc de Blancs": "made exclusively from white grapes, typically Chardonnay",
-    "Blanc de Noirs": "made exclusively from red grapes, typically Pinot Noir and/or Pinot Meunier",
-    "Rosé": "produced either by blending red and white wines or by saignée method",
-    "Vintage": "made from grapes of a single harvest year, also called Millésimé",
-    "Non-Vintage": "a blend of wines from multiple harvest years, abbreviated NV",
-    "Prestige Cuvée": "the top wine of a Champagne house, made from the best parcels",
-    "Crémant": "a Champagne with lower pressure, typically around 3.5 atmospheres instead of 6",
-}
-
-CHAMPAGNE_SUBREGIONS = {
-    "Montagne de Reims": "known primarily for Pinot Noir",
-    "Vallée de la Marne": "known primarily for Pinot Meunier",
-    "Côte des Blancs": "known primarily for Chardonnay",
-    "Côte de Sézanne": "known primarily for Chardonnay",
-    "Côte des Bar": "also called Aube, known primarily for Pinot Noir",
 }
 
 
-# ─── HTTP Fetching ────────────────────────────────────────────────────────────
+# ─── Wikipedia Scraping ──────────────────────────────────────────────────────
 
-def fetch_page(path: str) -> Optional[BeautifulSoup]:
-    """Fetch a page from champagne.fr with rate limiting. Returns soup or None."""
-    url = f"{BASE_URL}{path}"
-    logger.info(f"Fetching: {url}")
+
+def _scrape_wikipedia_key_articles(session: requests.Session, source_id: str) -> list[dict]:
+    """Scrape key Champagne articles from Wikipedia for lead sentences and infoboxes."""
+    facts = []
+    seen = set()
+
+    def _add(text, domain="wine_regions", subdomain="champagne", entities=None,
+             tags=None, confidence=0.9):
+        if text in seen:
+            return
+        seen.add(text)
+        facts.append({
+            "fact_text": text,
+            "domain": domain,
+            "subdomain": subdomain,
+            "source_id": source_id,
+            "entities": entities or [],
+            "confidence": confidence,
+            "tags": tags or ["champagne", "wikipedia"],
+        })
+
+    key_articles = [
+        "Champagne (wine)",
+        "Échelle des Crus",
+        "Méthode champenoise",
+        "Dosage (wine)",
+        "Champagne wine region",
+        "Champagne (wine region)",
+        "Blanc de blancs",
+        "Blanc de noirs",
+        "Champagne producer",
+        "Rosé Champagne",
+    ]
+
+    for title in key_articles:
+        logger.info(f"Fetching Wikipedia article: {title}")
+        extract, wikitext = fetch_article(session, title)
+
+        if extract:
+            sentences = extract_lead_sentences(extract)
+            for s in sentences[:10]:
+                _add(s, entities=[{"type": "region", "name": title}],
+                     tags=["champagne", "wikipedia", "key_article"])
+
+        if wikitext:
+            # Parse infobox data
+            infobox = parse_infobox(wikitext)
+            if infobox:
+                grape = infobox.get("grapes", "") or infobox.get("grape", "")
+                area = infobox.get("area", "") or infobox.get("size", "") or infobox.get("hectares", "")
+                region = infobox.get("region", "")
+                year = infobox.get("year established", "") or infobox.get("established", "")
+                classification = infobox.get("classification", "")
+
+                if grape:
+                    grapes = [g.strip() for g in re.split(r"[,;]", grape) if g.strip()]
+                    for g in grapes[:8]:
+                        if 2 < len(g) < 50:
+                            _add(
+                                f"{title} permits the {g} grape variety.",
+                                domain="grape_varieties",
+                                entities=[
+                                    {"type": "region", "name": title},
+                                    {"type": "grape", "name": g},
+                                ],
+                                tags=["champagne", "wikipedia", "grape"],
+                            )
+
+                if area and re.search(r"\d", area):
+                    _add(
+                        f"{title} covers approximately {area} hectares.",
+                        entities=[{"type": "region", "name": title}],
+                        tags=["champagne", "wikipedia", "area"],
+                    )
+
+                if classification:
+                    _add(
+                        f"{title} holds {classification} classification.",
+                        entities=[{"type": "region", "name": title}],
+                        tags=["champagne", "wikipedia", "classification"],
+                    )
+
+                if year and re.search(r"\d{4}", year):
+                    year_match = re.search(r"\d{4}", year)
+                    if year_match:
+                        _add(
+                            f"{title} was established in {year_match.group()}.",
+                            entities=[{"type": "region", "name": title}],
+                            tags=["champagne", "wikipedia", "history"],
+                        )
+
+    return facts
+
+
+def _scrape_echelle_des_crus(session: requests.Session, source_id: str) -> list[dict]:
+    """Parse the Echelle des Crus article for Grand Cru and Premier Cru village tables."""
+    facts = []
+    seen = set()
+
+    def _add(text, domain="wine_regions", subdomain="champagne", entities=None,
+             tags=None, confidence=0.9):
+        if text in seen:
+            return
+        seen.add(text)
+        facts.append({
+            "fact_text": text,
+            "domain": domain,
+            "subdomain": subdomain,
+            "source_id": source_id,
+            "entities": entities or [],
+            "confidence": confidence,
+            "tags": tags or ["champagne", "wikipedia"],
+        })
+
+    # Fetch the Echelle des Crus article
+    logger.info("Fetching Échelle des Crus article for village tables")
+    extract, wikitext = fetch_article(session, "Échelle des Crus")
+
+    if extract:
+        sentences = extract_lead_sentences(extract)
+        for s in sentences[:10]:
+            _add(s, entities=[{"type": "region", "name": "Échelle des Crus"}],
+                 tags=["champagne", "wikipedia", "echelle"])
+
+    if not wikitext:
+        logger.warning("No wikitext for Échelle des Crus, trying alternate titles")
+        for alt_title in ["Échelle des crus", "Echelle des Crus", "Champagne (wine)"]:
+            extract2, wikitext = fetch_article(session, alt_title)
+            if wikitext:
+                logger.info(f"Found wikitext via: {alt_title}")
+                break
+
+    if wikitext:
+        rows = parse_wikitext_tables(wikitext)
+        logger.info(f"Parsed {len(rows)} table rows from Échelle des Crus")
+
+        for row in rows:
+            if len(row) < 1:
+                continue
+
+            village = row[0].strip()
+
+            # Skip headers and empty rows
+            if not village or village.lower() in (
+                "village", "commune", "name", "town", "location",
+                "département", "department", "rating", "cru", "classification",
+                "grand cru", "premier cru",
+            ):
+                continue
+            if len(village) < 2 or len(village) > 60:
+                continue
+
+            # Try to extract the rating/percentage from subsequent columns
+            rating = ""
+            department = ""
+            for cell in row[1:]:
+                cell_stripped = cell.strip()
+                if re.match(r"^\d{2,3}%?$", cell_stripped):
+                    rating = cell_stripped
+                elif len(cell_stripped) > 2 and not cell_stripped.startswith(("–", "—", "-")):
+                    if not department:
+                        department = cell_stripped
+
+            # Determine cru level from rating or context
+            cru_level = ""
+            if rating:
+                rating_num = re.sub(r"[^\d]", "", rating)
+                if rating_num:
+                    try:
+                        pct = int(rating_num)
+                        if pct == 100:
+                            cru_level = "Grand Cru"
+                        elif 90 <= pct <= 99:
+                            cru_level = "Premier Cru"
+                    except ValueError:
+                        pass
+
+            if cru_level:
+                fact_text = f"{village} is a {cru_level} village in Champagne."
+                if department and len(department) < 40:
+                    fact_text = f"{village} is a {cru_level} village in Champagne, located in {department}."
+                _add(
+                    fact_text,
+                    entities=[
+                        {"type": "region", "name": village},
+                        {"type": "region", "name": "Champagne"},
+                    ],
+                    tags=["champagne", "wikipedia", "echelle", cru_level.lower().replace(" ", "_")],
+                )
+                if rating:
+                    _add(
+                        f"{village} has an Échelle des Crus rating of {rating}.",
+                        entities=[{"type": "region", "name": village}],
+                        tags=["champagne", "wikipedia", "echelle", "rating"],
+                    )
+            elif village and len(village) < 40:
+                # Row might be a village without a clear rating column
+                if re.match(r"^[A-ZÀ-Ü]", village) and not re.search(r"\d", village):
+                    _add(
+                        f"{village} is a classified cru village in Champagne.",
+                        entities=[
+                            {"type": "region", "name": village},
+                            {"type": "region", "name": "Champagne"},
+                        ],
+                        tags=["champagne", "wikipedia", "echelle", "cru"],
+                    )
+
+    # Also try the full Champagne (wine) article for cru tables
+    logger.info("Checking Champagne (wine) article for cru village tables")
+    _, champagne_wikitext = fetch_article(session, "Champagne (wine)")
+    if champagne_wikitext:
+        rows = parse_wikitext_tables(champagne_wikitext)
+        logger.info(f"Parsed {len(rows)} table rows from Champagne (wine)")
+        for row in rows:
+            if len(row) < 1:
+                continue
+            village = row[0].strip()
+            if not village or len(village) < 2 or len(village) > 60:
+                continue
+            if village.lower() in (
+                "village", "commune", "name", "town", "cru",
+                "classification", "department",
+            ):
+                continue
+
+            # Check if any column mentions grand cru or premier cru
+            row_text = " ".join(row).lower()
+            if "grand cru" in row_text:
+                if village not in seen and re.match(r"^[A-ZÀ-Ü]", village):
+                    _add(
+                        f"{village} is a Grand Cru village in Champagne.",
+                        entities=[
+                            {"type": "region", "name": village},
+                            {"type": "region", "name": "Champagne"},
+                        ],
+                        tags=["champagne", "wikipedia", "grand_cru"],
+                    )
+            elif "premier cru" in row_text:
+                if village not in seen and re.match(r"^[A-ZÀ-Ü]", village):
+                    _add(
+                        f"{village} is a Premier Cru village in Champagne.",
+                        entities=[
+                            {"type": "region", "name": village},
+                            {"type": "region", "name": "Champagne"},
+                        ],
+                        tags=["champagne", "wikipedia", "premier_cru"],
+                    )
+
+    return facts
+
+
+def _scrape_wikipedia_categories(session: requests.Session, source_id: str) -> list[dict]:
+    """Scrape Champagne-related articles from Wikipedia categories."""
+    facts = []
+    seen = set()
+
+    def _add(text, domain="wine_regions", subdomain="champagne", entities=None,
+             tags=None, confidence=0.9):
+        if text in seen:
+            return
+        seen.add(text)
+        facts.append({
+            "fact_text": text,
+            "domain": domain,
+            "subdomain": subdomain,
+            "source_id": source_id,
+            "entities": entities or [],
+            "confidence": confidence,
+            "tags": tags or ["champagne", "wikipedia"],
+        })
+
+    categories = [
+        "Category:Champagne (wine)",
+        "Category:Champagne producers",
+        "Category:Champagne wine producers",
+    ]
+
+    all_titles = set()
+    for cat in categories:
+        logger.info(f"Crawling category: {cat}")
+        titles = crawl_category(session, cat, max_depth=2, max_articles=100)
+        all_titles.update(titles)
+
+    logger.info(f"Found {len(all_titles)} Champagne-related articles from categories")
+
+    for title in sorted(all_titles):
+        logger.info(f"Fetching: {title}")
+        extract, wikitext = fetch_article(session, title)
+
+        if extract:
+            sentences = extract_lead_sentences(extract)
+            for s in sentences[:6]:
+                _add(s, entities=[{"type": "region", "name": title}],
+                     tags=["champagne", "wikipedia", "category"])
+
+        if wikitext:
+            infobox = parse_infobox(wikitext)
+            if infobox:
+                grape = infobox.get("grapes", "") or infobox.get("grape", "")
+                area = infobox.get("area", "") or infobox.get("size", "") or infobox.get("hectares", "")
+                region = infobox.get("region", "")
+                year = (infobox.get("year established", "")
+                        or infobox.get("established", "")
+                        or infobox.get("founded", ""))
+                classification = infobox.get("classification", "")
+                founder = infobox.get("founder", "") or infobox.get("founded by", "")
+                production = infobox.get("production", "") or infobox.get("annual production", "")
+
+                if region and not region.startswith("Q"):
+                    _add(
+                        f"{title} is located in {region}.",
+                        entities=[{"type": "region", "name": title}],
+                        tags=["champagne", "wikipedia", "location"],
+                    )
+
+                if grape:
+                    grapes = [g.strip() for g in re.split(r"[,;]", grape) if g.strip()]
+                    for g in grapes[:5]:
+                        if 2 < len(g) < 50:
+                            _add(
+                                f"{title} uses the {g} grape variety.",
+                                domain="grape_varieties",
+                                entities=[
+                                    {"type": "region", "name": title},
+                                    {"type": "grape", "name": g},
+                                ],
+                                tags=["champagne", "wikipedia", "grape"],
+                            )
+
+                if area and re.search(r"\d", area):
+                    area_clean = re.sub(r"[^\d.,]", " ", area).strip()
+                    if area_clean:
+                        _add(
+                            f"{title} covers approximately {area_clean} hectares.",
+                            entities=[{"type": "region", "name": title}],
+                            tags=["champagne", "wikipedia", "area"],
+                        )
+
+                if classification:
+                    _add(
+                        f"{title} holds {classification} classification.",
+                        entities=[{"type": "region", "name": title}],
+                        tags=["champagne", "wikipedia", "classification"],
+                    )
+
+                if year and re.search(r"\d{4}", year):
+                    year_match = re.search(r"\d{4}", year)
+                    if year_match:
+                        _add(
+                            f"{title} was established in {year_match.group()}.",
+                            entities=[{"type": "region", "name": title}],
+                            tags=["champagne", "wikipedia", "history"],
+                        )
+
+                if founder and len(founder) < 60:
+                    _add(
+                        f"{title} was founded by {founder}.",
+                        domain="producers",
+                        entities=[
+                            {"type": "producer", "name": title},
+                            {"type": "person", "name": founder},
+                        ],
+                        tags=["champagne", "wikipedia", "producer"],
+                    )
+
+                if production and re.search(r"\d", production):
+                    _add(
+                        f"{title} has an annual production of {production}.",
+                        domain="producers",
+                        entities=[{"type": "producer", "name": title}],
+                        tags=["champagne", "wikipedia", "production"],
+                    )
+
+    return facts
+
+
+# ─── Wikidata SPARQL ─────────────────────────────────────────────────────────
+
+
+def _scrape_wikidata(source_id: str) -> list[dict]:
+    """Query Wikidata for Champagne wine entities."""
+    facts = []
+    seen = set()
+
+    def _add(text, domain="wine_regions", subdomain="champagne", entities=None,
+             tags=None, confidence=0.85):
+        if text in seen:
+            return
+        seen.add(text)
+        facts.append({
+            "fact_text": text,
+            "domain": domain,
+            "subdomain": subdomain,
+            "source_id": source_id,
+            "entities": entities or [],
+            "confidence": confidence,
+            "tags": tags or ["champagne", "wikidata"],
+        })
+
+    # Query 1: Champagne Grand Cru villages
+    query_grand_cru = """
+    SELECT DISTINCT ?item ?itemLabel ?departmentLabel WHERE {
+        ?item wdt:P31 wd:Q484170 .
+        ?item wdt:P131* ?champagne .
+        VALUES ?champagne { wd:Q1129 wd:Q12761 wd:Q12549 wd:Q12588 }
+        OPTIONAL { ?item wdt:P131 ?department }
+        SERVICE wikibase:label { bd:serviceParam wikibase:language "en,fr" }
+        FILTER EXISTS {
+            ?item wdt:P31 wd:Q484170 .
+        }
+    }
+    ORDER BY ?itemLabel
+    LIMIT 100
+    """
 
     try:
-        resp = SESSION.get(url, timeout=30)
-        if resp.status_code == 200:
-            logger.debug(f"OK: {url} ({len(resp.text)} bytes)")
-            return BeautifulSoup(resp.text, "lxml")
-        else:
-            logger.warning(f"HTTP {resp.status_code} for {url}")
-            return None
-    except requests.RequestException as e:
-        logger.warning(f"Request failed for {url}: {e}")
-        return None
-    finally:
-        time.sleep(REQUEST_DELAY)
+        rows = run_sparql(query_grand_cru)
+        for row in rows:
+            name = row.get("itemLabel", "")
+            dept = row.get("departmentLabel", "")
+            if not name or name.startswith("Q"):
+                continue
+            if dept and not dept.startswith("Q"):
+                _add(
+                    f"{name} is a wine-producing commune in {dept}, Champagne.",
+                    entities=[
+                        {"type": "region", "name": name},
+                        {"type": "region", "name": "Champagne"},
+                    ],
+                    tags=["champagne", "wikidata", "commune"],
+                )
+    except Exception as e:
+        logger.warning(f"Wikidata Grand Cru query failed: {e}")
 
-
-def try_scrape_pages() -> list[str]:
-    """Attempt to scrape pages from champagne.fr. Returns raw text blocks."""
-    texts = []
-    for path in SCRAPE_PAGES:
-        soup = fetch_page(path)
-        if soup is None:
-            continue
-        # Extract main content area
-        for selector in ["article", ".field-item", ".content", "main"]:
-            content = soup.select(selector)
-            if content:
-                for block in content:
-                    text = block.get_text(separator=" ", strip=True)
-                    if len(text) > 100:
-                        texts.append(text)
-                break
-    return texts
-
-
-# ─── Fact Builders ────────────────────────────────────────────────────────────
-
-def _build_grand_cru_facts(source_id: str) -> list[dict]:
-    """Generate facts about the 17 Grand Cru villages."""
-    facts = []
-
-    facts.append({
-        "fact_text": "There are 17 Grand Cru villages in Champagne.",
-        "domain": "wine_regions",
-        "subdomain": "champagne",
-        "source_id": source_id,
-        "entities": [{"type": "appellation", "name": "Champagne Grand Cru"}],
-        "tags": ["champagne", "grand_cru", "classification"],
-    })
-
-    facts.append({
-        "fact_text": "Grand Cru villages in Champagne are rated 100% on the Échelle des Crus.",
-        "domain": "wine_regions",
-        "subdomain": "champagne",
-        "source_id": source_id,
-        "entities": [{"type": "appellation", "name": "Champagne Grand Cru"}],
-        "tags": ["champagne", "grand_cru", "classification"],
-    })
-
-    facts.append({
-        "fact_text": "The Échelle des Crus is a classification system that rates Champagne villages from 80% to 100%.",
-        "domain": "wine_regions",
-        "subdomain": "champagne",
-        "source_id": source_id,
-        "entities": [{"type": "classification", "name": "Échelle des Crus"}],
-        "tags": ["champagne", "classification"],
-    })
-
-    for village in GRAND_CRU_VILLAGES:
-        facts.append({
-            "fact_text": f"{village} is a Grand Cru village in Champagne.",
-            "domain": "wine_regions",
-            "subdomain": "champagne",
-            "source_id": source_id,
-            "entities": [
-                {"type": "village", "name": village},
-                {"type": "appellation", "name": "Champagne Grand Cru"},
-            ],
-            "tags": ["champagne", "grand_cru", "village"],
-        })
-
-    # Subregion associations for Grand Cru villages
-    grand_cru_subregions = {
-        "Montagne de Reims": [
-            "Ambonnay", "Beaumont-sur-Vesle", "Bouzy", "Louvois",
-            "Mailly-Champagne", "Puisieulx", "Sillery", "Verzenay", "Verzy",
-        ],
-        "Vallée de la Marne": ["Aÿ", "Tours-sur-Marne"],
-        "Côte des Blancs": [
-            "Avize", "Chouilly", "Cramant", "Le Mesnil-sur-Oger",
-            "Oger", "Oiry",
-        ],
+    # Query 2: Champagne grape varieties
+    query_grapes = """
+    SELECT DISTINCT ?item ?itemLabel ?colorLabel WHERE {
+        {
+            ?item wdt:P31 wd:Q10978 .
+            ?item wdt:P2614 ?region .
+            VALUES ?region { wd:Q1129 wd:Q183459 }
+        }
+        UNION
+        {
+            wd:Q183459 wdt:P186 ?item .
+            ?item wdt:P31 wd:Q10978 .
+        }
+        OPTIONAL { ?item wdt:P462 ?color }
+        SERVICE wikibase:label { bd:serviceParam wikibase:language "en,fr" }
     }
+    ORDER BY ?itemLabel
+    LIMIT 50
+    """
 
-    for subregion, villages in grand_cru_subregions.items():
-        for village in villages:
-            facts.append({
-                "fact_text": f"The Grand Cru village of {village} is located in the {subregion} subregion of Champagne.",
-                "domain": "wine_regions",
-                "subdomain": "champagne",
-                "source_id": source_id,
-                "entities": [
-                    {"type": "village", "name": village},
-                    {"type": "region", "name": subregion},
+    try:
+        rows = run_sparql(query_grapes)
+        for row in rows:
+            name = row.get("itemLabel", "")
+            color = row.get("colorLabel", "")
+            if not name or name.startswith("Q"):
+                continue
+            fact_text = f"{name} is a grape variety used in Champagne production."
+            if color and not color.startswith("Q"):
+                fact_text = f"{name} is a {color} grape variety used in Champagne production."
+            _add(
+                fact_text,
+                domain="grape_varieties",
+                entities=[
+                    {"type": "grape", "name": name},
+                    {"type": "region", "name": "Champagne"},
                 ],
-                "tags": ["champagne", "grand_cru", "geography"],
-            })
+                tags=["champagne", "wikidata", "grape"],
+            )
+    except Exception as e:
+        logger.warning(f"Wikidata grapes query failed: {e}")
+
+    # Query 3: Champagne producers / houses
+    query_producers = """
+    SELECT DISTINCT ?item ?itemLabel ?locationLabel ?foundedLabel WHERE {
+        {
+            ?item wdt:P31 wd:Q4830453 .
+            ?item wdt:P452 wd:Q183459 .
+        }
+        UNION
+        {
+            ?item wdt:P31 wd:Q156362 .
+            ?item wdt:P131* ?champagne .
+            VALUES ?champagne { wd:Q1129 wd:Q12761 }
+        }
+        OPTIONAL { ?item wdt:P131 ?location }
+        OPTIONAL { ?item wdt:P571 ?founded }
+        SERVICE wikibase:label { bd:serviceParam wikibase:language "en,fr" }
+    }
+    ORDER BY ?itemLabel
+    LIMIT 200
+    """
+
+    try:
+        rows = run_sparql(query_producers)
+        for row in rows:
+            name = row.get("itemLabel", "")
+            location = row.get("locationLabel", "")
+            founded = row.get("foundedLabel", "")
+            if not name or name.startswith("Q"):
+                continue
+            if location and not location.startswith("Q"):
+                _add(
+                    f"{name} is a Champagne producer based in {location}.",
+                    domain="producers",
+                    entities=[
+                        {"type": "producer", "name": name},
+                        {"type": "region", "name": location},
+                    ],
+                    tags=["champagne", "wikidata", "producer"],
+                )
+            else:
+                _add(
+                    f"{name} is a Champagne producer.",
+                    domain="producers",
+                    entities=[{"type": "producer", "name": name}],
+                    tags=["champagne", "wikidata", "producer"],
+                )
+            if founded and re.search(r"\d{4}", founded):
+                year_match = re.search(r"\d{4}", founded)
+                if year_match:
+                    _add(
+                        f"{name} was founded in {year_match.group()}.",
+                        domain="producers",
+                        entities=[{"type": "producer", "name": name}],
+                        tags=["champagne", "wikidata", "history"],
+                    )
+    except Exception as e:
+        logger.warning(f"Wikidata producers query failed: {e}")
 
     return facts
 
 
-def _build_premier_cru_facts(source_id: str) -> list[dict]:
-    """Generate facts about the 42 Premier Cru villages."""
+# ─── champagne.fr Website Scraping ──────────────────────────────────────────
+
+
+def _scrape_champagne_fr(source_id: str) -> list[dict]:
+    """Scrape supplementary facts from champagne.fr (CIVC)."""
     facts = []
+    seen = set()
 
-    facts.append({
-        "fact_text": "There are 42 Premier Cru villages in Champagne.",
-        "domain": "wine_regions",
-        "subdomain": "champagne",
-        "source_id": source_id,
-        "entities": [{"type": "appellation", "name": "Champagne Premier Cru"}],
-        "tags": ["champagne", "premier_cru", "classification"],
-    })
-
-    facts.append({
-        "fact_text": "Premier Cru villages in Champagne are rated 90% to 99% on the Échelle des Crus.",
-        "domain": "wine_regions",
-        "subdomain": "champagne",
-        "source_id": source_id,
-        "entities": [{"type": "appellation", "name": "Champagne Premier Cru"}],
-        "tags": ["champagne", "premier_cru", "classification"],
-    })
-
-    for village in PREMIER_CRU_VILLAGES:
-        facts.append({
-            "fact_text": f"{village} is a Premier Cru village in Champagne.",
-            "domain": "wine_regions",
-            "subdomain": "champagne",
-            "source_id": source_id,
-            "entities": [
-                {"type": "village", "name": village},
-                {"type": "appellation", "name": "Champagne Premier Cru"},
-            ],
-            "tags": ["champagne", "premier_cru", "village"],
-        })
-
-    return facts
-
-
-def _build_grape_facts(source_id: str) -> list[dict]:
-    """Generate facts about permitted Champagne grape varieties."""
-    facts = []
-
-    facts.append({
-        "fact_text": "Seven grape varieties are permitted in Champagne AOC production.",
-        "domain": "grape_varieties",
-        "subdomain": "champagne",
-        "source_id": source_id,
-        "entities": [{"type": "appellation", "name": "Champagne AOC"}],
-        "tags": ["champagne", "grape", "regulation"],
-    })
-
-    facts.append({
-        "fact_text": "The three principal grape varieties of Champagne are Chardonnay, Pinot Noir, and Pinot Meunier.",
-        "domain": "grape_varieties",
-        "subdomain": "champagne",
-        "source_id": source_id,
-        "entities": [
-            {"type": "grape", "name": "Chardonnay"},
-            {"type": "grape", "name": "Pinot Noir"},
-            {"type": "grape", "name": "Pinot Meunier"},
-        ],
-        "tags": ["champagne", "grape", "principal"],
-    })
-
-    facts.append({
-        "fact_text": "The four ancillary grape varieties permitted in Champagne are Arbane, Petit Meslier, Pinot Blanc, and Pinot Gris.",
-        "domain": "grape_varieties",
-        "subdomain": "champagne",
-        "source_id": source_id,
-        "entities": [
-            {"type": "grape", "name": "Arbane"},
-            {"type": "grape", "name": "Petit Meslier"},
-            {"type": "grape", "name": "Pinot Blanc"},
-            {"type": "grape", "name": "Pinot Gris"},
-        ],
-        "tags": ["champagne", "grape", "ancillary"],
-    })
-
-    for grape, info in PERMITTED_GRAPES.items():
-        facts.append({
-            "fact_text": f"{grape} is a permitted grape variety in Champagne AOC production.",
-            "domain": "grape_varieties",
-            "subdomain": "champagne",
-            "source_id": source_id,
-            "entities": [{"type": "grape", "name": grape}],
-            "tags": ["champagne", "grape", "regulation"],
-        })
-
-        facts.append({
-            "fact_text": f"{grape} is a {info['color']} grape variety classified as a {info['status']} variety in Champagne.",
-            "domain": "grape_varieties",
-            "subdomain": "champagne",
-            "source_id": source_id,
-            "entities": [{"type": "grape", "name": grape}],
-            "tags": ["champagne", "grape", info["status"]],
-        })
-
-        facts.append({
-            "fact_text": f"{grape} accounts for {info['pct']} in the Champagne vineyard.",
-            "domain": "grape_varieties",
-            "subdomain": "champagne",
-            "source_id": source_id,
-            "entities": [{"type": "grape", "name": grape}],
-            "tags": ["champagne", "grape", "viticulture"],
-        })
-
-    return facts
-
-
-def _build_production_facts(source_id: str) -> list[dict]:
-    """Generate facts about Champagne production rules and winemaking."""
-    facts = []
-
-    production_rules = [
-        "Champagne must be produced using the méthode champenoise, also called méthode traditionnelle.",
-        "The méthode champenoise requires secondary fermentation to take place in the bottle.",
-        "Non-vintage Champagne must age on lees for a minimum of 15 months.",
-        "Vintage Champagne must age on lees for a minimum of 36 months.",
-        "Non-vintage Champagne must age for a minimum of 12 months after tirage.",
-        "The minimum total aging for vintage Champagne is 36 months from tirage to disgorgement.",
-        "Champagne must undergo riddling (remuage) to collect sediment in the neck of the bottle.",
-        "Disgorgement (dégorgement) is the process of removing sediment from a Champagne bottle after riddling.",
-        "The first pressing of Champagne grapes is called the cuvée and yields 2,050 litres per 4,000 kg of grapes.",
-        "The second pressing of Champagne grapes is called the taille and yields 500 litres per 4,000 kg of grapes.",
-        "The maximum press yield in Champagne is 2,550 litres of juice per 4,000 kg of grapes.",
-        "Champagne grapes must be harvested by hand; mechanical harvesting is not permitted.",
-        "The Champagne AOC was officially established in 1936 under French appellation law.",
-        "The Champagne production region is the northernmost major wine region in France.",
-        "The Champagne AOC covers approximately 34,300 hectares of vineyard.",
-        "There are approximately 319 villages (crus) in the Champagne appellation.",
-        "Champagne typically undergoes two fermentations: the first in tank or barrel, the second in bottle.",
-        "Liqueur de tirage, a mixture of sugar and yeast, is added to still Champagne wine to trigger secondary fermentation.",
-        "Dosage in Champagne is the addition of liqueur d'expédition after disgorgement to adjust sweetness.",
-        "The pressure inside a bottle of Champagne is typically around 5 to 6 atmospheres.",
-        "Champagne bottles must be sealed with a mushroom-shaped cork held by a wire cage called a muselet.",
-        "The standard Champagne bottle size is 75 cl.",
-        "A Magnum of Champagne holds 1.5 litres, equivalent to two standard bottles.",
-        "A Jeroboam of Champagne holds 3 litres, equivalent to four standard bottles.",
-        "A Methuselah of Champagne holds 6 litres, equivalent to eight standard bottles.",
-        "A Balthazar of Champagne holds 12 litres, equivalent to sixteen standard bottles.",
-        "A Nebuchadnezzar of Champagne holds 15 litres, equivalent to twenty standard bottles.",
-        "Reserve wines in Champagne are still wines from previous vintages kept for blending into non-vintage cuvées.",
-        "The Chef de Cave is the cellar master responsible for blending and overseeing Champagne production at a house.",
-        "Assemblage is the art of blending different base wines, grape varieties, and vintages to create a Champagne cuvée.",
+    paths = [
+        "/en/champagne-appellation",
+        "/en/champagne-vineyards",
+        "/en/grape-varieties",
+        "/en/terroir",
+        "/en/champagne-making",
     ]
 
-    for text in production_rules:
-        facts.append({
-            "fact_text": text,
-            "domain": "winemaking",
-            "subdomain": "champagne",
-            "source_id": source_id,
-            "entities": [{"type": "appellation", "name": "Champagne AOC"}],
-            "tags": ["champagne", "production", "regulation"],
-        })
+    session = requests.Session()
+    session.headers.update(CHAMPAGNE_FR_HEADERS)
 
-    return facts
+    champagne_keywords = re.compile(
+        r"\b(?:appellation|vineyard|grape|wine|champagne|AOC|hectare|"
+        r"terroir|chardonnay|pinot|meunier|noir|blanc|sparkling|"
+        r"dosage|brut|vintage|cuvée|cuvee|cru|grand cru|premier cru|"
+        r"assemblage|riddling|disgorgement|lees|fermentation|bottle|"
+        r"tirage|remuage|dégorgement|degorgement|liqueur)\b",
+        re.IGNORECASE,
+    )
 
+    for path in paths:
+        url = f"{CHAMPAGNE_FR_BASE_URL}{path}"
+        logger.info(f"Attempting to scrape: {url}")
+        try:
+            time.sleep(CHAMPAGNE_FR_REQUEST_DELAY)
+            resp = session.get(url, timeout=REQUEST_TIMEOUT)
+            if resp.status_code != 200:
+                logger.warning(f"HTTP {resp.status_code} for {url}")
+                continue
 
-def _build_dosage_facts(source_id: str) -> list[dict]:
-    """Generate facts about Champagne dosage levels."""
-    facts = []
+            soup = BeautifulSoup(resp.text, "html.parser")
+            for tag in soup.find_all(["p", "li", "h2", "h3"]):
+                text = tag.get_text(strip=True)
+                if not text or len(text) < 30:
+                    continue
+                words = text.split()
+                if len(words) < 6 or len(words) > 45:
+                    continue
+                if not champagne_keywords.search(text):
+                    continue
+                if text in seen:
+                    continue
+                seen.add(text)
 
-    facts.append({
-        "fact_text": "There are seven official dosage levels for Champagne, defined by residual sugar content.",
-        "domain": "winemaking",
-        "subdomain": "champagne",
-        "source_id": source_id,
-        "entities": [{"type": "appellation", "name": "Champagne AOC"}],
-        "tags": ["champagne", "dosage", "regulation"],
-    })
+                # Clean up
+                text = text.strip().rstrip(".")
+                if not text:
+                    continue
+                text += "."
 
-    for level, info in DOSAGE_LEVELS.items():
-        sugar = info["sugar"]
-        if sugar.startswith("over"):
-            desc = f"{level} Champagne has a dosage of more than 50 grams of sugar per litre."
-        elif "-" in sugar:
-            low, high = sugar.split("-")
-            if low == "0":
-                desc = f"{level} Champagne has a dosage of less than {high} grams of sugar per litre."
-            else:
-                desc = f"{level} Champagne has a dosage between {low} and {high} grams of sugar per litre."
-        else:
-            desc = f"{level} Champagne has a dosage of {sugar} grams of sugar per litre."
-
-        facts.append({
-            "fact_text": desc,
-            "domain": "winemaking",
-            "subdomain": "champagne",
-            "source_id": source_id,
-            "entities": [{"type": "style", "name": level}],
-            "tags": ["champagne", "dosage", "sweetness"],
-        })
-
-        if info["aka"]:
-            for aka in info["aka"].split(", "):
                 facts.append({
-                    "fact_text": f"{level} Champagne is also known as {aka}.",
-                    "domain": "winemaking",
+                    "fact_text": text,
+                    "domain": "wine_regions",
                     "subdomain": "champagne",
                     "source_id": source_id,
-                    "entities": [{"type": "style", "name": level}],
-                    "tags": ["champagne", "dosage", "terminology"],
+                    "entities": [],
+                    "confidence": 0.8,
+                    "tags": ["champagne", "champagne_fr", "scraped"],
                 })
 
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Failed to scrape {url}: {e}")
+
+    logger.info(f"champagne.fr scraping yielded {len(facts)} facts")
     return facts
-
-
-def _build_style_facts(source_id: str) -> list[dict]:
-    """Generate facts about Champagne styles."""
-    facts = []
-
-    for style, desc in CHAMPAGNE_STYLES.items():
-        facts.append({
-            "fact_text": f"{style} Champagne is {desc}.",
-            "domain": "winemaking",
-            "subdomain": "champagne",
-            "source_id": source_id,
-            "entities": [{"type": "style", "name": style}],
-            "tags": ["champagne", "style"],
-        })
-
-    # Additional style-related facts
-    style_facts = [
-        "Blanc de Blancs Champagne is made exclusively from Chardonnay.",
-        "Blanc de Noirs Champagne is made exclusively from black-skinned grapes.",
-        "Rosé Champagne can be produced by blending red and white wines, a method unique among French AOCs.",
-        "Rosé Champagne can also be produced using the saignée method, where juice macerates briefly with red grape skins.",
-        "A vintage Champagne must contain 100% wine from the year stated on the label.",
-        "Most Champagne produced is non-vintage, representing a house's consistent style across years.",
-        "Brut is the most popular dosage level for Champagne worldwide.",
-        "Brut Nature Champagne has no sugar added after disgorgement.",
-        "A Champagne labeled Extra Brut has very low residual sugar, between 0 and 6 grams per litre.",
-    ]
-
-    for text in style_facts:
-        facts.append({
-            "fact_text": text,
-            "domain": "winemaking",
-            "subdomain": "champagne",
-            "source_id": source_id,
-            "entities": [{"type": "appellation", "name": "Champagne AOC"}],
-            "tags": ["champagne", "style"],
-        })
-
-    return facts
-
-
-def _build_terroir_facts(source_id: str) -> list[dict]:
-    """Generate facts about Champagne terroir, geography, and subregions."""
-    facts = []
-
-    for subregion, desc in CHAMPAGNE_SUBREGIONS.items():
-        facts.append({
-            "fact_text": f"The {subregion} is a major subregion of Champagne, {desc}.",
-            "domain": "wine_regions",
-            "subdomain": "champagne",
-            "source_id": source_id,
-            "entities": [{"type": "region", "name": subregion}],
-            "tags": ["champagne", "terroir", "geography"],
-        })
-
-    terroir_facts = [
-        "The Champagne wine region is located in northeastern France, approximately 150 km east of Paris.",
-        "The Champagne region has a cool continental climate influenced by oceanic weather patterns.",
-        "The average annual temperature in the Champagne region is approximately 11°C.",
-        "Chalk soils (craie) are characteristic of the Champagne region and contribute to drainage and mineral character.",
-        "The Côte des Blancs subregion has predominantly chalk soils ideal for Chardonnay.",
-        "The Montagne de Reims subregion is a forested plateau with north-facing and east-facing slopes.",
-        "The Vallée de la Marne has clay-rich soils well-suited to Pinot Meunier.",
-        "The Côte des Bar is located in the Aube département, approximately 110 km southeast of Épernay.",
-        "Reims and Épernay are the two main cities of the Champagne wine region.",
-        "Many Champagne houses store their bottles in crayères, ancient chalk cellars beneath Reims and Épernay.",
-        "The crayères of Champagne were originally Roman chalk quarries, repurposed for wine aging.",
-        "The Champagne vineyard is divided into four main départements: Marne, Aube, Aisne, and Haute-Marne.",
-        "The Marne département contains the majority of Champagne's Grand Cru and Premier Cru vineyards.",
-        "Champagne vineyards are planted at altitudes typically between 90 and 300 metres above sea level.",
-        "The average yield limit in Champagne is set annually by the CIVC and typically ranges around 10,000-12,000 kg per hectare.",
-        "The Comité Interprofessionnel du Vin de Champagne (CIVC) regulates the Champagne industry.",
-        "The CIVC sets harvest dates, yield limits, and grape prices each year in Champagne.",
-    ]
-
-    for text in terroir_facts:
-        facts.append({
-            "fact_text": text,
-            "domain": "wine_regions",
-            "subdomain": "champagne",
-            "source_id": source_id,
-            "entities": [{"type": "region", "name": "Champagne"}],
-            "tags": ["champagne", "terroir", "geography"],
-        })
-
-    return facts
-
-
-def _build_business_facts(source_id: str) -> list[dict]:
-    """Generate facts about the Champagne wine business and industry."""
-    facts = []
-
-    business_facts = [
-        "Champagne houses are classified as Négociants-Manipulants (NM) if they buy grapes and make wine.",
-        "Récoltants-Manipulants (RM) are grower-producers in Champagne who grow their own grapes and make their own wine.",
-        "Coopératives-Manipulantes (CM) are cooperatives that produce Champagne from member growers' grapes.",
-        "The letters NM, RM, or CM appear on Champagne labels to indicate the type of producer.",
-        "There are approximately 16,000 growers and 360 Champagne houses in the region.",
-        "Champagne houses (Maisons) account for approximately two-thirds of Champagne sales by value.",
-        "Grower Champagne (Récoltant-Manipulant) has grown in popularity since the early 2000s.",
-        "France is the largest market for Champagne by volume, followed by the United Kingdom and the United States.",
-        "Approximately 300 million bottles of Champagne are shipped annually worldwide.",
-        "The name Champagne is legally protected in the European Union and many countries worldwide.",
-        "Only sparkling wine produced in the Champagne AOC region may be labeled as Champagne.",
-        "The protection of the Champagne name is enforced by the CIVC and French law.",
-    ]
-
-    for text in business_facts:
-        facts.append({
-            "fact_text": text,
-            "domain": "wine_business",
-            "subdomain": "champagne",
-            "source_id": source_id,
-            "entities": [{"type": "region", "name": "Champagne"}],
-            "tags": ["champagne", "business", "industry"],
-        })
-
-    return facts
-
-
-def _build_viticulture_facts(source_id: str) -> list[dict]:
-    """Generate facts about Champagne viticulture."""
-    facts = []
-
-    viticulture_facts = [
-        "Champagne vineyards are trained using the Chablis, Cordon de Royat, or Vallée de la Marne pruning methods.",
-        "The Chablis pruning method is commonly used for Chardonnay in the Côte des Blancs.",
-        "The Cordon de Royat pruning method is commonly used for Pinot Noir in the Montagne de Reims.",
-        "The Vallée de la Marne pruning method, also called Guyot, is commonly used for Pinot Meunier.",
-        "Planting density in Champagne vineyards must be at least 8,000 vines per hectare.",
-        "The maximum distance between rows in Champagne vineyards is 1.50 metres.",
-        "Champagne grapes are harvested by hand to ensure whole clusters arrive at the press.",
-        "The Champagne harvest, called vendange, typically begins in September.",
-        "The CIVC officially sets the start date of harvest each year for different villages and grape varieties.",
-        "Frost is a significant viticultural hazard in Champagne, particularly during spring.",
-        "Champagne growers use methods such as smudge pots, wind machines, and aspersion to protect against frost.",
-        "The phylloxera crisis devastated Champagne vineyards in the late 19th century.",
-        "Most Champagne vines are now grafted onto American rootstock to resist phylloxera.",
-    ]
-
-    for text in viticulture_facts:
-        facts.append({
-            "fact_text": text,
-            "domain": "viticulture",
-            "subdomain": "champagne",
-            "source_id": source_id,
-            "entities": [{"type": "region", "name": "Champagne"}],
-            "tags": ["champagne", "viticulture"],
-        })
-
-    return facts
-
-
-# ─── Main Pipeline ────────────────────────────────────────────────────────────
-
-def build_all_facts(source_id: str) -> list[dict]:
-    """Build all Champagne facts from curated knowledge base."""
-    all_facts = []
-
-    builders = [
-        ("Grand Cru villages", _build_grand_cru_facts),
-        ("Premier Cru villages", _build_premier_cru_facts),
-        ("Grape varieties", _build_grape_facts),
-        ("Production rules", _build_production_facts),
-        ("Dosage levels", _build_dosage_facts),
-        ("Champagne styles", _build_style_facts),
-        ("Terroir & geography", _build_terroir_facts),
-        ("Business & industry", _build_business_facts),
-        ("Viticulture", _build_viticulture_facts),
-    ]
-
-    for name, builder in builders:
-        facts = builder(source_id)
-        logger.info(f"  {name}: {len(facts)} facts")
-        all_facts.extend(facts)
-
-    return all_facts
-
-
-def run_scraper(dry_run: bool = False) -> int:
-    """Run the full Champagne scraper pipeline. Returns count of facts inserted."""
-    logger.info("Starting Champagne scraper...")
-
-    # Attempt to scrape live pages (may fail with 403)
-    logger.info("Attempting to fetch pages from champagne.fr...")
-    scraped_texts = try_scrape_pages()
-    if scraped_texts:
-        logger.info(f"Successfully scraped {len(scraped_texts)} text blocks from champagne.fr")
-    else:
-        logger.info("Could not scrape champagne.fr (site may block automated requests). Using curated knowledge base.")
-
-    # Register source
-    source_id = ensure_source(
-        name=SOURCE_NAME,
-        url="https://www.champagne.fr",
-        source_type="official_body",
-        tier=SOURCE_TIER,
-        language="en",
-    )
-    logger.info(f"Source registered: {SOURCE_NAME} (id={source_id})")
-
-    # Build facts from curated knowledge
-    all_facts = build_all_facts(source_id)
-    logger.info(f"Total facts generated: {len(all_facts)}")
-
-    if dry_run:
-        click.echo(f"\n[DRY RUN] Would insert {len(all_facts)} facts.")
-        click.echo("\nSample facts:")
-        for fact in random.sample(all_facts, min(20, len(all_facts))):
-            click.echo(f"  [{fact['domain']}] {fact['fact_text']}")
-        return len(all_facts)
-
-    # Insert into database
-    inserted = insert_facts_batch(all_facts)
-    logger.info(f"Inserted {inserted} new facts (duplicates skipped)")
-    return inserted
 
 
 # ─── Validation ───────────────────────────────────────────────────────────────
 
-def validate_facts():
-    """Validate the generated facts without inserting into the database."""
-    # Build facts with a placeholder source_id (won't be inserted)
-    placeholder_source_id = "validation-placeholder"
-    all_facts = build_all_facts(placeholder_source_id)
 
-    click.echo(f"\n{'='*70}")
-    click.echo(f"  CHAMPAGNE SCRAPER — VALIDATION REPORT")
-    click.echo(f"{'='*70}\n")
+def validate_facts(facts: list[dict]) -> None:
+    """Run quality checks on extracted facts."""
+    logger.info(f"\n{'='*60}")
+    logger.info(f"VALIDATION REPORT — Champagne Scraper")
+    logger.info(f"{'='*60}")
+    logger.info(f"Total facts: {len(facts)}")
 
-    # (a) Domain/subdomain distribution
-    domain_counts = Counter(f["domain"] for f in all_facts)
-    subdomain_counts = Counter(f.get("subdomain", "none") for f in all_facts)
+    # Domain breakdown
+    domains = Counter(f["domain"] for f in facts)
+    logger.info(f"\nDomain breakdown:")
+    for domain, count in domains.most_common():
+        logger.info(f"  {domain}: {count}")
 
-    click.echo("DOMAIN DISTRIBUTION:")
-    click.echo(f"  {'Domain':<25} {'Count':>6}")
-    click.echo(f"  {'-'*25} {'-'*6}")
-    for domain, count in sorted(domain_counts.items(), key=lambda x: -x[1]):
-        click.echo(f"  {domain:<25} {count:>6}")
-    click.echo()
+    # Confidence breakdown
+    confs = Counter(f.get("confidence", 1.0) for f in facts)
+    logger.info(f"\nConfidence breakdown:")
+    for conf, count in sorted(confs.items(), reverse=True):
+        logger.info(f"  {conf}: {count}")
 
-    click.echo("SUBDOMAIN DISTRIBUTION:")
-    click.echo(f"  {'Subdomain':<25} {'Count':>6}")
-    click.echo(f"  {'-'*25} {'-'*6}")
-    for subdomain, count in sorted(subdomain_counts.items(), key=lambda x: -x[1]):
-        click.echo(f"  {subdomain:<25} {count:>6}")
-    click.echo()
+    # Source tag breakdown
+    tag_counter = Counter()
+    for f in facts:
+        for t in f.get("tags", []):
+            tag_counter[t] += 1
+    logger.info(f"\nSource tags:")
+    for tag, count in tag_counter.most_common(10):
+        logger.info(f"  {tag}: {count}")
 
-    # (b) Length checks
-    short_facts = [f for f in all_facts if len(f["fact_text"].split()) < 5]
-    long_facts = [f for f in all_facts if len(f["fact_text"].split()) > 50]
+    # Length checks
+    short = [f for f in facts if len(f["fact_text"].split()) < 5]
+    long = [f for f in facts if len(f["fact_text"].split()) > 50]
+    logger.info(f"\nShort facts (<5 words): {len(short)}")
+    logger.info(f"Long facts (>50 words): {len(long)}")
+    for f in short[:5]:
+        logger.info(f"  SHORT: {f['fact_text']}")
+    for f in long[:5]:
+        logger.info(f"  LONG: {f['fact_text']}")
 
-    click.echo(f"LENGTH CHECKS:")
-    click.echo(f"  Short facts (<5 words):  {len(short_facts)}")
-    if short_facts:
-        for f in short_facts[:5]:
-            click.echo(f"    ⚠ {f['fact_text']}")
-    click.echo(f"  Long facts (>50 words):  {len(long_facts)}")
-    if long_facts:
-        for f in long_facts[:5]:
-            click.echo(f"    ⚠ {f['fact_text'][:100]}...")
-    click.echo()
+    # Entity population
+    with_entities = sum(1 for f in facts if f.get("entities"))
+    logger.info(f"\nFacts with entities: {with_entities}/{len(facts)} ({100*with_entities//max(len(facts),1)}%)")
 
-    # (c) Facts that are just entity names with no predicate
-    no_predicate = [f for f in all_facts if f["fact_text"].rstrip(".").count(" ") < 2]
-    click.echo(f"NO-PREDICATE CHECK (fewer than 3 words):")
-    click.echo(f"  Suspect facts: {len(no_predicate)}")
-    if no_predicate:
-        for f in no_predicate[:5]:
-            click.echo(f"    ⚠ {f['fact_text']}")
-    click.echo()
+    # Near-duplicate check
+    texts = [f["fact_text"].lower() for f in facts]
+    dupes = 0
+    for i, t1 in enumerate(texts):
+        for t2 in texts[i + 1:]:
+            if t1 in t2 or t2 in t1:
+                dupes += 1
+    logger.info(f"\nNear-duplicate pairs (substring): {dupes}")
 
-    # (d) Duplicate-ish facts via string containment
-    texts = [f["fact_text"] for f in all_facts]
-    near_dupes = []
-    for i in range(len(texts)):
-        for j in range(i + 1, len(texts)):
-            if texts[i] in texts[j] or texts[j] in texts[i]:
-                near_dupes.append((texts[i], texts[j]))
-                if len(near_dupes) >= 20:
-                    break
-        if len(near_dupes) >= 20:
-            break
+    # Sample facts
+    logger.info(f"\n10 random sample facts:")
+    for f in random.sample(facts, min(10, len(facts))):
+        logger.info(f"  [{f['domain']}] (conf={f.get('confidence', 1.0)}) {f['fact_text']}")
 
-    click.echo(f"NEAR-DUPLICATE CHECK (string containment):")
-    click.echo(f"  Potential near-duplicates: {len(near_dupes)}")
-    if near_dupes:
-        for a, b in near_dupes[:5]:
-            click.echo(f"    A: {a}")
-            click.echo(f"    B: {b}")
-            click.echo()
-    click.echo()
 
-    # (e) Entity population check
-    with_entities = sum(1 for f in all_facts if f.get("entities"))
-    click.echo(f"ENTITY POPULATION:")
-    click.echo(f"  Facts with entities:    {with_entities}/{len(all_facts)} ({100*with_entities/len(all_facts):.1f}%)")
-    click.echo(f"  Facts without entities: {len(all_facts) - with_entities}/{len(all_facts)}")
-    click.echo()
+# ─── Main Collection ──────────────────────────────────────────────────────────
 
-    # (f) Random sample
-    click.echo(f"RANDOM SAMPLE (10 facts):")
-    for fact in random.sample(all_facts, min(10, len(all_facts))):
-        click.echo(f"  [{fact['domain']:<16}] {fact['fact_text']}")
-    click.echo()
 
-    # Grand Cru quality check
-    click.echo(f"{'='*70}")
-    click.echo(f"  GRAND CRU QUALITY CHECK")
-    click.echo(f"{'='*70}\n")
+def collect_all_facts(
+    wiki_source_id: str,
+    wikidata_source_id: str,
+    champagne_fr_source_id: str,
+    scrape_champagne_fr: bool = True,
+) -> list[dict]:
+    """Collect all facts from all sources."""
+    session = wiki_session()
+    all_facts = []
 
-    gc_facts = [f for f in all_facts if "grand_cru" in f.get("tags", []) and "village" in f.get("tags", [])]
-    gc_villages = sorted(set(f["fact_text"].split(" is a Grand Cru")[0] for f in gc_facts if "is a Grand Cru" in f["fact_text"]))
-    click.echo(f"  Grand Cru villages found: {len(gc_villages)}/17")
-    for v in gc_villages:
-        click.echo(f"    ✓ {v}")
-    if len(gc_villages) != 17:
-        click.echo(f"\n  ⚠ WARNING: Expected 17 Grand Cru villages, found {len(gc_villages)}")
-    click.echo()
+    # Wikipedia key articles
+    logger.info("--- Wikipedia: Key Articles ---")
+    key_facts = _scrape_wikipedia_key_articles(session, wiki_source_id)
+    logger.info(f"Key article facts: {len(key_facts)}")
+    all_facts.extend(key_facts)
 
-    click.echo(f"TOTAL FACTS: {len(all_facts)}")
-    click.echo()
+    # Wikipedia Echelle des Crus tables
+    logger.info("--- Wikipedia: Échelle des Crus ---")
+    echelle_facts = _scrape_echelle_des_crus(session, wiki_source_id)
+    logger.info(f"Échelle des Crus facts: {len(echelle_facts)}")
+    all_facts.extend(echelle_facts)
+
+    # Wikipedia categories
+    logger.info("--- Wikipedia: Categories ---")
+    category_facts = _scrape_wikipedia_categories(session, wiki_source_id)
+    logger.info(f"Category facts: {len(category_facts)}")
+    all_facts.extend(category_facts)
+
+    # Wikidata
+    logger.info("--- Wikidata SPARQL ---")
+    wikidata_facts = _scrape_wikidata(wikidata_source_id)
+    logger.info(f"Wikidata facts: {len(wikidata_facts)}")
+    all_facts.extend(wikidata_facts)
+
+    # champagne.fr website
+    if scrape_champagne_fr:
+        logger.info("--- champagne.fr website ---")
+        web_facts = _scrape_champagne_fr(champagne_fr_source_id)
+        logger.info(f"champagne.fr facts: {len(web_facts)}")
+        all_facts.extend(web_facts)
+
+    # Deduplicate across sources
+    deduped = []
+    seen_texts = set()
+    for f in all_facts:
+        key = f["fact_text"].lower().strip()
+        if key not in seen_texts:
+            seen_texts.add(key)
+            deduped.append(f)
+
+    logger.info(f"Total after dedup: {len(deduped)} (from {len(all_facts)} raw)")
+    return deduped
 
 
 # ─── Test Run ────────────────────────────────────────────────────────────────
 
-def _insert_facts_tracked(facts: list[dict]) -> tuple[int, list[str]]:
-    """Insert facts and return (inserted_count, list_of_inserted_fact_ids).
-
-    Wraps insert_facts_batch by querying back for inserted IDs.
-    """
-    if not facts:
-        return 0, []
-
-    fact_texts = [f["fact_text"] for f in facts]
-    inserted_count = insert_facts_batch(facts)
-
-    from src.utils.db import get_pg
-    conn = get_pg()
-    cur = conn.cursor()
-    inserted_ids = []
-    for text in fact_texts:
-        cur.execute("SELECT id FROM facts WHERE fact_text = %s", (text,))
-        row = cur.fetchone()
-        if row:
-            inserted_ids.append(str(row["id"]))
-
-    return inserted_count, inserted_ids
-
-
-def _cleanup_test_facts(fact_ids: list[str]) -> int:
-    """Delete facts by their IDs. Returns count deleted."""
-    if not fact_ids:
-        return 0
-
-    from src.utils.db import get_pg
-    conn = get_pg()
-    cur = conn.cursor()
-    deleted = 0
-    for fid in fact_ids:
-        cur.execute("DELETE FROM facts WHERE id = %s", (fid,))
-        deleted += cur.rowcount
-    conn.commit()
-    return deleted
-
-
-def _print_test_report(
-    category_stats: dict[str, dict],
-    all_facts: list[dict],
-    all_inserted_ids: list[str],
-) -> None:
-    """Print the structured test-run report with quality checks."""
-    click.echo("\n=== TEST RUN REPORT ===")
-    click.echo("")
-
-    header = (
-        f"  {'Source/Category':<25s} {'Items Processed':>17s} "
-        f"{'Facts Generated':>17s} {'Facts Inserted (new)':>22s}"
-    )
-    separator = "  " + "─" * 83
-    click.echo(header)
-    click.echo(separator)
-
-    total_items = 0
-    total_generated = 0
-    total_inserted = 0
-
-    for cat_name, stats in category_stats.items():
-        items = stats["items_processed"]
-        generated = stats["facts_generated"]
-        inserted = stats["facts_inserted"]
-        total_items += items
-        total_generated += generated
-        total_inserted += inserted
-        click.echo(
-            f"  {cat_name:<25s} {items:>17d} {generated:>17d} {inserted:>22d}"
-        )
-
-    click.echo(separator)
-    click.echo(
-        f"  {'TOTAL':<25s} {total_items:>17d} {total_generated:>17d} "
-        f"{total_inserted:>22d}"
-    )
-
-    # Quality checks
-    if not all_facts:
-        click.echo("\n  No facts to analyze.")
-        return
-
-    total = len(all_facts)
-    too_short = []
-    too_long = []
-    missing_entities = 0
-    total_words = 0
-
-    for f in all_facts:
-        text = f["fact_text"]
-        wc = len(text.split())
-        total_words += wc
-
-        if wc < 5:
-            too_short.append(text)
-        if wc > 50:
-            too_long.append(text)
-        if not f.get("entities"):
-            missing_entities += 1
-
-    avg_words = total_words / total if total else 0
-
-    click.echo(f"\n  Quality Checks:")
-    click.echo(
-        f"    Too short (<5 words):  {len(too_short)} ({len(too_short)/total*100:.1f}%)"
-    )
-    click.echo(
-        f"    Too long (>50 words):  {len(too_long)} ({len(too_long)/total*100:.1f}%)"
-    )
-    click.echo(
-        f"    Missing entities:      {missing_entities} ({missing_entities/total*100:.1f}%)"
-    )
-    click.echo(f"    Avg words per fact:    {avg_words:.1f}")
-
-    # Sample facts
-    sample = random.sample(all_facts, min(10, len(all_facts)))
-    click.echo(f"\n  Sample Facts ({min(10, len(all_facts))} random from this run):")
-    for i, f in enumerate(sample, 1):
-        click.echo(f"    {i:2d}. \"{f['fact_text']}\"")
-
-    # Warnings
-    warnings = []
-
-    for cat_name, stats in category_stats.items():
-        if stats["facts_inserted"] == 0 and stats["items_processed"] > 0:
-            warnings.append(f"ERROR: No facts from {cat_name}")
-
-        items = stats["items_processed"]
-        generated = stats["facts_generated"]
-        if items > 0 and generated / items < 2:
-            warnings.append(
-                f"WARNING: Low extraction rate in {cat_name} "
-                f"({generated/items:.1f} facts/item)"
-            )
-
-        if items > 0 and generated > 0:
-            skipped = generated - stats["facts_inserted"]
-            if skipped / generated > 0.5:
-                warnings.append(
-                    f"WARNING: High duplicate rate in {cat_name} "
-                    f"({skipped}/{generated} = {skipped/generated*100:.0f}% skipped)"
-                )
-
-    if len(too_short) / total > 0.1:
-        warnings.append("WARNING: Too many trivial facts")
-
-    if len(too_long) / total > 0.1:
-        warnings.append("WARNING: Facts need better splitting")
-
-    if warnings:
-        click.echo(f"\n  Warnings:")
-        for w in warnings:
-            click.echo(f"    * {w}")
-    else:
-        click.echo(f"\n  No warnings — all checks passed.")
-
-
-def _build_test_facts_for_category(
-    name: str, builder, source_id: str, limit: int,
-) -> list[dict]:
-    """Build facts from a category builder, limiting list-based output to `limit` items."""
-    all_facts = builder(source_id)
-    if len(all_facts) > limit:
-        return all_facts[:limit]
-    return all_facts
-
 
 def run_test(cleanup: bool = False) -> None:
-    """Run a limited test extraction: 5 items per category, insert, report."""
-    source_id = ensure_source(
-        name=SOURCE_NAME,
+    """Run a small test: fetch a few articles, insert, report, optionally clean up."""
+    from src.utils.db import get_pg
+
+    logger.info("=== TEST RUN: Champagne Scraper ===")
+    wiki_sid = ensure_wiki_source("Champagne wine")
+    wikidata_sid = ensure_wikidata_source("Champagne wine")
+    champagne_fr_sid = ensure_source(
+        name="CIVC (Champagne Bureau)",
         url="https://www.champagne.fr",
         source_type="official_body",
-        tier=SOURCE_TIER,
+        tier="tier_2_authoritative",
         language="en",
     )
 
-    builders = [
-        ("Grand Cru villages", _build_grand_cru_facts),
-        ("Premier Cru villages", _build_premier_cru_facts),
-        ("Grape varieties", _build_grape_facts),
-        ("Production rules", _build_production_facts),
-        ("Dosage levels", _build_dosage_facts),
-        ("Champagne styles", _build_style_facts),
-        ("Terroir & geography", _build_terroir_facts),
-        ("Business & industry", _build_business_facts),
-        ("Viticulture", _build_viticulture_facts),
-    ]
+    session = wiki_session()
 
-    category_stats = {}
-    all_facts_collected = []
-    all_inserted_ids = []
-    seen_texts = set()
+    # Just fetch a few specific articles
+    test_articles = ["Champagne (wine)", "Moët & Chandon", "Veuve Clicquot",
+                     "Échelle des Crus", "Méthode champenoise"]
+    facts = []
+    seen = set()
+    for title in test_articles[:TEST_RUN_LIMIT]:
+        extract, wikitext = fetch_article(session, title)
+        if extract:
+            for s in extract_lead_sentences(extract)[:3]:
+                if s not in seen:
+                    seen.add(s)
+                    facts.append({
+                        "fact_text": s,
+                        "domain": "wine_regions",
+                        "subdomain": "champagne",
+                        "source_id": wiki_sid,
+                        "entities": [{"type": "region", "name": title}],
+                        "confidence": 0.9,
+                        "tags": ["champagne", "wikipedia", "test"],
+                    })
 
-    for cat_name, builder in builders:
-        facts = _build_test_facts_for_category(
-            cat_name, builder, source_id, TEST_RUN_LIMIT,
-        )
+    logger.info(f"Test run generated {len(facts)} facts")
+    if facts:
+        inserted = insert_facts_batch(facts)
+        logger.info(f"Inserted: {inserted}")
 
-        # Deduplicate within and across categories
-        unique = []
+    for f in facts[:10]:
+        logger.info(f"  [{f['domain']}] {f['fact_text']}")
+
+    if cleanup and facts:
+        conn = get_pg()
+        cur = conn.cursor()
         for f in facts:
-            if f["fact_text"] not in seen_texts:
-                seen_texts.add(f["fact_text"])
-                unique.append(f)
-
-        inserted, ids = _insert_facts_tracked(unique)
-        category_stats[cat_name] = {
-            "items_processed": len(facts),
-            "facts_generated": len(unique),
-            "facts_inserted": inserted,
-        }
-        all_facts_collected.extend(unique)
-        all_inserted_ids.extend(ids)
-
-    _print_test_report(category_stats, all_facts_collected, all_inserted_ids)
-
-    if cleanup:
-        deleted = _cleanup_test_facts(all_inserted_ids)
-        click.echo(f"\n  Cleaned up {deleted} test facts from database.")
+            cur.execute("DELETE FROM facts WHERE fact_text = %s", (f["fact_text"],))
+        conn.commit()
+        logger.info(f"Cleaned up {len(facts)} test facts")
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
+
 @click.command()
-@click.option("--all", "run_all", is_flag=True, help="Run full scraper pipeline")
-@click.option("--dry-run", is_flag=True, help="Generate facts without inserting into database")
-@click.option("--validate", is_flag=True, help="Validate generated facts and print quality report")
-@click.option("--list", "list_sections", is_flag=True, help="List available fact categories")
-@click.option("--test-run", is_flag=True, help="Process 5 items per category, insert, and report")
+@click.option("--all", "run_all", is_flag=True, help="Run full extraction and insert into database")
+@click.option("--list", "list_sections", is_flag=True, help="List available data sources")
+@click.option("--dry-run", "dry_run", is_flag=True, help="Collect facts but don't insert into database")
+@click.option("--validate", "validate", is_flag=True, help="Run quality checks on generated facts")
+@click.option("--test-run", is_flag=True, help="Process a small sample, insert, and report")
 @click.option("--cleanup", is_flag=True, help="With --test-run, delete inserted facts after reporting")
-def main(run_all: bool, dry_run: bool, validate: bool, list_sections: bool, test_run: bool, cleanup: bool):
-    """OenoBench Champagne Scraper — Extract Champagne wine knowledge."""
-    logger.add("data/logs/champagne_{time}.log", rotation="10 MB")
+def main(run_all, list_sections, dry_run, validate, test_run, cleanup):
+    """Champagne wine scraper — genuine external data only."""
 
     if list_sections:
-        click.echo("\nAvailable fact categories:")
-        categories = [
-            ("grand_cru", "17 Grand Cru villages with subregion associations"),
-            ("premier_cru", "42 Premier Cru villages"),
-            ("grapes", "7 permitted grape varieties with details"),
-            ("production", "Production rules and méthode champenoise"),
-            ("dosage", "7 dosage/sweetness levels"),
-            ("styles", "Champagne styles (Blanc de Blancs, Rosé, etc.)"),
-            ("terroir", "Geography, subregions, and terroir"),
-            ("business", "Industry structure and regulations"),
-            ("viticulture", "Viticultural practices"),
-        ]
-        for name, desc in categories:
-            click.echo(f"  {name:20s} — {desc}")
-        return
-
-    if validate:
-        validate_facts()
+        click.echo("Champagne Scraper — Data Sources:")
+        click.echo("  1. Wikipedia: Champagne wine articles & Échelle des Crus tables")
+        click.echo("  2. Wikipedia: Champagne category articles (producers, styles)")
+        click.echo("  3. Wikidata: Grand Cru villages, grape varieties, producers (SPARQL)")
+        click.echo("  4. champagne.fr (CIVC): Supplementary web scraping")
         return
 
     if test_run:
         run_test(cleanup=cleanup)
         return
 
-    if run_all or dry_run:
-        count = run_scraper(dry_run=dry_run)
-        if not dry_run:
-            click.echo(f"\nInserted {count} new Champagne facts.")
-            click.echo(f"Total facts in database: {get_fact_count()}")
+    if not run_all and not dry_run and not validate:
+        click.echo("Use --all, --dry-run, --validate, --test-run, or --list")
         return
 
-    click.echo("Use --all to run the scraper, --dry-run to preview, or --validate for quality checks.")
-    click.echo("Use --list to see available fact categories.")
-    click.echo("Use --test-run to process 5 items per category and report.")
-    click.echo("Use --test-run --cleanup to delete test facts after reporting.")
+    # Register sources
+    wiki_sid = ensure_wiki_source("Champagne wine")
+    wikidata_sid = ensure_wikidata_source("Champagne wine")
+    champagne_fr_sid = ensure_source(
+        name="CIVC (Champagne Bureau)",
+        url="https://www.champagne.fr",
+        source_type="official_body",
+        tier="tier_2_authoritative",
+        language="en",
+    )
+
+    # Collect facts
+    facts = collect_all_facts(wiki_sid, wikidata_sid, champagne_fr_sid)
+
+    if validate or dry_run:
+        validate_facts(facts)
+
+    if dry_run:
+        logger.info(f"\nDRY RUN — {len(facts)} facts generated, not inserted")
+        return
+
+    if run_all:
+        before = get_fact_count()
+        inserted = insert_facts_batch(facts)
+        after = get_fact_count()
+        logger.info(f"Inserted {inserted} new facts (DB: {before} → {after})")
 
 
 if __name__ == "__main__":
