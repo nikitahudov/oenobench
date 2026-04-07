@@ -74,7 +74,13 @@ The key innovation is an AI-driven pipeline: automated data collection → multi
 │   │   ├── south_america.py       # ✅ Done — Argentina & Chile (393 facts)
 │   │   ├── australia_nz_enrichment.py # ✅ Done — Australia & NZ (391 facts)
 │   │   ├── hungary_georgia.py     # ✅ Done — Hungary & Georgia (429 facts)
-│   │   └── germany_enrichment.py  # ✅ Done — Germany enrichment (333 facts)
+│   │   ├── germany_enrichment.py  # ✅ Done — Germany enrichment (333 facts)
+│   │   ├── canada.py              # ✅ Done — Canada (268 facts)
+│   │   ├── croatia_slovenia.py    # ✅ Done — Croatia & Slovenia (391 facts)
+│   │   ├── england.py             # ✅ Done — England (225 facts)
+│   │   ├── lebanon_israel.py      # ✅ Done — Lebanon & Israel (182 facts)
+│   │   ├── south_africa_enrichment.py # ✅ Done — South Africa (339 facts)
+│   │   └── usa_enrichment.py      # ✅ Done — USA enrichment (632 facts)
 │   ├── dashboard/
 │   │   ├── __init__.py
 │   │   ├── app.py                # Flask monitoring dashboard (python -m src.dashboard.app)
@@ -122,8 +128,8 @@ These scrapers are specified in `SCRAPER_PROMPTS.md` but have not been implement
 ## Current Status (as of March 2026)
 
 **Phase:** Data Collection (Phase 1)
-**Facts collected:** ~41,000+ raw facts
-**Completed scrapers:** 6 of 14 + verify tool
+**Facts collected:** ~43,000+ raw facts (27,408 in DB after dedup)
+**Completed scrapers:** 24 enrichment scrapers + 6 original
 
 | # | Scraper | Status | Facts |
 |---|---------|--------|-------|
@@ -143,6 +149,12 @@ These scrapers are specified in `SCRAPER_PROMPTS.md` but have not been implement
 | 22 | Australia/NZ (`australia_nz_enrichment.py`) | ✅ Complete | 391 |
 | 23 | Hungary & Georgia (`hungary_georgia.py`) | ✅ Complete | 429 |
 | 24 | Germany Enrichment (`germany_enrichment.py`) | ✅ Complete | 333 |
+| 25 | Canada (`canada.py`) | ✅ Complete | 268 |
+| 26 | Croatia & Slovenia (`croatia_slovenia.py`) | ✅ Complete | 391 |
+| 27 | England (`england.py`) | ✅ Complete | 225 |
+| 28 | Lebanon & Israel (`lebanon_israel.py`) | ✅ Complete | 182 |
+| 29 | South Africa (`south_africa_enrichment.py`) | ✅ Complete | 339 |
+| 30 | USA Enrichment (`usa_enrichment.py`) | ✅ Complete | 632 |
 | 7-14 | Remaining scrapers | Not started | See `SCRAPER_PROMPTS.md` |
 
 **Remaining scrapers:** 5-14 (see `SCRAPER_PROMPTS.md`)

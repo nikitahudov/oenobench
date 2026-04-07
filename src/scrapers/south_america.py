@@ -118,6 +118,13 @@ ARGENTINA_REGIONS = [
         "elevation_range": "1700-3000m",
         "key_grapes": ["Torrontes", "Malbec", "Cabernet Sauvignon", "Tannat"],
         "notes": "Salta contains the world's highest commercial vineyards, with some plantings in the Quebrada de Humahuaca and Colomé reaching above 3000 meters elevation",
+        "extra_facts": [
+            "The Calchaqui Valley in Salta stretches for over 200 kilometers and encompasses the main wine-producing areas of Cafayate, Molinos, and Cachi at different elevations and microclimates.",
+            "Extreme UV radiation in Salta's high-altitude vineyards produces wines with exceptionally intense color and high levels of resveratrol and other antioxidant compounds.",
+            "Hail is the most destructive weather hazard in Salta's vineyards, and many producers use protective hail netting (malla antigranizo) to shield their vines.",
+            "Salta's Torrontes reaches peak aromatic expression in the Cafayate Valley, where the combination of intense daytime sunshine, cool nights, and sandy soils produces wines of extraordinary floral intensity.",
+            "The Bodega Colomé estate in Salta's Calchaqui Valley includes the Altura Maxima vineyard at 3111 meters, among the highest vineyard blocks in the world.",
+        ],
         "subregions": [
             {
                 "name": "Cafayate",
@@ -231,6 +238,10 @@ ARGENTINA_REGIONS = [
         "elevation_range": "1800-2500m",
         "key_grapes": ["Malbec", "Torrontes", "Cabernet Sauvignon"],
         "notes": "Tucuman is one of Argentina's smallest and newest fine wine regions, with extreme altitude compensating for its subtropical latitude",
+        "extra_facts": [
+            "The Amaicha del Valle in Tucuman at over 2000 meters elevation is one of the few places where viticulture is viable at a subtropical latitude (26 degrees south), thanks to the extreme altitude.",
+            "Tucuman's vineyards in the Tafi del Valle and Amaicha del Valle benefit from ancient pre-Incan terrace systems that were originally built for agricultural cultivation.",
+        ],
     },
 ]
 
@@ -251,6 +262,11 @@ CHILE_REGIONS = [
         "elevation_range": "500-2000m",
         "key_grapes": ["Syrah", "Muscat", "Pedro Ximenez", "Cabernet Sauvignon"],
         "notes": "The Elqui Valley is best known for Pisco production but has increasingly attracted attention for Syrah and other red varieties planted at high altitude since the early 2000s",
+        "extra_facts": [
+            "The Elqui Valley is one of the clearest skies in the world, hosting major astronomical observatories; this intense solar radiation benefits vine growth and grape ripening at altitude.",
+            "Viña Falernia was one of the first wineries to demonstrate the Elqui Valley's potential for premium Syrah, producing wines with intense color and concentration from desert-grown vines.",
+            "Pisco, the grape-based spirit distilled from Muscat and Pedro Ximenez, has been produced in the Elqui Valley since the colonial era and remains the region's primary viticultural product.",
+        ],
     },
     {
         "name": "Limari Valley",
@@ -280,6 +296,9 @@ CHILE_REGIONS = [
         "elevation_range": "400-800m",
         "key_grapes": ["Syrah", "Cabernet Sauvignon"],
         "notes": "The Choapa Valley is one of Chile's smallest wine regions, where the Andes and Coastal ranges come closest together creating an unusually narrow viticultural corridor",
+        "extra_facts": [
+            "In the Choapa Valley, the distance between the Andes and the Coastal Range narrows to approximately 100 kilometers, the closest approach of the two mountain ranges in Chile's wine country.",
+        ],
     },
     {
         "name": "Aconcagua Valley",
@@ -292,6 +311,11 @@ CHILE_REGIONS = [
         "elevation_range": "100-800m",
         "key_grapes": ["Cabernet Sauvignon", "Syrah", "Carmenere", "Merlot"],
         "notes": "The Aconcagua Valley is home to the historic Errazuriz winery established in 1870 and produces powerful Cabernet Sauvignon from warm interior sites",
+        "extra_facts": [
+            "The Aconcagua Valley takes its name from the nearby Aconcagua mountain, the highest peak in the Western Hemisphere at 6,961 meters, which towers over the valley's vineyard landscape.",
+            "Don Maximiano's vineyard, established by Errazuriz in 1870, is one of the oldest continuously producing premium vineyard sites in Chile, now home to the Don Maximiano Founder's Reserve wine.",
+            "The Panquehue area in the Aconcagua Valley, where Errazuriz is located, has warm, dry conditions with alluvial soils that produce particularly powerful and concentrated Cabernet Sauvignon.",
+        ],
     },
     {
         "name": "Casablanca Valley",
@@ -451,6 +475,11 @@ CHILE_REGIONS = [
         "elevation_range": "50-400m",
         "key_grapes": ["Riesling", "Gewurztraminer", "Pinot Noir", "Muscat", "Chardonnay"],
         "notes": "The Bio-Bio Valley is Chile's primary source of Germanic aromatic white varieties, with Riesling and Gewurztraminer performing particularly well in the cool, wet conditions",
+        "extra_facts": [
+            "The Bio-Bio Valley marks the transition between Chile's Mediterranean climate wine regions to the north and the temperate, high-rainfall regions to the south.",
+            "Bio-Bio's cool, wet conditions make it one of the few Chilean wine regions where fungal diseases like botrytis and downy mildew are significant viticultural challenges.",
+            "The Mulchen area in Bio-Bio province produces some of Chile's finest Riesling, with the cool climate and long growing season developing intense acidity and aromatic complexity.",
+        ],
     },
     {
         "name": "Malleco Valley",
@@ -463,6 +492,10 @@ CHILE_REGIONS = [
         "elevation_range": "100-400m",
         "key_grapes": ["Pinot Noir", "Chardonnay", "Riesling"],
         "notes": "The Malleco Valley is a pioneering cool-climate frontier region in Chile, first planted to vine by Viña Aquitania in the late 1990s to explore the limits of Chilean cool-climate viticulture",
+        "extra_facts": [
+            "Traiguén in the Malleco Valley was the site of Viña Aquitania's experimental Pinot Noir plantings that demonstrated Chile could produce quality wine at latitudes previously considered too cold.",
+            "The Malleco Valley is part of Chile's Araucania region, traditionally known for agriculture and forestry rather than viticulture, and represents the frontier of Chilean wine exploration.",
+        ],
     },
 ]
 
@@ -728,6 +761,10 @@ ARGENTINA_CLASSIFICATION = {
         "Argentina's IP (Indicación de Procedencia) is the broadest geographic designation, certifying only that grapes come from a recognized wine-producing area.",
         "The Instituto Nacional de Vitivinicultura (INV) is the Argentine government agency responsible for regulating the wine industry, including grape variety identification, labeling regulations, and geographic designations.",
         "Argentine wine labeling requires that a wine labeled with a single variety contain at least 85% of that variety, and wines labeled with a geographic indication must contain at least 85% of grapes from that area.",
+        "Argentina uses a wine quality classification for age-dated wines: Reserva wines must be aged for at least one year (six months in oak for reds), and Gran Reserva wines require at least two years of aging (one year in oak for reds).",
+        "The Argentine wine label term 'cosecha' refers to the vintage year, and wines labeled with a vintage must contain at least 85% of grapes harvested in that year.",
+        "Argentina's wine law prohibits the use of the term 'champagne' for sparkling wines; Argentine sparkling wine is labeled as 'espumante' or 'espumoso'.",
+        "The Mendoza DOC regulations for Lujan de Cuyo specify that wines must be made from vineyards within the department using approved grape varieties and meet minimum aging requirements.",
     ],
 }
 
@@ -745,6 +782,13 @@ CHILE_CLASSIFICATION = {
         "The SAG (Servicio Agricola y Ganadero) is Chile's government agency responsible for wine regulations, DO certification, and vineyard registry.",
         "Chile is one of the few wine-producing countries that has remained free from phylloxera, attributed to its geographic isolation between the Andes, the Pacific Ocean, the Atacama Desert to the north, and Antarctic ice to the south.",
         "Because Chile is phylloxera-free, the vast majority of Chilean vineyards are planted on own-rooted ungrafted vines, which some winemakers argue contributes to the distinctive character of Chilean wines.",
+        "Chilean wine labeling allows reserve-style designations such as 'Reserva', 'Gran Reserva', and 'Reserva Especial', though these terms are not legally regulated and their meaning varies by producer.",
+        "Chile's wine regulations permit the use of the term 'Varietal' for wines containing at least 75% of the stated grape variety on the label.",
+        "The Chilean DO system covers six major wine regions from north to south: Atacama, Coquimbo, Aconcagua, Valle Central, Sur, and Austral.",
+        "Chile's Valle Central DO encompasses four subregions: Maipo Valley, Rapel Valley, Curico Valley, and Maule Valley, and produces the majority of Chile's commercial wine.",
+        "The Aconcagua DO in Chile encompasses the Aconcagua Valley, Casablanca Valley, and San Antonio Valley, covering both warm interior and cool coastal wine zones.",
+        "Chile's Coquimbo DO in the north includes the Elqui, Limari, and Choapa valleys, with viticulture extending into desert and semi-desert conditions.",
+        "Chile's Sur DO covers the southern regions of Itata Valley, Bio-Bio Valley, and Malleco Valley, where rainfall is higher and cool-climate varieties excel.",
     ],
 }
 
@@ -804,6 +848,25 @@ ARGENTINA_TERROIR_FACTS = [
     "The pergola (parral) training system was historically the dominant trellising method in Argentina, especially in warmer areas, providing shade to grapes and reducing sunburn.",
     "Modern Argentine viticulture has shifted increasingly from the traditional pergola system to vertical shoot positioning (VSP) trellising, which provides better canopy management and fruit exposure for premium wines.",
     "Argentina's vineyards are overwhelmingly planted on flat alluvial fans rather than hillsides, distinguishing the country's viticultural landscape from the steep-slope viticulture common in European wine regions.",
+    # Winemaking
+    "Argentine winemakers have increasingly embraced concrete eggs and amphorae for fermentation and aging, particularly for Malbec and white varieties, as alternatives to traditional oak barrels.",
+    "The use of French oak barrels is standard for premium Argentine wines, though many producers have shifted to larger format barrels (500L and above) to minimize oak influence and emphasize terroir.",
+    "Argentine winemakers commonly use cold maceration (maceracion en frio) before fermentation to extract color and fruit character from Malbec grapes without harsh tannins.",
+    "Whole-cluster fermentation has gained popularity among Argentine winemakers seeking to add complexity and structure to high-altitude Malbec, particularly in Valle de Uco.",
+    "Argentina's high-altitude wines naturally achieve concentrated flavors and deep color without the need for extended maceration, as the intense UV radiation at altitude promotes natural phenolic development in the vineyard.",
+    "The production of orange wine (vino naranja) from skin-contact white wine fermentation has emerged in Argentina, with producers experimenting with Torrontes and other aromatic white varieties.",
+    # Regional details
+    "The Perdriel district in Lujan de Cuyo is one of Mendoza's most historic fine wine areas, with alluvial soils and vineyards at approximately 950 meters producing benchmark Malbec since the early 20th century.",
+    "The Agrelo district in Lujan de Cuyo lies at approximately 980 meters elevation on alluvial soils with rounded river stones, and has become renowned for both Malbec and Cabernet Sauvignon.",
+    "The Las Compuertas district in Lujan de Cuyo, at approximately 1050 meters elevation, is named after the irrigation gates (compuertas) that control water flow from the Mendoza River to the surrounding vineyards.",
+    "The Vistalba district in Lujan de Cuyo features some of Mendoza's oldest Malbec vines, planted in the early 20th century on gravelly alluvial soils at approximately 1000 meters elevation.",
+    "The San Pablo subdistrict in Tupungato, Valle de Uco, at elevations exceeding 1400 meters, represents one of the emerging frontier areas for extreme-altitude viticulture in Argentina.",
+    "The Paraje Altamira alluvial fan in San Carlos, Valle de Uco, features large calcareous stones and mineral-rich soils deposited by the Tunuyan River over millions of years, producing distinctively mineral Malbec.",
+    "Mendoza's southern department of San Rafael, home to one of only two Argentine DOCs, produces wines at 450-800 meters elevation from Malbec, Cabernet Sauvignon, and Chenin Blanc.",
+    "The Barrancas district in eastern Maipu is known for old-vine Malbec and Bonarda planted on sandy loam soils, producing generous, fruit-forward wines.",
+    # Wine tourism
+    "Mendoza is Argentina's premier wine tourism destination, with over 1.5 million wine tourists visiting the region annually to experience vineyard tours, tastings, and gourmet dining.",
+    "The Wine Route of Mendoza (Caminos del Vino) connects over 150 wineries across Lujan de Cuyo, Maipu, and Valle de Uco, making it one of the most developed wine tourism circuits in South America.",
 ]
 
 CHILE_TERROIR_FACTS = [
@@ -838,6 +901,39 @@ CHILE_TERROIR_FACTS = [
     # Winemaking
     "Chile's climate allows for extremely consistent vintages compared to most Old World wine regions, with less vintage variation due to the reliably dry, warm growing seasons in most regions.",
     "Organic and biodynamic viticulture has grown significantly in Chile since the 2000s, aided by the country's dry climate, geographic isolation, and low disease pressure.",
+    # Producers and wineries
+    "Concha y Toro, founded by Don Melchor Concha y Toro in 1883, is the largest wine company in Latin America and one of the world's largest wine brands, best known for its Casillero del Diablo and Don Melchor labels.",
+    "Almaviva, the joint venture between Baron Philippe de Rothschild and Concha y Toro, produces a single Bordeaux-style blend from Puente Alto that is considered one of Chile's top icon wines.",
+    "Sena, the collaboration between Eduardo Chadwick of Errazuriz and Robert Mondavi (now fully owned by Chadwick), was one of Chile's first icon wines and helped establish the country's fine wine credentials internationally.",
+    "Vinedo Chadwick, formerly known as the Chadwick family's polo field in Puente Alto, produces a single Cabernet Sauvignon that topped the Berlin Tasting of 2004 against Bordeaux first growths.",
+    "Montes was founded in 1988 by Aurelio Montes, Douglas Murray, Alfredo Vidaurre, and Pedro Grand, and was one of the first Chilean wineries to focus exclusively on premium wines for export.",
+    "Errazuriz, founded by Don Maximiano Errazuriz in 1870 in the Aconcagua Valley, is one of Chile's oldest wineries and produces the iconic Max Reserva and Don Maximiano Founder's Reserve wines.",
+    "Santa Rita, founded in 1880 in the Maipo Valley, is one of Chile's historic wine estates, known for the Casa Real Cabernet Sauvignon and for housing the famous wine cellar where 120 soldiers reportedly hid during Chile's independence war.",
+    "Lapostolle, founded by the Marnier-Lapostolle family (owners of Grand Marnier) in 1994, introduced biodynamic viticulture to Chile and produces the acclaimed Clos Apalta from the Colchagua Valley.",
+    "De Martino, founded by Italian immigrant Pietro De Martino in 1934, has been at the forefront of Chile's old-vine and terroir-driven wine movement, producing acclaimed Pais, Cinsault, and Carignan from heritage vineyards.",
+    "Garage Wine Co, founded by Derek Mossman Knapp in 2001, pioneered the movement to make small-lot wines from old dry-farmed vineyards in Maule, Itata, and other southern Chilean regions.",
+    # Viticulture
+    "Chile's viticultural landscape is dominated by drip irrigation in the northern and central regions, while the southern regions of Maule, Itata, and Bio-Bio support dry-farmed (secano) vineyards due to higher rainfall.",
+    "The devastating earthquake of 2010 (magnitude 8.8) struck Chile's wine heartland, destroying millions of liters of wine in barrel and damaging numerous wineries in the Maule, Bio-Bio, and Rapel valleys.",
+    "Chile's wine regions are susceptible to occasional El Nino events, which bring warmer temperatures and altered rainfall patterns that can significantly affect vintage quality.",
+    # Winemaking
+    "Chilean winemaking has evolved from a reliance on large rauli (native beech) wood vats and extended oxidative aging to modern temperature-controlled stainless steel and French oak barrel techniques.",
+    "The use of concrete tanks for fermentation has seen a revival in Chile, with many premium producers preferring concrete's neutral flavor contribution and gentle temperature management.",
+    "Chilean icon wines such as Almaviva, Don Melchor, Sena, and Clos Apalta typically command prices comparable to top Bordeaux classified growths and are among the most collected South American wines.",
+    "Chile's red wine production is dominated by Bordeaux varieties (Cabernet Sauvignon, Merlot, Carmenere, Cabernet Franc) reflecting the country's 19th-century French viticultural heritage.",
+    "Chilean white winemaking has been transformed by the development of cool coastal regions since the 1990s, moving from neutral, warm-climate whites to vibrant, aromatic wines that compete with top European examples.",
+    "The concept of 'vino de autor' (author's wine) has become popular in Chile, referring to small-production, terroir-driven wines made by individual winemakers rather than large corporate operations.",
+    # Regional details
+    "Chile's Pisco-producing region in the north (Atacama and Coquimbo) overlaps with the wine-producing regions, and some valleys like Elqui produce both Pisco and table wine.",
+    "The Apalta vineyard in Colchagua Valley is a natural amphitheater surrounded by hills, creating a warm microclimate that produces some of Chile's most concentrated and powerful red wines.",
+    "Coastal Colchagua (Paredones, Lolol) has emerged as a cool-climate extension of the traditionally warm Colchagua Valley, producing Syrah and Pinot Noir with greater freshness and lower alcohol.",
+    "The Alto Cachapoal subzone in the Rapel Valley features vineyards at the foot of the Andes at 500-700 meters elevation, producing structured Cabernet Sauvignon with pronounced mineral character.",
+    "Chile's Central Valley (Valle Central) between the two mountain ranges has deep, fertile alluvial soils that produce the majority of the country's high-volume commercial wines.",
+    "The Isla de Maipo (Island of Maipo) is a prestigious vineyard area within the Maipo Valley where the Maipo River creates a distinct terroir of deep alluvial gravel soils.",
+    # Wine tourism
+    "Chile's wine tourism industry has grown rapidly since the 2000s, with the Colchagua Valley Wine Route and Casablanca Valley becoming major tourist destinations from Santiago.",
+    "The Ruta del Vino de Colchagua (Colchagua Wine Route) is Chile's most developed wine tourism circuit, featuring over 20 wineries, the Colchagua Museum, and a historic wine train.",
+    "Santa Cruz in the Colchagua Valley has become Chile's de facto wine tourism capital, with the Museo de Colchagua, Hotel Santa Cruz Plaza, and numerous tasting rooms attracting visitors.",
 ]
 
 

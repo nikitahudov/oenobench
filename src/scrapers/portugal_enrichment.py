@@ -909,6 +909,82 @@ ADDITIONAL_VITICULTURE_FACTS = [
     "Portuguese rosé wines (rosado) have a long tradition, particularly in the Minho (from Vinhão), Alentejo, and Bairrada regions.",
     "Touriga Nacional was nearly extinct by the mid-20th century due to its very low yields; government programs and the work of estates like Quinta do Noval helped preserve and promote the variety.",
     "The Alicante Bouschet grape in Portugal's Alentejo has achieved a status unmatched in any other wine region, producing world-class single-varietal wines from this teinturier variety.",
+    "Jaen grape (known as Mencía in Spain) is an important red variety in the Dão region, producing medium-bodied, aromatic wines.",
+    "Rufete is a rare red grape variety from Beira Interior that produces light, perfumed wines and is gaining attention from quality-focused producers.",
+    "Alfrocheiro is a Dão red grape variety that contributes color and spice to blends; it is increasingly bottled as a single-varietal wine.",
+    "The Roupeiro grape (also called Síria) is widely planted across southern Portugal and produces neutral, fruity white wines suitable for everyday drinking.",
+    "Vinhão is the most important red grape of Vinho Verde, producing deeply colored, tannic red wines; it is also known as Sousão in the Douro.",
+    "Avesso is a white grape found primarily in the Baião and Amarante sub-regions of Vinho Verde, producing rounder, fuller-bodied wines than typical Vinho Verde.",
+    "Azal is a white grape variety from the inland sub-regions of Vinho Verde, producing crisp, high-acid wines that are ideal for the traditional light Vinho Verde style.",
+    "Trajadura is a white grape variety used in Vinho Verde blends, contributing body and soft fruit character; it is known as Treixadura in Spain's Rías Baixas.",
+    "The Bastardo grape (known as Trousseau in France) is grown in Trás-os-Montes and the Douro, producing light, perfumed red wines with high acidity.",
+    "Rabigato is a white Douro grape valued for its high acidity and minerality; it is increasingly used in premium Douro white wine blends.",
+    "Viosinho is a white Douro grape that has risen in importance for still white wines, contributing tropical fruit and floral aromatics to blends.",
+    "Gouveio (also known as Verdelho on the mainland) is an important white Douro variety used in both Port and still white wine production.",
+    "Códega do Larinho is a traditional Douro white grape variety that contributes structure and body to blends; it is also known as Síria in other regions.",
+]
+
+PORTUGUESE_WINEMAKING_FACTS = [
+    "Autovinification is a winemaking technique developed in Portugal that uses the pressure of CO2 from fermentation to automatically pump juice over grape skins, replacing manual or mechanical punching-down.",
+    "Talhas (large clay amphorae) are used for winemaking in the Alentejo, continuing a tradition dating back to Roman times; this method was recognized by UNESCO in 2020.",
+    "Vinho de talha (clay amphora wine) from the Alentejo involves fermenting and aging wine in large clay pots (talhas) sealed with a mixture of olive oil and clay.",
+    "Portuguese sparkling wine (espumante) is produced primarily in Bairrada and Távora-Varosa using the traditional method (método clássico), with some producers using Baga, Bical, and Maria Gomes grapes.",
+    "Aguardente vínica (grape spirit) used to fortify Port wine must be produced from Portuguese grapes and approved by the IVDP; it is typically distilled to 77% ABV.",
+    "The concept of 'lote' (blend) is central to Portuguese winemaking, with most wines being blends of multiple indigenous varieties rather than single-varietal wines.",
+    "Granito (granite) lagares are traditional stone treading tanks found in the Douro and Dão, where grapes are crushed by foot to extract color, tannin, and flavor during Port and still wine production.",
+    "Portuguese winemakers increasingly use temperature-controlled stainless steel fermentation alongside traditional methods to preserve fruit freshness and aromatic purity.",
+    "Oak aging in Portugal uses both French and American oak barrels, as well as traditional large Portuguese oak casks (tonéis) for more subtle wood influence.",
+    "The practice of 'bica aberta' (open spigot) white winemaking in Portugal involves minimal skin contact and immediate pressing, producing lighter, fresher white wines.",
+    "Curtimenta is the Portuguese term for maceration/skin contact during red winemaking; extended curtimenta produces wines with deeper color and more robust tannins.",
+    "Pisa a pé (foot-treading) remains the preferred method for producing top Port wines and premium Alentejo reds because human feet provide gentle, even extraction without crushing seeds.",
+    "Many Douro estates now use robotic lagares that mimic the gentle action of foot-treading, allowing consistent quality extraction at larger volumes.",
+    "Destemming (desengace) became common in Portuguese winemaking in the 1990s; before that, whole-bunch fermentation with stems was the norm, contributing to more tannic wines.",
+    "The Bairrada region pioneered Portuguese sparkling wine production in the early 20th century, and Bairrada espumante remains Portugal's most important sparkling wine appellation.",
+]
+
+NOTABLE_PRODUCERS_DATABASE = [
+    {"name": "Quinta do Noval", "region": "Douro", "notable": "Historic Port house founded in 1715; producer of the legendary Nacional Vintage Port from ungrafted vines; also produces acclaimed Douro DOC wines"},
+    {"name": "Taylor's", "region": "Douro", "notable": "One of the founding Port houses, established in 1692; renowned for Vintage Port and aged Tawny; owns Quinta de Vargellas and Quinta de Terra Feita"},
+    {"name": "Niepoort", "region": "Douro", "notable": "Innovative Douro producer known for both Port and premium Douro DOC table wines; Dirk Niepoort is credited with helping to redefine the modern Douro"},
+    {"name": "Barca Velha", "region": "Douro", "notable": "Portugal's most iconic and expensive table wine, produced by Casa Ferreirinha (Sogrape) from the Douro; first vintage was 1952; only declared in exceptional years"},
+    {"name": "Herdade do Esporão", "region": "Alentejo", "notable": "One of Portugal's largest and most important estates with over 700 hectares of vineyards in the Reguengos sub-region of the Alentejo"},
+    {"name": "Quinta dos Roques", "region": "Dão", "notable": "Pioneer of quality Dão wines; helped establish the modern reputation of the Dão region and its Touriga Nacional and Encruzado wines"},
+    {"name": "Luís Pato", "region": "Bairrada", "notable": "Iconic Bairrada producer who championed the Baga grape and demonstrated its world-class potential on clay soils; pioneer of single-vineyard wines in the region"},
+    {"name": "Anselmo Mendes", "region": "Minho", "notable": "Leading Vinho Verde producer who revolutionized the perception of Alvarinho from Monção e Melgaço, producing complex, age-worthy whites"},
+    {"name": "Blandy's", "region": "Madeira", "notable": "Historic Madeira wine family established in 1811; part of the Madeira Wine Company; produces some of the island's finest age-indicated and vintage Madeiras"},
+    {"name": "Henriques & Henriques", "region": "Madeira", "notable": "Madeira's largest independent producer, founded in 1850; known for its comprehensive range of age-indicated Madeiras from all noble grape varieties"},
+    {"name": "Symington Family Estates", "region": "Douro", "notable": "Largest family-owned Port company, owning Graham's, Dow's, Warre's, Cockburn's, and Quinta do Vesúvio; also produces Douro DOC wines including Chryseia and Altano"},
+    {"name": "Sogrape", "region": "Multiple", "notable": "Portugal's largest wine company; produces Mateus Rosé (one of the world's best-selling wine brands), Casa Ferreirinha, and Sandeman Port among many others"},
+    {"name": "Fonseca", "region": "Douro", "notable": "Historic Port house founded in 1815; known for opulent, richly fruity Vintage Ports; owns the legendary Quinta do Panascal in the Cima Corgo"},
+    {"name": "Ramos Pinto", "region": "Douro", "notable": "Port house founded in 1880; now owned by Champagne Louis Roederer; known for both Port and quality Douro DOC wines; pioneered research into Douro grape varieties"},
+    {"name": "Churchill's", "region": "Douro", "notable": "Founded in 1981 by John Graham, the first new British Port house in over 50 years; known for dry, elegant Ports and excellent Douro DOC wines"},
+    {"name": "Quinta do Crasto", "region": "Douro", "notable": "Family-owned estate overlooking the Douro; produces highly-rated Douro DOC reds including the premium Quinta do Crasto Reserva Vinhas Velhas"},
+    {"name": "Wine & Soul", "region": "Douro", "notable": "Boutique Douro producer founded in 2001; known for Pintas, a complex red from old-vine field blends; represents the new wave of artisanal Douro winemaking"},
+    {"name": "Mouchão", "region": "Alentejo", "notable": "Historic Alentejo estate established in 1901; famous for its Alicante Bouschet-based Mouchão Tinto; traditional winemaking in large open-top fermenters with foot-treading"},
+    {"name": "Quinta do Vallado", "region": "Douro", "notable": "One of the oldest Douro estates, dating back to 1716; produces both Port and acclaimed Douro DOC wines; owned by the descendants of the legendary Dona Antónia Adelaide Ferreira"},
+    {"name": "Álvaro Castro", "region": "Dão", "notable": "Leading Dão producer at Quinta da Pellada and Quinta de Saes; produces benchmark Touriga Nacional and Encruzado wines that demonstrate the region's elegance"},
+    {"name": "Soalheiro", "region": "Minho", "notable": "Pioneer of Alvarinho in the Monção e Melgaço sub-region of Vinho Verde; first producer to bottle varietal Alvarinho in Portugal (1982)"},
+    {"name": "Justino's", "region": "Madeira", "notable": "One of Madeira's largest and oldest producers, founded in 1870; known for consistent quality across all age categories and noble grape varieties"},
+    {"name": "Cortes de Cima", "region": "Alentejo", "notable": "Danish-owned Alentejo estate that pioneered Syrah in Portugal and demonstrated that the Alentejo could produce world-class wines to international standards"},
+]
+
+PORTUGUESE_WINE_HISTORY = [
+    "The Treaty of Methuen (1703) between England and Portugal gave Portuguese wines preferential tariff rates in England, dramatically boosting Port wine exports and establishing Britain as Port's primary market.",
+    "The Marquis of Pombal created the world's first demarcated wine region in 1756, establishing boundaries for the Douro Valley and founding the Companhia Geral da Agricultura das Vinhas do Alto Douro to regulate Port production.",
+    "Portugal was the first country to create a system of regulated wine regions (1756), predating the French AOC system by nearly 180 years.",
+    "Dona Antónia Adelaide Ferreira (1811-1896), known as 'Ferreirinha,' was one of the most important figures in Douro Valley history, amassing vast vineyard holdings and championing quality winemaking.",
+    "Mateus Rosé, created in 1942 by Fernando Van Zeller Guedes, became one of the world's most commercially successful wines, selling millions of bottles worldwide and introducing many consumers to Portuguese wine.",
+    "The Portuguese wine revolution accelerated after EU membership in 1986, with EU structural funds financing massive modernization of wineries, vineyards, and infrastructure across all regions.",
+    "The concept of 'Douro Boys' emerged in the early 2000s, referring to a group of five Douro producers (Niepoort, Quinta do Vallado, Quinta do Crasto, Quinta Vale Meão, and Poeira) who championed premium Douro table wines.",
+    "The 1820 Liberal revolution in Portugal disrupted the Port wine trade as religious orders were dissolved and many important Douro vineyards changed hands.",
+    "British merchant families have played a crucial role in Port wine history since the 17th century, establishing famous houses such as Taylor's, Graham's, Warre's, Croft, and Cockburn's.",
+    "The Port wine trade was historically dominated by British and Dutch merchants based in Porto and Vila Nova de Gaia, leading to the Anglo-Portuguese wine trade that has persisted for over 300 years.",
+    "The phylloxera epidemic reached Portugal in 1868, first appearing in the Douro Valley; by 1900 it had devastated most of the country's vineyards, requiring replanting on American rootstocks.",
+    "Portugal's Estado Novo dictatorship (1933-1974) promoted wine cooperatives (adegas cooperativas) as the primary means of wine production, resulting in decades of mediocre quality that only changed after the 1974 revolution.",
+    "The Carnation Revolution of 1974 and subsequent land reforms initially disrupted the Portuguese wine industry, but ultimately paved the way for private investment and quality improvements.",
+    "The Douro Valley has evidence of viticulture from at least the 3rd-4th century AD, with Roman-era grape presses (lagares) discovered in archaeological excavations.",
+    "Prince Henry the Navigator established Madeira's wine industry in the 15th century, ordering the planting of Malvasia vines imported from Crete shortly after the island's colonization.",
+    "The Wines of Portugal marketing body was established to promote Portuguese wines internationally, building recognition for the country's unique indigenous grape varieties and diverse wine regions.",
 ]
 
 VINHO_VERDE_SUBREGION_DATABASE = [
@@ -1745,6 +1821,43 @@ def _build_additional_facts(source_id: str) -> list[dict]:
             tags=base_tags + [subdomain],
         ))
 
+    # ── Winemaking techniques ────────────────────────────────────────────────
+    for fact_text in PORTUGUESE_WINEMAKING_FACTS:
+        facts.append(_make_fact(
+            fact_text,
+            domain="winemaking",
+            source_id=source_id,
+            subdomain="portuguese_winemaking",
+            entities=base_entities,
+            tags=base_tags + ["winemaking", "technique"],
+        ))
+
+    # ── Wine history ──────────────────────────────────────────────────────────
+    for fact_text in PORTUGUESE_WINE_HISTORY:
+        facts.append(_make_fact(
+            fact_text,
+            domain="wine_business",
+            source_id=source_id,
+            subdomain="portuguese_history",
+            entities=base_entities,
+            tags=base_tags + ["history"],
+        ))
+
+    # ── Notable producers ────────────────────────────────────────────────────
+    for prod in NOTABLE_PRODUCERS_DATABASE:
+        prod_entities = [
+            {"type": "producer", "name": prod["name"]},
+            {"type": "region", "name": prod["region"]},
+        ]
+        facts.append(_make_fact(
+            f"{prod['name']} ({prod['region']}): {prod['notable']}.",
+            domain="producers",
+            source_id=source_id,
+            subdomain="portuguese_producers",
+            entities=prod_entities,
+            tags=base_tags + ["producer", prod["region"].lower().replace(" ", "_")],
+        ))
+
     return facts
 
 
@@ -1994,6 +2107,8 @@ def run_test(cleanup: bool = False) -> None:
         "Madeira Wine": _build_madeira_facts,
         "Grape Varieties": _build_grape_variety_facts,
         "Classification": _build_classification_facts,
+        "Sub-regions": _build_subregion_facts,
+        "Additional": _build_additional_facts,
     }
 
     for cat_name, builder in builders.items():

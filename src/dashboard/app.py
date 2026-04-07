@@ -61,6 +61,12 @@ SCRAPERS = [
     {"name": "Australia/NZ Enrichment", "file": "australia_nz_enrichment.py", "status": "complete", "facts": 391},
     {"name": "Hungary & Georgia", "file": "hungary_georgia.py", "status": "complete", "facts": 429},
     {"name": "Germany Enrichment", "file": "germany_enrichment.py", "status": "complete", "facts": 333},
+    {"name": "Canada", "file": "canada.py", "status": "complete", "facts": 268},
+    {"name": "Croatia & Slovenia", "file": "croatia_slovenia.py", "status": "complete", "facts": 391},
+    {"name": "England", "file": "england.py", "status": "complete", "facts": 225},
+    {"name": "Lebanon & Israel", "file": "lebanon_israel.py", "status": "complete", "facts": 182},
+    {"name": "South Africa", "file": "south_africa_enrichment.py", "status": "complete", "facts": 339},
+    {"name": "USA Enrichment", "file": "usa_enrichment.py", "status": "complete", "facts": 632},
 ]
 
 

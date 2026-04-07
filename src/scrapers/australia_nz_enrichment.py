@@ -656,6 +656,87 @@ GRAPE_VARIETY_DATABASE = [
         ],
         "notes": "Gisborne and Marlborough produce the most distinctive New Zealand Gewurztraminer, with intense aromatics that benefit from cool growing conditions and careful canopy management.",
     },
+    # Additional Australian varieties
+    {
+        "name": "Mataro",
+        "country": "Australia",
+        "role": "Historic red variety also known as Mourvedre, used in Barossa GST blends",
+        "regional_expressions": [
+            ("Barossa Valley", "adds structure, dark fruit, and gamey complexity to GST (Grenache-Shiraz-Mataro) blends; old-vine examples produce concentrated single-variety wines"),
+            ("McLaren Vale", "rich, earthy, with blackberry and spice; increasingly bottled as a single variety"),
+        ],
+        "notes": "Mataro (Mourvedre) was one of the original grape varieties planted in the Barossa Valley in the 19th century. Long undervalued, it has been rediscovered as a premium variety, particularly from old-vine plantings.",
+    },
+    {
+        "name": "Marsanne",
+        "country": "Australia",
+        "role": "Rare white Rhone variety with a stronghold in central Victoria",
+        "regional_expressions": [
+            ("Nagambie Lakes", "rich, honeyed, with apricot and almond character; Tahbilk's Marsanne vineyard, planted in 1927, is one of the largest and oldest in the world"),
+        ],
+        "notes": "Australia has some of the oldest and most significant plantings of Marsanne outside the Rhone Valley, particularly in Victoria's Nagambie Lakes region where Tahbilk has maintained vines since 1927.",
+    },
+    {
+        "name": "Durif",
+        "country": "Australia",
+        "role": "Deep-colored red variety that thrives in warm Australian climates",
+        "regional_expressions": [
+            ("Rutherglen", "produces intensely colored, full-bodied wines with dark berry, plum, and pepper character; the hot climate suits this thick-skinned variety"),
+            ("Riverina", "dense, deeply colored, with dark fruit; used both as a single variety and in blends"),
+        ],
+        "notes": "Durif (also known as Petite Sirah in the United States) was created by Dr. Francois Durif in the 1880s as a cross of Syrah and Peloursin. It has found particular success in Australia's warm inland regions.",
+    },
+    {
+        "name": "Pinot Noir",
+        "country": "Australia",
+        "role": "Premium cool-climate red variety grown in Australia's cooler regions",
+        "regional_expressions": [
+            ("Yarra Valley", "elegant, with red cherry, spice, and forest floor complexity; both still and sparkling wine styles"),
+            ("Mornington Peninsula", "perfumed, with strawberry and cherry character, silky tannins, and maritime-influenced freshness"),
+            ("Tasmania", "intense, with bright red fruit and natural acidity; the base for Australia's finest sparkling wines"),
+            ("Adelaide Hills", "floral, with red berry fruit and fine structure from the cool altitude"),
+        ],
+        "notes": "Australian Pinot Noir from cool-climate regions has improved dramatically in quality since the 2000s, with the Yarra Valley, Mornington Peninsula, and Tasmania now producing internationally recognized examples.",
+    },
+    {
+        "name": "Tempranillo",
+        "country": "Australia",
+        "role": "Emerging Spanish variety planted in warm to moderate Australian climates",
+        "regional_expressions": [
+            ("McLaren Vale", "ripe, with cherry and plum fruit, medium tannins, and a Mediterranean character"),
+            ("Barossa Valley", "fuller-bodied than Spanish examples, with dark cherry and earth"),
+        ],
+        "notes": "Tempranillo is one of the fastest-growing alternative varieties in Australia, with plantings expanding rapidly since 2000, particularly in South Australia where the Mediterranean climate suits the variety.",
+    },
+    {
+        "name": "Fiano",
+        "country": "Australia",
+        "role": "Italian white variety gaining traction in warm Australian regions",
+        "regional_expressions": [
+            ("McLaren Vale", "aromatic, with stone fruit, honey, and nutty character; retains acidity well in warm climates"),
+            ("Langhorne Creek", "fresh, with pear and citrus notes; demonstrating strong adaptation to Australian conditions"),
+        ],
+        "notes": "Fiano is one of the most successful Italian white grape varieties planted in Australia, valued for its ability to maintain acidity in warm climates while producing aromatic, textured wines.",
+    },
+    {
+        "name": "Gruner Veltliner",
+        "country": "Australia",
+        "role": "Austrian white variety establishing itself in cool Australian climates",
+        "regional_expressions": [
+            ("Adelaide Hills", "crisp, with white pepper, citrus, and green herb character; one of the most promising alternative white varieties in cool Australian regions"),
+        ],
+        "notes": "Gruner Veltliner was first planted in Australia in the early 2000s and has shown strong potential in cool-climate regions like the Adelaide Hills, producing wines with the variety's characteristic white pepper and citrus character.",
+    },
+    {
+        "name": "Albarino",
+        "country": "New Zealand",
+        "role": "Emerging Spanish white variety in New Zealand",
+        "regional_expressions": [
+            ("Gisborne", "aromatic, with peach, apricot, and saline character; benefits from the region's warm maritime climate"),
+            ("Hawke's Bay", "crisp, with citrus and stone fruit; performing well on the warm gravelly soils"),
+        ],
+        "notes": "Albarino is one of several Mediterranean and Iberian grape varieties being trialed in New Zealand's warmer regions as producers seek diversity beyond Sauvignon Blanc.",
+    },
 ]
 
 
@@ -773,6 +854,53 @@ CLASSIFICATION_DATABASE = {
             "New Zealand implemented its Geographical Indications system in 2006, later than most other major wine-producing countries.",
             "New Zealand is the world's largest producer of Sauvignon Blanc by value, with Marlborough Sauvignon Blanc commanding a significant price premium over other New World Sauvignon Blanc regions.",
             "The New Zealand wine industry's rapid growth has been driven primarily by export demand, with over 85% of production exported to markets including the United Kingdom, United States, and Australia.",
+        ],
+    },
+    "winemaking_practices": {
+        "title": "Winemaking Practices",
+        "facts": [
+            "Australian winemakers commonly use the technique of multi-regional blending, combining fruit from different GI regions to achieve complexity and consistency, as exemplified by Penfolds Grange.",
+            "The use of American oak barrels is a traditional Australian practice, particularly in the Barossa Valley, imparting distinctive coconut, vanilla, and sweet spice characters to Shiraz.",
+            "Modern Australian winemaking increasingly favors French oak over American oak, with many premium producers using a combination of new and seasoned French barriques.",
+            "Open-top fermentation with hand plunging (pigeage) is widely used in Australian premium Shiraz and Pinot Noir production to extract color and tannin gently.",
+            "New Zealand's winemaking style emphasizes fruit purity and minimal intervention, with many producers using wild yeast fermentation and reduced sulfur additions.",
+            "Whole-bunch fermentation (including stems) is increasingly popular in Australian and New Zealand Pinot Noir production, adding spice, structure, and aromatic complexity.",
+            "Australian fortified wine production in Rutherglen uses a distinctive process where grapes are left to raisin on the vine, fortified with grape spirit during fermentation, then aged in small barrels in warm conditions to promote oxidative complexity.",
+            "The practice of using concrete eggs and amphorae for fermentation has gained popularity among Australian winemakers seeking textured, mineral-driven wines.",
+            "New Zealand's Sauvignon Blanc is typically fermented at cool temperatures (12-14 degrees Celsius) in stainless steel to preserve the variety's volatile thiol aromatics.",
+            "Many premium Australian and New Zealand sparkling wines are produced using the traditional method (methode traditionnelle), with extended lees aging for added complexity.",
+        ],
+    },
+    "viticulture_practices": {
+        "title": "Viticulture Practices",
+        "facts": [
+            "Dry-grown viticulture (without irrigation) is practiced in many premium Australian wine regions, particularly the Barossa Valley, where old vines have developed deep root systems over decades.",
+            "Deficit irrigation, where vines receive less water than they would naturally use, is a common Australian practice to control vigor and concentrate flavors in the grapes.",
+            "The Scott Henry trellis system, widely used in New Zealand, was specifically designed for high-vigor vineyard sites and involves dividing the canopy into upward and downward-growing shoots.",
+            "Vertical Shoot Positioning (VSP) is the most common trellis system in New Zealand vineyards, keeping the canopy narrow and well-exposed for optimal fruit ripening.",
+            "Australian vineyards face unique pest challenges including kangaroo and bird damage, with many vineyards using netting to protect ripening fruit from bird predation.",
+            "New Zealand's phylloxera management differs from Australia's: most NZ vineyards are grafted onto phylloxera-resistant rootstock, while many Australian regions (particularly in South Australia) retain own-rooted vines.",
+            "Machine harvesting is common in large-scale Australian wine regions like the Riverland and Riverina, while hand harvesting is standard in premium cool-climate regions.",
+            "Cover cropping between vine rows is a widespread practice in both Australian and New Zealand vineyards, improving soil health, reducing erosion, and managing vine vigor.",
+            "The practice of biodynamic viticulture has gained a following in both countries, with notable producers in the Barossa Valley, McLaren Vale, and various New Zealand regions adopting biodynamic principles.",
+            "Organic viticulture certification has grown rapidly in both Australia and New Zealand, with the dry climates of many Australian regions providing favorable conditions for reduced chemical use.",
+            "New Zealand's relatively young vine age (most vineyards planted since the 1980s) means that the industry is still learning how its regions express terroir as vines mature and develop deeper root systems.",
+            "Australia's warm-climate viticulture has increasingly adopted technology including satellite-guided precision viticulture, infrared canopy sensors, and automated irrigation management.",
+        ],
+    },
+    "notable_producers": {
+        "title": "Notable Producers and Wines",
+        "facts": [
+            "Penfolds, founded by Dr. Christopher Rawson Penfold in 1844, is one of Australia's oldest and most prestigious wineries, best known for Grange (Shiraz) and Bin 389 (Cabernet-Shiraz).",
+            "Henschke Hill of Grace, made from a single vineyard of pre-phylloxera Shiraz planted in the 1860s in Eden Valley, is one of Australia's most valuable and iconic wines.",
+            "Vasse Felix, established in 1967, was Margaret River's first winery and helped establish the region's reputation for premium Cabernet Sauvignon and Chardonnay.",
+            "Wynns Coonawarra Estate, founded in 1891 as the Riddoch vineyard, is the most recognized producer from Coonawarra, known for its flagship John Riddoch Cabernet Sauvignon from terra rossa soils.",
+            "Cloudy Bay, established in 1985 by David Hohnen of Cape Mentelle, produced the Marlborough Sauvignon Blanc that brought New Zealand wine to international attention.",
+            "Felton Road in Central Otago is considered one of New Zealand's great Pinot Noir producers, with biodynamically farmed vineyards in the Bannockburn sub-region.",
+            "Ata Rangi in Martinborough was one of the pioneers of New Zealand Pinot Noir, establishing its reputation in the 1980s with vines sourced from a Burgundy suitcase clone.",
+            "Te Mata Estate in Hawke's Bay, founded in 1896, is one of New Zealand's oldest wineries and produces the acclaimed Coleraine Cabernet-Merlot blend.",
+            "Grosset, founded by Jeffrey Grosset in 1981, is one of Australia's premier Riesling producers and was instrumental in the Clare Valley screwcap initiative.",
+            "Tyrrell's in the Hunter Valley has been family-owned since 1858 and is renowned for its Vat 1 Semillon, which exemplifies the unique Hunter Valley unoaked Semillon style.",
         ],
     },
 }
@@ -897,7 +1025,7 @@ def _build_australia_facts(source_id: str) -> list[dict]:
                 tags=base_tags + ["statistics", "area"],
             ))
 
-        # Key grapes
+        # Key grapes (combined)
         if region.get("key_grapes"):
             grapes_str = ", ".join(region["key_grapes"])
             grape_entities = entities + [
@@ -911,6 +1039,17 @@ def _build_australia_facts(source_id: str) -> list[dict]:
                 entities=grape_entities,
                 tags=base_tags + ["grapes"],
             ))
+
+            # Individual grape-region association facts
+            for grape in region["key_grapes"]:
+                facts.append(_make_fact(
+                    f"{grape} is one of the key grape varieties grown in the {name} wine region of {state}, Australia.",
+                    domain="grape_varieties",
+                    source_id=source_id,
+                    subdomain="regional_grapes",
+                    entities=entities + [{"type": "grape", "name": grape}],
+                    tags=base_tags + ["grapes", grape.lower().replace(" ", "_")],
+                ))
 
         # Wine styles
         if region.get("wine_styles"):
@@ -1054,7 +1193,7 @@ def _build_nz_facts(source_id: str) -> list[dict]:
                 tags=base_tags + ["statistics", "area"],
             ))
 
-        # Key grapes
+        # Key grapes (combined)
         if region.get("key_grapes"):
             grapes_str = ", ".join(region["key_grapes"])
             grape_entities = entities + [
@@ -1068,6 +1207,17 @@ def _build_nz_facts(source_id: str) -> list[dict]:
                 entities=grape_entities,
                 tags=base_tags + ["grapes"],
             ))
+
+            # Individual grape-region association facts
+            for grape in region["key_grapes"]:
+                facts.append(_make_fact(
+                    f"{grape} is one of the key grape varieties grown in the {name} wine region of New Zealand.",
+                    domain="grape_varieties",
+                    source_id=source_id,
+                    subdomain="regional_grapes",
+                    entities=entities + [{"type": "grape", "name": grape}],
+                    tags=base_tags + ["grapes", grape.lower().replace(" ", "_")],
+                ))
 
         # Wine styles
         if region.get("wine_styles"):
@@ -1205,12 +1355,15 @@ def _build_classification_facts(source_id: str) -> list[dict]:
 
         for fact_text in section["facts"]:
             # Determine domain
-            if "unique" in key:
+            if "unique" in key or "winemaking" in key:
                 domain = "winemaking"
-                subdomain = "unique_traditions"
-            elif "langton" in key:
+                subdomain = "unique_traditions" if "unique" in key else "practices"
+            elif "viticulture" in key:
+                domain = "viticulture"
+                subdomain = "practices"
+            elif "langton" in key or "notable" in key or "industry" in key:
                 domain = "wine_business"
-                subdomain = "classification"
+                subdomain = "classification" if "langton" in key else "industry"
             else:
                 domain = "wine_regions"
                 subdomain = "classification"

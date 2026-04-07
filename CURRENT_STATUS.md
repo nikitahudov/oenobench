@@ -1,6 +1,6 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** April 6, 2026
+**Last updated:** April 7, 2026
 **Project phase:** Phase 1 — Data Collection
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
@@ -62,9 +62,15 @@
 | 22 | Australia/NZ | `src/scrapers/australia_nz_enrichment.py` | 700-900 | **391** | Complete |
 | 23 | Hungary & Georgia | `src/scrapers/hungary_georgia.py` | 600-800 | **429** | Complete |
 | 24 | Germany Enrichment | `src/scrapers/germany_enrichment.py` | 500-700 | **333** | Complete |
+| 25 | Canada | `src/scrapers/canada.py` | 300-500 | **268** | Complete |
+| 26 | Croatia & Slovenia | `src/scrapers/croatia_slovenia.py` | 400-600 | **391** | Complete |
+| 27 | England | `src/scrapers/england.py` | 200-400 | **225** | Complete |
+| 28 | Lebanon & Israel | `src/scrapers/lebanon_israel.py` | 200-300 | **182** | Complete |
+| 29 | South Africa | `src/scrapers/south_africa_enrichment.py` | 300-500 | **339** | Complete |
+| 30 | USA Enrichment | `src/scrapers/usa_enrichment.py` | 500-800 | **632** | Complete |
 | — | Verify | `src/scrapers/verify.py` | — | — | Not started (prompt ready) |
 
-**Total raw facts collected:** ~41,000+
+**Total raw facts collected:** ~43,000+
 **Target after dedup:** 15,000-20,000 unique facts
 
 ### Completed Scraper Details
@@ -158,6 +164,36 @@
 **Scraper 24 — Germany Enrichment (`germany_enrichment.py`):**
 - 13 Anbaugebiete with terroir, VDP classification (Gutswein→Grosse Lage/GG), Prädikat Oechsle levels
 - 333 facts — Mosel slate, Rheingau history, notable Einzellagen, Sekt, 15 grape profiles
+
+**Scraper 25 — Canada (`canada.py`):**
+- Ontario (Niagara, PEC, Lake Erie), BC (Okanagan, Similkameen), Nova Scotia, Quebec
+- Icewine production, VQA/DVA classification, 12 grape varieties
+- 268 facts — first coverage of Canadian wine regions
+
+**Scraper 26 — Croatia & Slovenia (`croatia_slovenia.py`):**
+- Croatia: 8 regions + 4 islands (Dalmatia, Istria, Slavonia), Slovenia: 6 regions (Brda, Vipava, Karst)
+- 23 indigenous grape varieties (Plavac Mali, Rebula, Grk, Šipon), orange wine tradition
+- 391 facts — Zinfandel origin, Maribor old vine, cross-border heritage
+
+**Scraper 27 — England (`england.py`):**
+- 10 English wine regions, sparkling wine focus (chalk geology, Champagne comparison)
+- PDO/PGI classification, climate change impact, 10 grape varieties
+- 225 facts — emerging cool-climate wine regions
+
+**Scraper 28 — Lebanon & Israel (`lebanon_israel.py`):**
+- Lebanon: 5 regions (Bekaa Valley, Mount Lebanon), Israel: 5 regions (Galilee, Judean Hills, Negev)
+- Kosher winemaking, 20 grape varieties, 16 producer profiles
+- 182 facts — 5,000+ year wine history, Israeli wine revolution (1983)
+
+**Scraper 29 — South Africa (`south_africa_enrichment.py`):**
+- 15 regions/districts/wards, Wine of Origin (WO) system, Cap Classique
+- 12 grape varieties, biodiversity/sustainability context, Constantia history
+- 339 facts — comprehensive WO hierarchy documentation
+
+**Scraper 30 — USA Enrichment (`usa_enrichment.py`):**
+- 58 AVAs: California (33), Oregon (11), Washington (8), other states (6)
+- 11 grape varieties, parent-child AVA relationships, TTB classification
+- 632 facts — granular terroir data (climate, soil, elevation, diurnal ranges)
 
 ### Key Learnings So Far
 

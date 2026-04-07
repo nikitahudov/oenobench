@@ -255,6 +255,25 @@ TOKAJ_DATABASE = {
         "Hasznos", "Kerékhegy", "Magita", "Pajzos", "Kővágó", "Előhegy",
         "Bomboly", "Oremus", "Henye",
     ],
+    "notable_vineyard_details": {
+        "Szarvas": "Szarvas ('deer') vineyard in Mád is one of the most celebrated first-growth sites in Tokaj, producing intensely mineral Furmint.",
+        "Mézes Mály": "Mézes Mály ('honey slope') in Tarcal is one of Tokaj's most storied vineyards, producing rich, honeyed wines ideal for Aszú.",
+        "Szent Tamás": "Szent Tamás ('Saint Thomas') in Mád is a south-facing first-growth vineyard renowned for powerful, age-worthy dry Furmint.",
+        "Betsek": "Betsek in Mád is a steep, terraced first-growth vineyard producing concentrated wines with pronounced volcanic minerality.",
+        "Nyulászó": "Nyulászó ('rabbit warren') in Mád produces elegant wines with fine acidity, considered one of Tokaj's finest vineyard sites.",
+        "Király": "Király ('king') vineyard in Mád was historically reserved for royal wine production and is considered among Tokaj's top sites.",
+        "Hétszőlő": "Hétszőlő ('seven vineyards') in Tokaj township is one of the most famous estates, producing Aszú of exceptional quality.",
+        "Disznókő": "Disznókő ('boar rock') in Tokaj is a renowned estate producing world-class Aszú, now owned by AXA Millésimes.",
+        "Oremus": "Oremus vineyard in Tolcsva is one of Tokaj's most historic sites, now producing premium wines under Vega Sicilia ownership.",
+    },
+    "township_details": {
+        "Tokaj": "Tokaj township lies at the confluence of the Bodrog and Tisza rivers and gives its name to the entire wine region.",
+        "Tarcal": "Tarcal is home to several renowned vineyards including Mézes Mály, situated on the volcanic slopes above the town.",
+        "Tállya": "Tállya is one of the larger wine-producing townships in Tokaj, with significant vineyard holdings on rhyolite soils.",
+        "Mád": "Mád is considered the greatest wine township in Tokaj, home to many of the region's most prestigious first-growth vineyards including Szarvas, Szent Tamás, Betsek, and Király.",
+        "Bodrogkeresztúr": "Bodrogkeresztúr lies in the Bodrog River valley and produces wines with particular elegance and finesse.",
+        "Tolcsva": "Tolcsva is a historic wine township in Tokaj, home to the Oremus estate and known for rich, concentrated wines.",
+    },
     "townships": ["Tokaj", "Tarcal", "Tállya", "Mád", "Bodrogkeresztúr", "Tolcsva"],
     "history": [
         "Tokaj was declared the first legally delimited wine region in the world by royal decree of King Charles III in 1737.",
@@ -671,6 +690,17 @@ ADDITIONAL_HUNGARY_FACTS = [
     "Tolna is a smaller Hungarian wine region between Szekszárd and Kunság, known for both reds and whites on loess soils.",
     "The Hajós-Baja wine region in southern Hungary has a strong Swabian German heritage, with traditional wine cellars built by 18th-century settlers.",
     "Cserszegtomaj is the town where Cserszegi Fűszeres was developed at the local grape research station, crossing Irsai Olivér and Traminer.",
+    "Hárslevelű means 'linden leaf' in Hungarian, referring to the shape of the vine's leaves which resemble those of the linden (lime) tree.",
+    "Furmint derives its name possibly from the French word 'froment' (wheat), referring to the golden colour of the ripe grapes.",
+    "Bikavér translates to 'bull's blood' in Hungarian and is a legally protected wine name that may only be used for wines from Eger or Szekszárd.",
+    "The Gönci hordó barrel has a capacity of 136 litres and was historically the standard measure used for Tokaji Aszú production.",
+    "Hungary's phylloxera crisis in the late 19th century devastated most wine regions but the sandy soils of the Great Plain (Kunság) provided natural protection.",
+    "Villány's vineyard classification was introduced in 2006 and refined in subsequent years, making it one of the few classified vineyard systems in Central Europe.",
+    "The Bikavér blend in Eger traditionally includes Kadarka, Kékfrankos, and Blauburger, though modern regulations allow other approved varieties.",
+    "Szekszárdi Bikavér differs from Egri Bikavér in typically featuring a higher proportion of Kadarka, reflecting Szekszárd's warmer climate.",
+    "Mór is a small Hungarian wine region known for Ezerjó ('thousand good'), a local white grape variety producing crisp, mineral whites.",
+    "The Dél-Balaton (South Balaton) sub-region produces a range of whites and rosés, benefiting from the lake's temperature-moderating influence.",
+    "Hungary's per capita wine consumption is approximately 25 litres per year, placing it among the higher-consuming countries in Europe.",
 ]
 
 ADDITIONAL_GEORGIA_FACTS = [
@@ -722,6 +752,17 @@ ADDITIONAL_GEORGIA_FACTS = [
     "Modern Georgian viticulture increasingly uses the European cordon and guyot training systems, though traditional maglari and pergola training survive in some areas.",
     "The Racha-Lechkhumi region's high altitude (500-900m) and cool autumn temperatures naturally arrest fermentation in Khvanchkara, preserving grape sugars without artificial intervention.",
     "Georgia's climate ranges from subtropical on the Black Sea coast to semi-arid continental in eastern Kakheti, providing diverse conditions for its many indigenous grape varieties.",
+    "Rkatsiteli is one of the oldest known grape varieties still in commercial cultivation, with a history of cultivation spanning thousands of years.",
+    "The Tsinandali Estate in Kakheti was founded by Prince Alexander Chavchavadze in the 1830s and introduced European-style winemaking to Georgia for the first time.",
+    "Georgian amber wines typically undergo maceration for 5-6 months, during which the skins, seeds, and sometimes stems of white grapes remain in contact with the juice.",
+    "The chacha is a Georgian grape brandy distilled from the pomace (skins, seeds, and stems) remaining after winemaking, similar to Italian grappa.",
+    "Georgia's wine exports reached approximately 100 million bottles in recent years, with steady growth driven by diversification into Western markets.",
+    "The village of Sighnaghi in Kakheti is known as the 'City of Love' and has become a wine tourism destination surrounded by vineyards overlooking the Alazani Valley.",
+    "Georgian table etiquette requires that wine be consumed only during toasts led by the tamada, with drinking between toasts considered inappropriate.",
+    "The deep colour of Saperavi is so intense that it was historically used as a natural dye for fabrics in Georgia.",
+    "Qvevri makers (mekvevree) are highly skilled artisans in Georgia, with the craft traditionally passed down through families over generations.",
+    "The ideal shape of a qvevri is egg-shaped or conical, which aids in the natural settling of sediment during fermentation and ageing.",
+    "Modern Georgian winemakers increasingly produce wines in both qvevri and European (steel tank or oak barrel) styles, often labelling them accordingly.",
 ]
 
 
@@ -761,6 +802,15 @@ CLASSIFICATION_DATABASE = {
             "Georgian wine law distinguishes between wines made using European (conventional) methods and traditional (qvevri) methods.",
             "The Georgian qvevri designation on a wine label guarantees the wine was fermented and aged in a traditional buried clay vessel.",
             "Georgian naturally semi-sweet wines (such as Kindzmarauli and Khvanchkara) achieve their sweetness without added sugar, through arrested fermentation caused by cold autumn temperatures.",
+            "Georgian wine appellations have specific regulations governing grape varieties, winemaking methods, and ageing requirements for each protected designation.",
+            "The Akhasheni appellation produces naturally semi-sweet red wine from Saperavi grapes grown in the Akhasheni microzone of Kakheti.",
+            "Kvareli is a Georgian appellation for dry red Saperavi wine, produced in the Kvareli district of Kakheti and often aged in large qvevri.",
+            "Manavi is a Georgian white wine appellation from the Manavi microzone in Kakheti, made from Mtsvane grapes.",
+            "Vazisubani is a Georgian white wine appellation requiring a blend of Rkatsiteli and Mtsvane from the Vazisubani area of Kakheti.",
+            "Napareuli encompasses both red (Saperavi) and white (Rkatsiteli) wine appellations from the Napareuli district in Kakheti.",
+            "Gurjaani is a Georgian white wine appellation from Kakheti, made from Rkatsiteli and/or Mtsvane grapes.",
+            "Tibaani is a white wine appellation in Kakheti, notable for being specifically associated with qvevri-style amber wine production.",
+            "Kotekhi is a white wine appellation in Kakheti, made from Rkatsiteli grapes.",
         ],
         "appellations": [
             {"name": "Mukuzani", "type": "red", "grape": "Saperavi", "notes": "Dry red wine from the Mukuzani microzone in Kakheti, aged minimum 3 years."},
@@ -1026,6 +1076,7 @@ def _build_tokaj_facts(source_id: str) -> list[dict]:
         tags=base_tags + ["classification", "vineyards"],
     ))
 
+    notable_details = TOKAJ_DATABASE.get("notable_vineyard_details", {})
     for vineyard in vineyards:
         facts.append(_make_fact(
             f"{vineyard} is one of the 27 classified first-growth vineyards (Első Osztályú Dűlő) in the Tokaj wine region of Hungary.",
@@ -1035,6 +1086,16 @@ def _build_tokaj_facts(source_id: str) -> list[dict]:
             entities=base_entities + [{"type": "vineyard", "name": vineyard}],
             tags=base_tags + ["first_growth", vineyard.lower().replace(" ", "_")],
         ))
+        # Add detailed description for notable vineyards
+        if vineyard in notable_details:
+            facts.append(_make_fact(
+                notable_details[vineyard],
+                domain="wine_regions",
+                source_id=source_id,
+                subdomain="tokaj",
+                entities=base_entities + [{"type": "vineyard", "name": vineyard}],
+                tags=base_tags + ["first_growth", vineyard.lower().replace(" ", "_")],
+            ))
 
     # Townships
     townships = TOKAJ_DATABASE["townships"]
@@ -1048,6 +1109,7 @@ def _build_tokaj_facts(source_id: str) -> list[dict]:
         tags=base_tags + ["townships"],
     ))
 
+    township_details = TOKAJ_DATABASE.get("township_details", {})
     for town in townships:
         facts.append(_make_fact(
             f"{town} is one of the six principal wine-producing townships in the Tokaj wine region.",
@@ -1057,6 +1119,15 @@ def _build_tokaj_facts(source_id: str) -> list[dict]:
             entities=base_entities + [{"type": "township", "name": town}],
             tags=base_tags + ["township", town.lower()],
         ))
+        if town in township_details:
+            facts.append(_make_fact(
+                township_details[town],
+                domain="wine_regions",
+                source_id=source_id,
+                subdomain="tokaj",
+                entities=base_entities + [{"type": "township", "name": town}],
+                tags=base_tags + ["township", town.lower()],
+            ))
 
     # History
     for hist_fact in TOKAJ_DATABASE["history"]:
