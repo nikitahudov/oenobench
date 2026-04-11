@@ -34,6 +34,11 @@ from bs4 import BeautifulSoup
 from loguru import logger
 
 from src.utils.facts import ensure_source, insert_facts_batch, get_fact_count
+from src.scrapers._fact_processing import (
+    process_facts,
+    classify_domain,
+    validate_fact,
+)
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -1086,13 +1091,30 @@ _REGULATION_FACTS = [
 
 
 def _build_regulation_facts(source_id: str) -> list[dict]:
-    """Build atomic facts from codified 27 CFR Part 4 regulations."""
+    """Build atomic facts from codified 27 CFR Part 4 regulations.
+
+    These are paraphrased from actual US federal regulations (27 CFR Part 4).
+    The text is public domain US government content with specific CFR section
+    references. Domain classification is done dynamically via classify_domain().
+    """
     facts = []
 
+    # Run regulation texts through validation pipeline
     for reg in _REGULATION_FACTS:
+        text = reg["text"]
+
+        # Validate fact quality
+        is_valid, reason = validate_fact(text)
+        if not is_valid:
+            logger.debug(f"Skipping regulation fact ({reason}): {text[:60]}...")
+            continue
+
+        # Use dynamic domain classification
+        domain = classify_domain(text)
+
         facts.append({
-            "fact_text": reg["text"],
-            "domain": reg["domain"],
+            "fact_text": text,
+            "domain": domain,
             "subdomain": reg["subdomain"],
             "source_id": source_id,
             "entities": [

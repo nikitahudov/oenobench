@@ -4,7 +4,7 @@ OenoBench — Italian Wine Central Scraper (genuine external data only)
 Extracts Italian wine knowledge from:
   1. italianwinecentral.com — HTML tables of DOCG/DOC appellations with grapes, regions, types
   2. Wikipedia — Italian wine category articles, infoboxes
-  3. Wikidata SPARQL — Italian wine appellations and grape varieties
+  3. Wikidata SPARQL — Italian wine appellations and grape varieties (country-scoped)
 
 Every fact traces to a URL that was actually fetched and parsed.
 No hardcoded wine knowledge.
@@ -38,11 +38,29 @@ from src.scrapers._wiki_helpers import (
     parse_infobox,
     parse_wikitext_tables,
     extract_lead_sentences,
+    extract_atomic_facts,
     run_sparql,
+    run_sparql_filtered,
     ensure_wiki_source,
     ensure_wikidata_source,
     clean_wiki_value,
     is_wine_relevant,
+    SPARQL_WINE_REGIONS_BY_COUNTRY,
+    SPARQL_GRAPE_VARIETIES_BY_COUNTRY,
+    SPARQL_APPELLATIONS_BY_COUNTRY,
+)
+from src.scrapers._fact_processing import (
+    process_facts,
+    classify_domain,
+    validate_fact,
+    is_on_topic,
+)
+from src.scrapers._web_helpers import (
+    create_session,
+    fetch_page,
+    discover_pages,
+    extract_text_blocks,
+    scrape_site_texts,
 )
 
 # ─── Configuration ────────────────────────────────────────────────────────────
@@ -56,6 +74,41 @@ IWC_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9,it;q=0.8",
 }
+
+# Region keywords for on-topic filtering (broad — Italy has many regions)
+ITALY_KEYWORDS = {
+    "italy", "italian", "italia",
+    "piedmont", "piemonte", "tuscany", "toscana", "veneto",
+    "lombardy", "lombardia", "friuli", "trentino", "alto adige",
+    "emilia", "romagna", "campania", "sicily", "sicilia",
+    "sardinia", "sardegna", "puglia", "apulia", "calabria",
+    "liguria", "marche", "umbria", "abruzzo", "molise",
+    "basilicata", "lazio", "valle d'aosta",
+    "docg", "doc", "igt", "denominazione",
+    "barolo", "chianti", "brunello", "amarone", "prosecco",
+    "franciacorta", "soave", "valpolicella", "barbera",
+    "sangiovese", "nebbiolo", "primitivo", "nero d'avola",
+    "montepulciano", "trebbiano", "verdicchio", "vermentino",
+    "corvina", "garganega", "glera", "aglianico",
+}
+
+# Key Wikipedia articles to scrape
+KEY_ARTICLES = [
+    "Italian wine",
+    "Italian wine classification",
+    "Barolo",
+    "Chianti",
+    "Brunello di Montalcino",
+    "Amarone",
+    "Prosecco",
+    "Franciacorta DOCG",
+    "Soave (wine)",
+    "Valpolicella",
+    "Barbera",
+    "Sangiovese",
+    "Nebbiolo",
+    "Italian grape varieties",
+]
 
 
 # ─── Italian Wine Central Scraping ──────────────────────────────────────────
@@ -76,23 +129,19 @@ def _fetch_iwc_page(url: str) -> Optional[str]:
 
 
 def _parse_appellation_table(html: str, appellation_type: str) -> list[dict]:
-    """Parse an IWC appellation table page into structured entries.
-
-    Each entry has: name, region, grapes (optional), type (optional).
-    """
+    """Parse an IWC appellation table page into structured entries."""
     soup = BeautifulSoup(html, "html.parser")
     results = []
 
     tables = soup.find_all("table")
     for table in tables:
-        # Detect header columns to understand table structure
         header_row = table.find("tr")
         if not header_row:
             continue
         headers = [th.get_text(strip=True).lower() for th in header_row.find_all(["th", "td"])]
 
         rows = table.find_all("tr")
-        for row in rows[1:]:  # skip header
+        for row in rows[1:]:
             cells = row.find_all(["td", "th"])
             if not cells:
                 continue
@@ -106,7 +155,6 @@ def _parse_appellation_table(html: str, appellation_type: str) -> list[dict]:
                 "appellation_type": appellation_type.upper(),
             }
 
-            # Try to extract link for detail page
             link = cells[0].find("a")
             if link and link.get("href"):
                 href = link["href"]
@@ -114,7 +162,6 @@ def _parse_appellation_table(html: str, appellation_type: str) -> list[dict]:
                     href = IWC_BASE_URL + href
                 entry["detail_url"] = href
 
-            # Map remaining cells based on header positions
             for i, cell in enumerate(cells[1:], 1):
                 text = cell.get_text(strip=True)
                 if not text:
@@ -130,7 +177,6 @@ def _parse_appellation_table(html: str, appellation_type: str) -> list[dict]:
                     elif "province" in col:
                         entry["province"] = text
                 else:
-                    # Fallback positional mapping: region, grapes, type
                     if i == 1 and "region" not in entry:
                         entry["region"] = text
                     elif i == 2 and "grapes" not in entry:
@@ -144,17 +190,18 @@ def _parse_appellation_table(html: str, appellation_type: str) -> list[dict]:
 
 
 def _build_iwc_facts(entries: list[dict], source_id: str) -> list[dict]:
-    """Convert parsed IWC table entries into atomic facts."""
+    """Convert parsed IWC table entries into atomic facts with classify_domain."""
     facts = []
     seen = set()
 
-    def _add(text, domain="wine_regions", entities=None, tags=None, confidence=0.95):
-        if text in seen:
+    def _add(text, domain=None, entities=None, tags=None, confidence=0.95):
+        key = text.lower()
+        if key in seen:
             return
-        seen.add(text)
+        seen.add(key)
         facts.append({
             "fact_text": text,
-            "domain": domain,
+            "domain": domain or classify_domain(text),
             "subdomain": "italy",
             "source_id": source_id,
             "entities": entities or [],
@@ -186,44 +233,22 @@ def _build_iwc_facts(entries: list[dict], source_id: str) -> list[dict]:
                 tags=["italy", "italian_wine_central", app_type.lower()],
             )
 
-        # Fact: permitted grape varieties
+        # Fact: permitted grape varieties (individual atomic facts)
         if grapes:
-            # Split grape list on commas, semicolons, slashes, "and"
             grape_list = re.split(r"[,;/]\s*|\s+and\s+", grapes)
             grape_list = [g.strip() for g in grape_list if g.strip() and len(g.strip()) > 1]
 
-            if len(grape_list) == 1:
-                _add(
-                    f"{name} {app_type} permits the {grape_list[0]} grape variety.",
-                    domain="grape_varieties",
-                    entities=[
-                        {"type": "region", "name": name},
-                        {"type": "grape", "name": grape_list[0]},
-                    ],
-                    tags=["italy", "italian_wine_central", "grape"],
-                )
-            elif len(grape_list) > 1:
-                # Full list fact
-                grape_str = ", ".join(grape_list[:-1]) + " and " + grape_list[-1]
-                _add(
-                    f"{name} {app_type} permits the following grapes: {grape_str}.",
-                    domain="grape_varieties",
-                    entities=[{"type": "region", "name": name}]
-                    + [{"type": "grape", "name": g} for g in grape_list[:5]],
-                    tags=["italy", "italian_wine_central", "grape"],
-                )
-                # Individual grape facts for major varieties
-                for g in grape_list[:5]:
-                    if len(g) > 2 and len(g) < 40:
-                        _add(
-                            f"{g} is a permitted grape variety in {name} {app_type}.",
-                            domain="grape_varieties",
-                            entities=[
-                                {"type": "grape", "name": g},
-                                {"type": "region", "name": name},
-                            ],
-                            tags=["italy", "italian_wine_central", "grape"],
-                        )
+            for g in grape_list[:6]:
+                if 2 < len(g) < 40:
+                    _add(
+                        f"{g} is a permitted grape variety in {name} {app_type}.",
+                        domain="grape_varieties",
+                        entities=[
+                            {"type": "grape", "name": g},
+                            {"type": "region", "name": name},
+                        ],
+                        tags=["italy", "italian_wine_central", "grape"],
+                    )
 
         # Fact: wine type
         if wine_type:
@@ -241,13 +266,14 @@ def _scrape_iwc_detail_page(url: str, name: str, app_type: str, source_id: str) 
     facts = []
     seen = set()
 
-    def _add(text, domain="wine_regions", entities=None, tags=None, confidence=0.95):
-        if text in seen:
+    def _add(text, domain=None, entities=None, tags=None, confidence=0.95):
+        key = text.lower()
+        if key in seen:
             return
-        seen.add(text)
+        seen.add(key)
         facts.append({
             "fact_text": text,
-            "domain": domain,
+            "domain": domain or classify_domain(text),
             "subdomain": "italy",
             "source_id": source_id,
             "entities": entities or [],
@@ -261,38 +287,23 @@ def _scrape_iwc_detail_page(url: str, name: str, app_type: str, source_id: str) 
 
     soup = BeautifulSoup(html, "html.parser")
 
-    # Look for structured data in paragraphs, list items, definition lists
-    wine_keywords = re.compile(
-        r"\b(?:aging|ageing|minimum|hectare|vineyard|elevation|altitude|"
-        r"production zone|soil|climate|yield|alcohol|grape|variety|"
-        r"ferment|barrel|oak|stainless|bottle|vintage|harvest|"
-        r"riserva|superiore|classico|spumante|passito|vendemmia)\b",
-        re.IGNORECASE,
-    )
-
-    # Extract text from paragraphs and list items
-    for tag in soup.find_all(["p", "li"]):
-        text = tag.get_text(strip=True)
-        if not text or len(text) < 20:
-            continue
-        words = text.split()
-        if len(words) < 5 or len(words) > 50:
-            continue
-        if not wine_keywords.search(text):
-            continue
-
-        # Clean up the text
-        text = re.sub(r"\s+", " ", text).strip()
-        if not text.endswith("."):
-            text += "."
-
-        _add(
-            text,
-            entities=[{"type": "region", "name": name}],
-            tags=["italy", "italian_wine_central", "detail", app_type.lower()],
+    # Extract text blocks and process through pipeline
+    blocks = extract_text_blocks(soup, min_words=8, max_words=50)
+    if blocks:
+        processed = process_facts(
+            raw_texts=blocks,
+            subject=name,
+            region_keywords=ITALY_KEYWORDS,
         )
+        for item in processed:
+            _add(
+                item["fact_text"],
+                domain=item["domain"],
+                entities=[{"type": "region", "name": name}],
+                tags=["italy", "italian_wine_central", "detail", app_type.lower()],
+            )
 
-    # Look for tables with aging/production data
+    # Also look for structured tables with aging/production data
     for table in soup.find_all("table"):
         rows = table.find_all("tr")
         for row in rows:
@@ -312,7 +323,6 @@ def _scrape_iwc_detail_page(url: str, name: str, app_type: str, source_id: str) 
                 elif "yield" in label:
                     _add(
                         f"{name} {app_type} has a maximum yield of {value}.",
-                        domain="viticulture",
                         entities=[{"type": "region", "name": name}],
                         tags=["italy", "italian_wine_central", "detail", "yield"],
                     )
@@ -329,6 +339,56 @@ def _scrape_iwc_detail_page(url: str, name: str, app_type: str, source_id: str) 
                         tags=["italy", "italian_wine_central", "detail", "zone"],
                     )
 
+    return facts
+
+
+def _scrape_iwc_website(source_id: str) -> list[dict]:
+    """Scrape additional pages from italianwinecentral.com using web helpers."""
+    facts = []
+
+    logger.info("Attempting IWC website discovery via web helpers...")
+    try:
+        page_texts = scrape_site_texts(
+            base_url=IWC_BASE_URL,
+            seed_paths=[
+                "/wine-appellations/docg/",
+                "/wine-appellations/doc/",
+                "/italian-wine-regions/",
+                "/native-grapes/",
+            ],
+            max_pages=30,
+            delay=5.0,
+            min_words=8,
+            max_words=50,
+            url_filter=re.compile(r"italianwinecentral\.com"),
+        )
+
+        if not page_texts:
+            logger.warning("IWC website: no pages accessible via web helpers")
+            return facts
+
+        for url, blocks in page_texts:
+            logger.info(f"IWC: processing {len(blocks)} blocks from {url}")
+            processed = process_facts(
+                raw_texts=blocks,
+                subject="Italian wine",
+                region_keywords=ITALY_KEYWORDS,
+            )
+            for item in processed:
+                facts.append({
+                    "fact_text": item["fact_text"],
+                    "domain": item["domain"],
+                    "subdomain": "italy",
+                    "source_id": source_id,
+                    "entities": [],
+                    "confidence": 0.9,
+                    "tags": ["italy", "italian_wine_central", "website"],
+                })
+
+    except Exception as e:
+        logger.warning(f"IWC website discovery failed: {e}")
+
+    logger.info(f"IWC website discovery yielded {len(facts)} additional facts")
     return facts
 
 
@@ -352,7 +412,7 @@ def _scrape_italian_wine_central(source_id: str, scrape_details: bool = True) ->
         logger.info(f"IWC {app_type.upper()} facts from table: {len(facts)}")
         all_facts.extend(facts)
 
-        # Optionally scrape individual detail pages (DOCG only to limit requests)
+        # Scrape individual detail pages (DOCG only to limit requests)
         if scrape_details and app_type == "docg":
             detail_entries = [e for e in entries if e.get("detail_url")]
             logger.info(f"Scraping {len(detail_entries)} DOCG detail pages...")
@@ -367,32 +427,147 @@ def _scrape_italian_wine_central(source_id: str, scrape_details: bool = True) ->
                     logger.info(f"  {entry['name']}: {len(detail_facts)} detail facts")
                     all_facts.extend(detail_facts)
 
+    # Also scrape additional pages via web discovery
+    web_facts = _scrape_iwc_website(source_id)
+    all_facts.extend(web_facts)
+
     return all_facts
 
 
 # ─── Wikipedia Scraping ──────────────────────────────────────────────────────
 
 
-def _scrape_wikipedia(session: requests.Session, source_id: str) -> list[dict]:
-    """Scrape Italian wine articles from Wikipedia categories and infoboxes."""
+def _scrape_wikipedia_key_articles(session: requests.Session, source_id: str) -> list[dict]:
+    """Scrape key Italian wine articles from Wikipedia using atomic fact extraction."""
     facts = []
     seen = set()
 
-    def _add(text, domain="wine_regions", entities=None, tags=None, confidence=0.9):
-        if text in seen:
-            return
-        seen.add(text)
-        facts.append({
-            "fact_text": text,
-            "domain": domain,
-            "subdomain": "italy",
-            "source_id": source_id,
-            "entities": entities or [],
-            "confidence": confidence,
-            "tags": tags or ["italy", "wikipedia"],
-        })
+    for title in KEY_ARTICLES:
+        logger.info(f"Fetching Wikipedia article: {title}")
+        extract, wikitext = fetch_article(session, title)
 
-    # Crawl Italian wine categories
+        if extract:
+            atomic = extract_atomic_facts(
+                extract,
+                article_title=title,
+                region_keywords=ITALY_KEYWORDS,
+            )
+            for item in atomic:
+                key = item["fact_text"].lower()
+                if key not in seen:
+                    seen.add(key)
+                    facts.append({
+                        "fact_text": item["fact_text"],
+                        "domain": item["domain"],
+                        "subdomain": "italy",
+                        "source_id": source_id,
+                        "entities": [{"type": "region", "name": title}],
+                        "confidence": 0.9,
+                        "tags": ["italy", "wikipedia", "key_article"],
+                    })
+
+        if wikitext:
+            infobox = parse_infobox(wikitext)
+            if infobox:
+                region = infobox.get("region", "")
+                grape = infobox.get("grapes", "") or infobox.get("grape", "")
+                area = infobox.get("area", "") or infobox.get("size", "") or infobox.get("hectares", "")
+                designation = infobox.get("appellation", "") or infobox.get("designation", "")
+                year = infobox.get("year established", "") or infobox.get("established", "")
+
+                if region and not region.startswith("Q"):
+                    fact_text = f"{title} is a wine appellation in {region}, Italy."
+                    key = fact_text.lower()
+                    if key not in seen:
+                        seen.add(key)
+                        facts.append({
+                            "fact_text": fact_text,
+                            "domain": classify_domain(fact_text),
+                            "subdomain": "italy",
+                            "source_id": source_id,
+                            "entities": [{"type": "region", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["italy", "wikipedia", "appellation"],
+                        })
+
+                if grape:
+                    grapes = [g.strip() for g in re.split(r"[,;]", grape) if g.strip()]
+                    for g in grapes[:5]:
+                        if 2 < len(g) < 50:
+                            fact_text = f"{title} permits the {g} grape variety."
+                            key = fact_text.lower()
+                            if key not in seen:
+                                seen.add(key)
+                                facts.append({
+                                    "fact_text": fact_text,
+                                    "domain": "grape_varieties",
+                                    "subdomain": "italy",
+                                    "source_id": source_id,
+                                    "entities": [
+                                        {"type": "region", "name": title},
+                                        {"type": "grape", "name": g},
+                                    ],
+                                    "confidence": 0.9,
+                                    "tags": ["italy", "wikipedia", "grape"],
+                                })
+
+                if area and re.search(r"\d", area):
+                    area_clean = re.sub(r"[^\d.,]", " ", area).strip()
+                    if area_clean:
+                        fact_text = f"{title} covers approximately {area_clean} hectares."
+                        key = fact_text.lower()
+                        if key not in seen:
+                            seen.add(key)
+                            facts.append({
+                                "fact_text": fact_text,
+                                "domain": classify_domain(fact_text),
+                                "subdomain": "italy",
+                                "source_id": source_id,
+                                "entities": [{"type": "region", "name": title}],
+                                "confidence": 0.9,
+                                "tags": ["italy", "wikipedia", "area"],
+                            })
+
+                if designation:
+                    fact_text = f"{title} holds {designation} designation."
+                    key = fact_text.lower()
+                    if key not in seen:
+                        seen.add(key)
+                        facts.append({
+                            "fact_text": fact_text,
+                            "domain": classify_domain(fact_text),
+                            "subdomain": "italy",
+                            "source_id": source_id,
+                            "entities": [{"type": "region", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["italy", "wikipedia", "designation"],
+                        })
+
+                if year and re.search(r"\d{4}", year):
+                    year_match = re.search(r"\d{4}", year)
+                    if year_match:
+                        fact_text = f"{title} was established in {year_match.group()}."
+                        key = fact_text.lower()
+                        if key not in seen:
+                            seen.add(key)
+                            facts.append({
+                                "fact_text": fact_text,
+                                "domain": classify_domain(fact_text),
+                                "subdomain": "italy",
+                                "source_id": source_id,
+                                "entities": [{"type": "region", "name": title}],
+                                "confidence": 0.9,
+                                "tags": ["italy", "wikipedia", "history"],
+                            })
+
+    return facts
+
+
+def _scrape_wikipedia_categories(session: requests.Session, source_id: str) -> list[dict]:
+    """Scrape Italian wine articles from Wikipedia categories using atomic fact extraction."""
+    facts = []
+    seen = set()
+
     categories = [
         "Category:DOCG wine",
         "Category:DOC wine",
@@ -406,6 +581,8 @@ def _scrape_wikipedia(session: requests.Session, source_id: str) -> list[dict]:
         titles = crawl_category(session, cat, max_depth=2, max_articles=150)
         all_titles.update(titles)
 
+    # Remove articles already fetched as key articles
+    all_titles -= set(KEY_ARTICLES)
     logger.info(f"Found {len(all_titles)} Italian wine articles from categories")
 
     for title in sorted(all_titles):
@@ -413,10 +590,24 @@ def _scrape_wikipedia(session: requests.Session, source_id: str) -> list[dict]:
         extract, wikitext = fetch_article(session, title)
 
         if extract:
-            sentences = extract_lead_sentences(extract)
-            for s in sentences[:6]:
-                _add(s, entities=[{"type": "region", "name": title}],
-                     tags=["italy", "wikipedia", "article"])
+            atomic = extract_atomic_facts(
+                extract,
+                article_title=title,
+                region_keywords=ITALY_KEYWORDS,
+            )
+            for item in atomic:
+                key = item["fact_text"].lower()
+                if key not in seen:
+                    seen.add(key)
+                    facts.append({
+                        "fact_text": item["fact_text"],
+                        "domain": item["domain"],
+                        "subdomain": "italy",
+                        "source_id": source_id,
+                        "entities": [{"type": "region", "name": title}],
+                        "confidence": 0.9,
+                        "tags": ["italy", "wikipedia", "category"],
+                    })
 
         if wikitext:
             infobox = parse_infobox(wikitext)
@@ -428,50 +619,74 @@ def _scrape_wikipedia(session: requests.Session, source_id: str) -> list[dict]:
                 year = infobox.get("year established", "") or infobox.get("established", "")
 
                 if region and not region.startswith("Q"):
-                    _add(
-                        f"{title} is a wine appellation in {region}, Italy.",
-                        entities=[{"type": "region", "name": title}],
-                        tags=["italy", "wikipedia", "appellation"],
-                    )
+                    fact_text = f"{title} is a wine appellation in {region}, Italy."
+                    key = fact_text.lower()
+                    if key not in seen:
+                        seen.add(key)
+                        facts.append({
+                            "fact_text": fact_text,
+                            "domain": classify_domain(fact_text),
+                            "subdomain": "italy",
+                            "source_id": source_id,
+                            "entities": [{"type": "region", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["italy", "wikipedia", "appellation"],
+                        })
 
                 if grape:
                     grapes = [g.strip() for g in re.split(r"[,;]", grape) if g.strip()]
                     for g in grapes[:5]:
                         if 2 < len(g) < 50:
-                            _add(
-                                f"{title} permits the {g} grape variety.",
-                                domain="grape_varieties",
-                                entities=[
-                                    {"type": "region", "name": title},
-                                    {"type": "grape", "name": g},
-                                ],
-                                tags=["italy", "wikipedia", "grape"],
-                            )
+                            fact_text = f"{title} permits the {g} grape variety."
+                            key = fact_text.lower()
+                            if key not in seen:
+                                seen.add(key)
+                                facts.append({
+                                    "fact_text": fact_text,
+                                    "domain": "grape_varieties",
+                                    "subdomain": "italy",
+                                    "source_id": source_id,
+                                    "entities": [
+                                        {"type": "region", "name": title},
+                                        {"type": "grape", "name": g},
+                                    ],
+                                    "confidence": 0.9,
+                                    "tags": ["italy", "wikipedia", "grape"],
+                                })
 
                 if area and re.search(r"\d", area):
                     area_clean = re.sub(r"[^\d.,]", " ", area).strip()
                     if area_clean:
-                        _add(
-                            f"{title} covers approximately {area_clean} hectares.",
-                            entities=[{"type": "region", "name": title}],
-                            tags=["italy", "wikipedia", "area"],
-                        )
-
-                if designation:
-                    _add(
-                        f"{title} holds {designation} designation.",
-                        entities=[{"type": "region", "name": title}],
-                        tags=["italy", "wikipedia", "designation"],
-                    )
+                        fact_text = f"{title} covers approximately {area_clean} hectares."
+                        key = fact_text.lower()
+                        if key not in seen:
+                            seen.add(key)
+                            facts.append({
+                                "fact_text": fact_text,
+                                "domain": classify_domain(fact_text),
+                                "subdomain": "italy",
+                                "source_id": source_id,
+                                "entities": [{"type": "region", "name": title}],
+                                "confidence": 0.9,
+                                "tags": ["italy", "wikipedia", "area"],
+                            })
 
                 if year and re.search(r"\d{4}", year):
                     year_match = re.search(r"\d{4}", year)
                     if year_match:
-                        _add(
-                            f"{title} was established in {year_match.group()}.",
-                            entities=[{"type": "region", "name": title}],
-                            tags=["italy", "wikipedia", "history"],
-                        )
+                        fact_text = f"{title} was established in {year_match.group()}."
+                        key = fact_text.lower()
+                        if key not in seen:
+                            seen.add(key)
+                            facts.append({
+                                "fact_text": fact_text,
+                                "domain": classify_domain(fact_text),
+                                "subdomain": "italy",
+                                "source_id": source_id,
+                                "entities": [{"type": "region", "name": title}],
+                                "confidence": 0.9,
+                                "tags": ["italy", "wikipedia", "history"],
+                            })
 
     return facts
 
@@ -480,17 +695,18 @@ def _scrape_wikipedia(session: requests.Session, source_id: str) -> list[dict]:
 
 
 def _scrape_wikidata(source_id: str) -> list[dict]:
-    """Query Wikidata for Italian wine appellations and grape varieties."""
+    """Query Wikidata for Italian wine data using country-scoped queries."""
     facts = []
     seen = set()
 
-    def _add(text, domain="wine_regions", entities=None, tags=None, confidence=0.85):
-        if text in seen:
+    def _add(text, domain=None, entities=None, tags=None, confidence=0.85):
+        key = text.lower()
+        if key in seen:
             return
-        seen.add(text)
+        seen.add(key)
         facts.append({
             "fact_text": text,
-            "domain": domain,
+            "domain": domain or classify_domain(text),
             "subdomain": "italy",
             "source_id": source_id,
             "entities": entities or [],
@@ -498,67 +714,61 @@ def _scrape_wikidata(source_id: str) -> list[dict]:
             "tags": tags or ["italy", "wikidata"],
         })
 
-    # Query 1: Italian wine appellations (P17 = Q38 = Italy)
-    query_appellations = """
-    SELECT DISTINCT ?item ?itemLabel ?regionLabel ?typeLabel WHERE {
-        ?item wdt:P31/wdt:P279* wd:Q10864048 .  # wine appellation
-        ?item wdt:P17 wd:Q38 .                   # country = Italy
-        OPTIONAL { ?item wdt:P131 ?region }
-        OPTIONAL { ?item wdt:P31 ?type }
-        SERVICE wikibase:label { bd:serviceParam wikibase:language "en,it" }
-    }
-    ORDER BY ?itemLabel
-    LIMIT 500
-    """
-
+    # Query 1: Wine regions in Italy
+    logger.info("SPARQL: Wine regions in Italy")
     try:
-        rows = run_sparql(query_appellations)
-        logger.info(f"Wikidata: {len(rows)} Italian appellation results")
+        query = SPARQL_WINE_REGIONS_BY_COUNTRY.format(country_qid="Q38")
+        rows = run_sparql_filtered(query, expected_country="Italy")
+        logger.info(f"Wikidata: {len(rows)} Italian wine region results")
         for row in rows:
             name = row.get("itemLabel", "")
             region = row.get("regionLabel", "")
-            type_label = row.get("typeLabel", "")
+            grape = row.get("grapeLabel", "")
+            area = row.get("areaHa", "")
             if not name or name.startswith("Q"):
                 continue
 
             if region and not region.startswith("Q"):
                 _add(
-                    f"{name} is an Italian wine appellation in {region}.",
+                    f"{name} is a wine-producing region in {region}, Italy.",
                     entities=[
                         {"type": "region", "name": name},
                         {"type": "region", "name": region},
                     ],
+                    tags=["italy", "wikidata", "region"],
                 )
             else:
                 _add(
-                    f"{name} is an Italian wine appellation.",
+                    f"{name} is a wine-producing region in Italy.",
                     entities=[{"type": "region", "name": name}],
+                    tags=["italy", "wikidata", "region"],
                 )
 
-            if type_label and not type_label.startswith("Q") and "appellation" not in type_label.lower():
+            if grape and not grape.startswith("Q"):
                 _add(
-                    f"{name} has the classification {type_label}.",
+                    f"{name} is associated with the {grape} grape variety.",
+                    domain="grape_varieties",
+                    entities=[
+                        {"type": "region", "name": name},
+                        {"type": "grape", "name": grape},
+                    ],
+                    tags=["italy", "wikidata", "grape"],
+                )
+
+            if area and re.search(r"\d", str(area)):
+                _add(
+                    f"{name} covers approximately {area} hectares.",
                     entities=[{"type": "region", "name": name}],
-                    tags=["italy", "wikidata", "classification"],
+                    tags=["italy", "wikidata", "area"],
                 )
     except Exception as e:
-        logger.warning(f"Wikidata appellations query failed: {e}")
+        logger.warning(f"Wikidata wine regions query failed: {e}")
 
     # Query 2: Italian grape varieties
-    query_grapes = """
-    SELECT DISTINCT ?item ?itemLabel ?colorLabel ?originLabel WHERE {
-        ?item wdt:P31 wd:Q10978 .                # grape variety
-        ?item wdt:P495 wd:Q38 .                   # country of origin = Italy
-        OPTIONAL { ?item wdt:P462 ?color }
-        OPTIONAL { ?item wdt:P495 ?origin }
-        SERVICE wikibase:label { bd:serviceParam wikibase:language "en,it" }
-    }
-    ORDER BY ?itemLabel
-    LIMIT 300
-    """
-
+    logger.info("SPARQL: Grape varieties from Italy")
     try:
-        rows = run_sparql(query_grapes)
+        query = SPARQL_GRAPE_VARIETIES_BY_COUNTRY.format(country_qid="Q38")
+        rows = run_sparql_filtered(query, expected_country="Italy")
         logger.info(f"Wikidata: {len(rows)} Italian grape variety results")
         for row in rows:
             name = row.get("itemLabel", "")
@@ -583,41 +793,35 @@ def _scrape_wikidata(source_id: str) -> list[dict]:
     except Exception as e:
         logger.warning(f"Wikidata grape varieties query failed: {e}")
 
-    # Query 3: Italian wine regions with coordinates/area
-    query_regions = """
-    SELECT DISTINCT ?item ?itemLabel ?areaLabel WHERE {
-        ?item wdt:P31/wdt:P279* wd:Q1132541 .    # wine region
-        ?item wdt:P17 wd:Q38 .                     # country = Italy
-        OPTIONAL { ?item wdt:P2046 ?area }
-        SERVICE wikibase:label { bd:serviceParam wikibase:language "en,it" }
-    }
-    ORDER BY ?itemLabel
-    LIMIT 200
-    """
-
+    # Query 3: Italian appellations
+    logger.info("SPARQL: Appellations in Italy")
     try:
-        rows = run_sparql(query_regions)
-        logger.info(f"Wikidata: {len(rows)} Italian wine region results")
+        query = SPARQL_APPELLATIONS_BY_COUNTRY.format(country_qid="Q38")
+        rows = run_sparql_filtered(query, expected_country="Italy")
+        logger.info(f"Wikidata: {len(rows)} Italian appellation results")
         for row in rows:
             name = row.get("itemLabel", "")
-            area = row.get("areaLabel", "")
+            region = row.get("regionLabel", "")
             if not name or name.startswith("Q"):
                 continue
 
-            _add(
-                f"{name} is a wine-producing region in Italy.",
-                entities=[{"type": "region", "name": name}],
-                tags=["italy", "wikidata", "region"],
-            )
-
-            if area and re.search(r"\d", str(area)):
+            if region and not region.startswith("Q"):
                 _add(
-                    f"{name} covers approximately {area} square kilometers.",
+                    f"{name} is an Italian wine appellation in {region}.",
+                    entities=[
+                        {"type": "region", "name": name},
+                        {"type": "region", "name": region},
+                    ],
+                    tags=["italy", "wikidata", "appellation"],
+                )
+            else:
+                _add(
+                    f"{name} is an Italian wine appellation.",
                     entities=[{"type": "region", "name": name}],
-                    tags=["italy", "wikidata", "region", "area"],
+                    tags=["italy", "wikidata", "appellation"],
                 )
     except Exception as e:
-        logger.warning(f"Wikidata wine regions query failed: {e}")
+        logger.warning(f"Wikidata appellations query failed: {e}")
 
     return facts
 
@@ -703,10 +907,16 @@ def collect_all_facts(
     logger.info(f"IWC facts: {len(iwc_facts)}")
     all_facts.extend(iwc_facts)
 
-    # Wikipedia
+    # Wikipedia key articles
+    logger.info("--- Wikipedia: Key Italian wine articles ---")
+    key_facts = _scrape_wikipedia_key_articles(session, wiki_source_id)
+    logger.info(f"Wikipedia key article facts: {len(key_facts)}")
+    all_facts.extend(key_facts)
+
+    # Wikipedia categories
     logger.info("--- Wikipedia: Italian wine categories ---")
-    wiki_facts = _scrape_wikipedia(session, wiki_source_id)
-    logger.info(f"Wikipedia facts: {len(wiki_facts)}")
+    wiki_facts = _scrape_wikipedia_categories(session, wiki_source_id)
+    logger.info(f"Wikipedia category facts: {len(wiki_facts)}")
     all_facts.extend(wiki_facts)
 
     # Wikidata
@@ -765,14 +975,16 @@ def run_test(cleanup: bool = False) -> None:
     test_articles = ["Barolo", "Brunello di Montalcino", "Chianti Classico"]
     seen = set()
     for title in test_articles[:TEST_RUN_LIMIT]:
-        extract, wikitext = fetch_article(session, title)
+        extract, _ = fetch_article(session, title)
         if extract:
-            for s in extract_lead_sentences(extract)[:3]:
-                if s not in seen:
-                    seen.add(s)
+            atomic = extract_atomic_facts(extract, title, region_keywords=ITALY_KEYWORDS)
+            for item in atomic:
+                key = item["fact_text"].lower()
+                if key not in seen:
+                    seen.add(key)
                     facts.append({
-                        "fact_text": s,
-                        "domain": "wine_regions",
+                        "fact_text": item["fact_text"],
+                        "domain": item["domain"],
                         "subdomain": "italy",
                         "source_id": wiki_sid,
                         "entities": [{"type": "region", "name": title}],
@@ -813,8 +1025,8 @@ def main(run_all, list_sections, dry_run, validate, test_run, cleanup):
     if list_sections:
         click.echo("Italian Wine Central Scraper — Data Sources:")
         click.echo("  1. italianwinecentral.com: DOCG/DOC appellation tables + detail pages")
-        click.echo("  2. Wikipedia: Italian wine category articles & infoboxes")
-        click.echo("  3. Wikidata: Italian wine appellations & grape varieties (SPARQL)")
+        click.echo("  2. Wikipedia: Italian wine key articles & category articles")
+        click.echo("  3. Wikidata: Italian wine regions, appellations & grape varieties (SPARQL)")
         return
 
     if test_run:

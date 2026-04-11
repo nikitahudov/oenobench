@@ -3,7 +3,7 @@ OenoBench — Bordeaux Wine Scraper (genuine external data only)
 
 Extracts Bordeaux wine knowledge from:
   1. Wikipedia — classification articles, appellation articles, grape articles
-  2. Wikidata SPARQL — classified châteaux, appellation structured data
+  2. Wikidata SPARQL — wine regions, appellations, wineries (country-scoped)
   3. bordeaux.com (CIVB) — supplementary scraping when accessible
 
 Every fact traces to a URL that was actually fetched and parsed.
@@ -20,13 +20,9 @@ Usage:
 
 import random
 import re
-import time
 from collections import Counter
-from typing import Optional
 
 import click
-import requests
-from bs4 import BeautifulSoup
 from loguru import logger
 
 from src.utils.facts import ensure_source, insert_facts_batch, get_fact_count
@@ -37,101 +33,144 @@ from src.scrapers._wiki_helpers import (
     crawl_category,
     parse_infobox,
     parse_wikitext_tables,
-    extract_lead_sentences,
-    run_sparql,
+    extract_atomic_facts,
+    run_sparql_filtered,
     ensure_wiki_source,
     ensure_wikidata_source,
     clean_wiki_value,
-    is_wine_relevant,
+    SPARQL_WINE_REGIONS_BY_COUNTRY,
+    SPARQL_APPELLATIONS_BY_COUNTRY,
+    SPARQL_WINERIES_BY_COUNTRY,
 )
+from src.scrapers._fact_processing import classify_domain, process_facts, is_on_topic
+from src.scrapers._web_helpers import scrape_site_texts
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
 TEST_RUN_LIMIT = 5
-CIVB_BASE_URL = "https://www.bordeaux.com"
-CIVB_REQUEST_DELAY = 5
-REQUEST_TIMEOUT = 30
-CIVB_HEADERS = {
-    "User-Agent": "OenoBench-Research/1.0 (academic wine benchmark)",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
+FRANCE_QID = "Q142"
+
+# Marketing/promotional text patterns to reject from official websites
+_MARKETING_RE = re.compile(
+    r"(?:^(?:Meet|Come|Discover|Share|Join|Visit|Explore|Experience|"
+    r"Book|Plan|Find|Browse|Follow|Subscribe|Sign up|Download|Click|"
+    r"Don't miss|Let us|Let's|Ready to)\b|"
+    r"\b(?:you(?:'re|r| are| will| can| should| must| won't))\b)",
+    re.IGNORECASE,
+)
+
+BORDEAUX_REGION_KEYWORDS = {
+    "bordeaux", "gironde", "médoc", "medoc", "saint-émilion", "saint-emilion",
+    "pauillac", "graves", "sauternes", "entre-deux-mers", "blaye", "bourg",
+    "fronsac", "pomerol", "libournais", "margaux", "haut-médoc", "haut-medoc",
+    "pessac-léognan", "pessac-leognan", "barsac", "loupiac", "cadillac",
+    "côtes de bordeaux", "cotes de bordeaux", "saint-julien", "saint-estèphe",
+    "saint-estephe", "listrac", "moulis", "lalande", "canon-fronsac",
+    "castillon", "francs", "1855 classification", "nouvelle-aquitaine",
 }
+
+# Key Wikipedia articles to scrape
+KEY_ARTICLES = [
+    "Bordeaux wine",
+    "Bordeaux wine regions",
+    "Classification of Bordeaux wine",
+    "1855 Bordeaux classification",
+    "Classification of Saint-Émilion wine",
+    "Médoc",
+    "Saint-Émilion",
+    "Pauillac",
+    "Margaux AOC",
+    "Graves (wine)",
+    "Sauternes (wine)",
+    "Pomerol",
+    "Entre-Deux-Mers",
+    "Pessac-Léognan",
+    "Haut-Médoc AOC",
+    "Saint-Julien AOC",
+    "Saint-Estèphe AOC",
+    "Listrac-Médoc AOC",
+    "Moulis-en-Médoc AOC",
+    "Fronsac AOC",
+    "Barsac AOC",
+    "Côtes de Bordeaux",
+    "Lalande-de-Pomerol AOC",
+    "Bordeaux AOC",
+    "Côtes de Bourg",
+    "Blaye AOC",
+]
+
+WIKIPEDIA_CATEGORIES = [
+    "Category:Bordeaux AOCs",
+    "Category:Wine regions of Gironde",
+]
 
 
 # ─── Wikipedia Scraping ──────────────────────────────────────────────────────
 
 
-def _scrape_wikipedia_classifications(session: requests.Session, source_id: str) -> list[dict]:
-    """Scrape the 1855, Saint-Émilion, and Graves classifications from Wikipedia."""
+def _scrape_wikipedia_articles(session, source_id: str) -> list[dict]:
+    """Scrape key Bordeaux wine articles from Wikipedia using atomic extraction."""
     facts = []
     seen = set()
 
-    def _add(text, domain="wine_regions", subdomain="bordeaux", entities=None,
-             tags=None, confidence=0.9):
-        if text in seen:
-            return
-        seen.add(text)
-        facts.append({
-            "fact_text": text,
-            "domain": domain,
-            "subdomain": subdomain,
-            "source_id": source_id,
-            "entities": entities or [],
-            "confidence": confidence,
-            "tags": tags or ["bordeaux", "wikipedia"],
-        })
-
-    # --- 1855 Classification ---
-    classification_articles = [
-        "Bordeaux wine",
-        "Classification of Bordeaux wine",
-        "Bordeaux Wine Official Classification of 1855",
-        "Classification of Saint-Émilion wine",
-        "Pessac-Léognan",
-    ]
-
-    for title in classification_articles:
+    for title in KEY_ARTICLES:
         logger.info(f"Fetching Wikipedia article: {title}")
         extract, wikitext = fetch_article(session, title)
 
         if extract:
-            sentences = extract_lead_sentences(extract)
-            for s in sentences[:10]:
-                _add(s, entities=[{"type": "region", "name": title}],
-                     tags=["bordeaux", "wikipedia", "classification"])
+            atomic = extract_atomic_facts(
+                extract, title,
+                region_keywords=BORDEAUX_REGION_KEYWORDS,
+            )
+            for af in atomic:
+                key = af["fact_text"].lower()
+                if key not in seen:
+                    seen.add(key)
+                    facts.append({
+                        **af,
+                        "source_id": source_id,
+                        "subdomain": "bordeaux",
+                        "entities": [{"type": "region", "name": title}],
+                        "confidence": 0.9,
+                        "tags": ["bordeaux", "wikipedia"],
+                    })
 
         if wikitext:
             # Parse tables from classification articles
             rows = parse_wikitext_tables(wikitext)
             for row in rows:
                 if len(row) >= 2:
-                    # Try to identify château + commune patterns
                     name = row[0].strip()
                     commune = row[1].strip() if len(row) > 1 else ""
-
-                    # Skip headers and non-château rows
-                    if not name or name.lower() in ("name", "château", "chateau",
-                                                      "estate", "wine", "property"):
+                    if not name or name.lower() in (
+                        "name", "château", "chateau", "estate", "wine",
+                        "property", "appellation", "commune",
+                    ):
                         continue
                     if len(name) < 3 or len(name) > 80:
                         continue
-
-                    # Look for growth level context in the wikitext
-                    # Build fact about château location
                     if commune and len(commune) < 40 and not commune.startswith(("–", "—", "-")):
-                        _add(
-                            f"{name} is a classified Bordeaux estate in {commune}.",
-                            entities=[
-                                {"type": "producer", "name": name},
-                                {"type": "region", "name": commune},
-                            ],
-                            tags=["bordeaux", "wikipedia", "classification", "1855"],
-                        )
+                        fact_text = f"{name} is a classified Bordeaux estate in {commune}."
+                        domain = classify_domain(fact_text)
+                        key = fact_text.lower()
+                        if key not in seen:
+                            seen.add(key)
+                            facts.append({
+                                "fact_text": fact_text,
+                                "domain": domain,
+                                "subdomain": "bordeaux",
+                                "source_id": source_id,
+                                "entities": [
+                                    {"type": "producer", "name": name},
+                                    {"type": "region", "name": commune},
+                                ],
+                                "confidence": 0.9,
+                                "tags": ["bordeaux", "wikipedia", "classification"],
+                            })
 
             # Parse infobox data
             infobox = parse_infobox(wikitext)
             if infobox:
-                region = infobox.get("region", "")
                 grape = infobox.get("grapes", "") or infobox.get("grape", "")
                 area = infobox.get("area", "") or infobox.get("size", "")
 
@@ -139,126 +178,171 @@ def _scrape_wikipedia_classifications(session: requests.Session, source_id: str)
                     grapes = [g.strip() for g in re.split(r"[,;]", grape) if g.strip()]
                     for g in grapes[:5]:
                         if 2 < len(g) < 50:
-                            _add(
-                                f"{title} permits the {g} grape variety.",
-                                domain="grape_varieties",
-                                entities=[
-                                    {"type": "region", "name": title},
-                                    {"type": "grape", "name": g},
-                                ],
-                                tags=["bordeaux", "wikipedia", "grape"],
-                            )
+                            fact_text = f"{title} permits the {g} grape variety."
+                            key = fact_text.lower()
+                            if key not in seen:
+                                seen.add(key)
+                                facts.append({
+                                    "fact_text": fact_text,
+                                    "domain": "grape_varieties",
+                                    "subdomain": "bordeaux",
+                                    "source_id": source_id,
+                                    "entities": [
+                                        {"type": "region", "name": title},
+                                        {"type": "grape", "name": g},
+                                    ],
+                                    "confidence": 0.9,
+                                    "tags": ["bordeaux", "wikipedia", "grape"],
+                                })
 
                 if area and re.search(r"\d", area):
-                    _add(
-                        f"{title} covers approximately {area} hectares.",
-                        entities=[{"type": "region", "name": title}],
-                        tags=["bordeaux", "wikipedia", "area"],
-                    )
+                    fact_text = f"{title} covers approximately {area} hectares."
+                    key = fact_text.lower()
+                    if key not in seen:
+                        seen.add(key)
+                        facts.append({
+                            "fact_text": fact_text,
+                            "domain": classify_domain(fact_text),
+                            "subdomain": "bordeaux",
+                            "source_id": source_id,
+                            "entities": [{"type": "region", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["bordeaux", "wikipedia", "area"],
+                        })
 
     return facts
 
 
-def _scrape_wikipedia_appellations(session: requests.Session, source_id: str) -> list[dict]:
+def _scrape_wikipedia_categories(session, source_id: str) -> list[dict]:
     """Scrape Bordeaux appellation articles from Wikipedia categories."""
     facts = []
     seen = set()
 
-    def _add(text, domain="wine_regions", subdomain="bordeaux", entities=None,
-             tags=None, confidence=0.9):
-        if text in seen:
-            return
-        seen.add(text)
-        facts.append({
-            "fact_text": text,
-            "domain": domain,
-            "subdomain": subdomain,
-            "source_id": source_id,
-            "entities": entities or [],
-            "confidence": confidence,
-            "tags": tags or ["bordeaux", "wikipedia"],
-        })
-
-    # Crawl Bordeaux wine categories
-    categories = [
-        "Category:Bordeaux AOCs",
-        "Category:Wine regions of Gironde",
-    ]
-
     all_titles = set()
-    for cat in categories:
+    for cat in WIKIPEDIA_CATEGORIES:
         logger.info(f"Crawling category: {cat}")
         titles = crawl_category(session, cat, max_depth=2, max_articles=100)
         all_titles.update(titles)
 
-    logger.info(f"Found {len(all_titles)} Bordeaux-related articles")
+    # Remove articles already covered by KEY_ARTICLES
+    all_titles -= set(KEY_ARTICLES)
+    logger.info(f"Found {len(all_titles)} additional Bordeaux-related articles from categories")
 
     for title in sorted(all_titles):
         logger.info(f"Fetching: {title}")
         extract, wikitext = fetch_article(session, title)
 
         if extract:
-            sentences = extract_lead_sentences(extract)
-            for s in sentences[:6]:
-                _add(s, entities=[{"type": "region", "name": title}],
-                     tags=["bordeaux", "wikipedia", "appellation"])
+            atomic = extract_atomic_facts(
+                extract, title,
+                region_keywords=BORDEAUX_REGION_KEYWORDS,
+            )
+            for af in atomic:
+                key = af["fact_text"].lower()
+                if key not in seen:
+                    seen.add(key)
+                    facts.append({
+                        **af,
+                        "source_id": source_id,
+                        "subdomain": "bordeaux",
+                        "entities": [{"type": "region", "name": title}],
+                        "confidence": 0.9,
+                        "tags": ["bordeaux", "wikipedia", "appellation"],
+                    })
 
         if wikitext:
             infobox = parse_infobox(wikitext)
             if infobox:
                 region = infobox.get("region", "")
-                country = infobox.get("country", "")
                 grape = infobox.get("grapes", "") or infobox.get("grape", "")
                 area = infobox.get("area", "") or infobox.get("size", "") or infobox.get("hectares", "")
-                appellation = infobox.get("appellation", "") or infobox.get("designation", "")
                 classification = infobox.get("classification", "")
                 year = infobox.get("year established", "") or infobox.get("established", "")
 
                 if region and not region.startswith("Q"):
-                    _add(
-                        f"{title} is a wine appellation in {region}.",
-                        entities=[{"type": "region", "name": title}],
-                        tags=["bordeaux", "wikipedia", "appellation"],
-                    )
+                    fact_text = f"{title} is a wine appellation in {region}."
+                    key = fact_text.lower()
+                    if key not in seen:
+                        seen.add(key)
+                        facts.append({
+                            "fact_text": fact_text,
+                            "domain": classify_domain(fact_text),
+                            "subdomain": "bordeaux",
+                            "source_id": source_id,
+                            "entities": [{"type": "region", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["bordeaux", "wikipedia", "appellation"],
+                        })
 
                 if grape:
                     grapes = [g.strip() for g in re.split(r"[,;]", grape) if g.strip()]
                     for g in grapes[:5]:
                         if 2 < len(g) < 50:
-                            _add(
-                                f"{title} permits the {g} grape variety.",
-                                domain="grape_varieties",
-                                entities=[
-                                    {"type": "region", "name": title},
-                                    {"type": "grape", "name": g},
-                                ],
-                                tags=["bordeaux", "wikipedia", "grape"],
-                            )
+                            fact_text = f"{title} permits the {g} grape variety."
+                            key = fact_text.lower()
+                            if key not in seen:
+                                seen.add(key)
+                                facts.append({
+                                    "fact_text": fact_text,
+                                    "domain": "grape_varieties",
+                                    "subdomain": "bordeaux",
+                                    "source_id": source_id,
+                                    "entities": [
+                                        {"type": "region", "name": title},
+                                        {"type": "grape", "name": g},
+                                    ],
+                                    "confidence": 0.9,
+                                    "tags": ["bordeaux", "wikipedia", "grape"],
+                                })
 
                 if area and re.search(r"\d", area):
                     area_clean = re.sub(r"[^\d.,]", " ", area).strip()
                     if area_clean:
-                        _add(
-                            f"{title} covers approximately {area_clean} hectares.",
-                            entities=[{"type": "region", "name": title}],
-                            tags=["bordeaux", "wikipedia", "area"],
-                        )
+                        fact_text = f"{title} covers approximately {area_clean} hectares."
+                        key = fact_text.lower()
+                        if key not in seen:
+                            seen.add(key)
+                            facts.append({
+                                "fact_text": fact_text,
+                                "domain": classify_domain(fact_text),
+                                "subdomain": "bordeaux",
+                                "source_id": source_id,
+                                "entities": [{"type": "region", "name": title}],
+                                "confidence": 0.9,
+                                "tags": ["bordeaux", "wikipedia", "area"],
+                            })
 
                 if classification:
-                    _add(
-                        f"{title} holds {classification} classification.",
-                        entities=[{"type": "region", "name": title}],
-                        tags=["bordeaux", "wikipedia", "classification"],
-                    )
+                    fact_text = f"{title} holds {classification} classification."
+                    key = fact_text.lower()
+                    if key not in seen:
+                        seen.add(key)
+                        facts.append({
+                            "fact_text": fact_text,
+                            "domain": classify_domain(fact_text),
+                            "subdomain": "bordeaux",
+                            "source_id": source_id,
+                            "entities": [{"type": "region", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["bordeaux", "wikipedia", "classification"],
+                        })
 
                 if year and re.search(r"\d{4}", year):
                     year_match = re.search(r"\d{4}", year)
                     if year_match:
-                        _add(
-                            f"{title} was established in {year_match.group()}.",
-                            entities=[{"type": "region", "name": title}],
-                            tags=["bordeaux", "wikipedia", "history"],
-                        )
+                        fact_text = f"{title} was established in {year_match.group()}."
+                        key = fact_text.lower()
+                        if key not in seen:
+                            seen.add(key)
+                            facts.append({
+                                "fact_text": fact_text,
+                                "domain": classify_domain(fact_text),
+                                "subdomain": "bordeaux",
+                                "source_id": source_id,
+                                "entities": [{"type": "region", "name": title}],
+                                "confidence": 0.9,
+                                "tags": ["bordeaux", "wikipedia", "history"],
+                            })
 
     return facts
 
@@ -266,105 +350,142 @@ def _scrape_wikipedia_appellations(session: requests.Session, source_id: str) ->
 # ─── Wikidata SPARQL ─────────────────────────────────────────────────────────
 
 
+def _has_bordeaux_keyword(labels_text: str) -> bool:
+    """Check if any Bordeaux-specific keyword appears in SPARQL labels."""
+    text = labels_text.lower()
+    return any(kw in text for kw in BORDEAUX_REGION_KEYWORDS)
+
+
 def _scrape_wikidata(source_id: str) -> list[dict]:
-    """Query Wikidata for Bordeaux wine entities."""
+    """Query Wikidata for Bordeaux wine entities using country-scoped queries."""
     facts = []
     seen = set()
 
-    def _add(text, domain="wine_regions", subdomain="bordeaux", entities=None,
-             tags=None, confidence=0.85):
-        if text in seen:
+    def _add(text, domain=None, entities=None, tags=None, confidence=0.85):
+        if not domain:
+            domain = classify_domain(text)
+        key = text.lower()
+        if key in seen:
             return
-        seen.add(text)
+        seen.add(key)
+        if not is_on_topic(text, BORDEAUX_REGION_KEYWORDS):
+            return
         facts.append({
             "fact_text": text,
             "domain": domain,
-            "subdomain": subdomain,
+            "subdomain": "bordeaux",
             "source_id": source_id,
             "entities": entities or [],
             "confidence": confidence,
             "tags": tags or ["bordeaux", "wikidata"],
         })
 
-    # Query 1: Bordeaux wine appellations
-    query_appellations = """
-    SELECT DISTINCT ?item ?itemLabel ?regionLabel ?countryLabel WHERE {
-        ?item wdt:P31/wdt:P279* wd:Q10864048 .  # wine appellation
-        ?item wdt:P131* ?gironde .
-        VALUES ?gironde { wd:Q12526 wd:Q15104 }  # Gironde or Nouvelle-Aquitaine
-        OPTIONAL { ?item wdt:P131 ?region }
-        OPTIONAL { ?item wdt:P17 ?country }
-        SERVICE wikibase:label { bd:serviceParam wikibase:language "en,fr" }
-    }
-    ORDER BY ?itemLabel
-    LIMIT 200
-    """
+    # Query 1: Wine regions in France, post-filtered for Bordeaux
+    logger.info("SPARQL: Wine regions in France (Bordeaux-filtered)")
+    query = SPARQL_WINE_REGIONS_BY_COUNTRY.format(country_qid=FRANCE_QID)
+    rows = run_sparql_filtered(
+        query, expected_country="France",
+        region_keywords=BORDEAUX_REGION_KEYWORDS,
+    )
+    for row in rows:
+        name = row.get("itemLabel", "")
+        region = row.get("regionLabel", "")
+        grape = row.get("grapeLabel", "")
+        area = row.get("areaHa", "")
+        if not name or name.startswith("Q"):
+            continue
+        # Require Bordeaux keyword in labels to avoid non-Bordeaux French results
+        labels = " ".join(v for k, v in row.items() if k.endswith("Label") and v)
+        if not _has_bordeaux_keyword(f"{name} {labels}"):
+            continue
+        if region and not region.startswith("Q"):
+            _add(
+                f"{name} is a wine region in {region}.",
+                entities=[{"type": "region", "name": name}],
+            )
+        else:
+            _add(
+                f"{name} is a wine region in Bordeaux.",
+                entities=[{"type": "region", "name": name}],
+            )
+        if grape and not grape.startswith("Q"):
+            _add(
+                f"{name} is associated with the {grape} grape variety.",
+                entities=[
+                    {"type": "region", "name": name},
+                    {"type": "grape", "name": grape},
+                ],
+                tags=["bordeaux", "wikidata", "grape"],
+            )
+        if area and re.search(r"\d", str(area)):
+            _add(
+                f"{name} covers approximately {area} hectares.",
+                entities=[{"type": "region", "name": name}],
+                tags=["bordeaux", "wikidata", "area"],
+            )
 
-    try:
-        rows = run_sparql(query_appellations)
-        for row in rows:
-            name = row.get("itemLabel", "")
-            region = row.get("regionLabel", "")
-            if not name or name.startswith("Q"):
-                continue
-            if region and not region.startswith("Q"):
-                _add(
-                    f"{name} is a wine appellation in {region}.",
-                    entities=[{"type": "region", "name": name}],
-                )
-            else:
-                _add(
-                    f"{name} is a wine appellation in Bordeaux.",
-                    entities=[{"type": "region", "name": name}],
-                )
-    except Exception as e:
-        logger.warning(f"Wikidata appellations query failed: {e}")
+    # Query 2: Appellations in France, post-filtered for Bordeaux
+    logger.info("SPARQL: Appellations in France (Bordeaux-filtered)")
+    query = SPARQL_APPELLATIONS_BY_COUNTRY.format(country_qid=FRANCE_QID)
+    rows = run_sparql_filtered(
+        query, expected_country="France",
+        region_keywords=BORDEAUX_REGION_KEYWORDS,
+    )
+    for row in rows:
+        name = row.get("itemLabel", "")
+        region = row.get("regionLabel", "")
+        if not name or name.startswith("Q"):
+            continue
+        labels = " ".join(v for k, v in row.items() if k.endswith("Label") and v)
+        if not _has_bordeaux_keyword(f"{name} {labels}"):
+            continue
+        if region and not region.startswith("Q"):
+            _add(
+                f"{name} is a wine appellation in {region}.",
+                entities=[{"type": "region", "name": name}],
+                tags=["bordeaux", "wikidata", "appellation"],
+            )
+        else:
+            _add(
+                f"{name} is a wine appellation in Bordeaux.",
+                entities=[{"type": "region", "name": name}],
+                tags=["bordeaux", "wikidata", "appellation"],
+            )
 
-    # Query 2: Bordeaux châteaux / wine estates
-    query_chateaux = """
-    SELECT DISTINCT ?item ?itemLabel ?communeLabel ?classLabel WHERE {
-        {
-            ?item wdt:P31 wd:Q3658505 .  # château in Bordeaux
-        }
-        UNION
-        {
-            ?item wdt:P361 wd:Q1344189 .  # part of 1855 classification
-        }
-        OPTIONAL { ?item wdt:P131 ?commune }
-        OPTIONAL { ?item wdt:P361 ?class }
-        SERVICE wikibase:label { bd:serviceParam wikibase:language "en,fr" }
-    }
-    ORDER BY ?itemLabel
-    LIMIT 300
-    """
-
-    try:
-        rows = run_sparql(query_chateaux)
-        for row in rows:
-            name = row.get("itemLabel", "")
-            commune = row.get("communeLabel", "")
-            classification = row.get("classLabel", "")
-            if not name or name.startswith("Q"):
-                continue
-            if commune and not commune.startswith("Q"):
-                _add(
-                    f"{name} is a Bordeaux wine estate in {commune}.",
-                    domain="producers",
-                    entities=[
-                        {"type": "producer", "name": name},
-                        {"type": "region", "name": commune},
-                    ],
-                    tags=["bordeaux", "wikidata", "chateau"],
-                )
-            if classification and not classification.startswith("Q"):
-                _add(
-                    f"{name} is part of the {classification}.",
-                    domain="producers",
-                    entities=[{"type": "producer", "name": name}],
-                    tags=["bordeaux", "wikidata", "classification"],
-                )
-    except Exception as e:
-        logger.warning(f"Wikidata châteaux query failed: {e}")
+    # Query 3: Wineries in France, post-filtered for Bordeaux
+    logger.info("SPARQL: Wineries in France (Bordeaux-filtered)")
+    query = SPARQL_WINERIES_BY_COUNTRY.format(country_qid=FRANCE_QID)
+    rows = run_sparql_filtered(
+        query, expected_country="France",
+        region_keywords=BORDEAUX_REGION_KEYWORDS,
+    )
+    for row in rows:
+        name = row.get("itemLabel", "")
+        region = row.get("regionLabel", "")
+        founded = row.get("founded", "")
+        if not name or name.startswith("Q"):
+            continue
+        labels = " ".join(v for k, v in row.items() if k.endswith("Label") and v)
+        if not _has_bordeaux_keyword(f"{name} {labels}"):
+            continue
+        if region and not region.startswith("Q"):
+            _add(
+                f"{name} is a wine estate in {region}.",
+                domain="producers",
+                entities=[
+                    {"type": "producer", "name": name},
+                    {"type": "region", "name": region},
+                ],
+                tags=["bordeaux", "wikidata", "chateau"],
+            )
+        if founded and re.search(r"\d{4}", founded):
+            year = re.search(r"\d{4}", founded).group()
+            _add(
+                f"{name} was founded in {year}.",
+                domain="producers",
+                entities=[{"type": "producer", "name": name}],
+                tags=["bordeaux", "wikidata", "history"],
+            )
 
     return facts
 
@@ -373,69 +494,76 @@ def _scrape_wikidata(source_id: str) -> list[dict]:
 
 
 def _scrape_civb(source_id: str) -> list[dict]:
-    """Scrape supplementary facts from bordeaux.com (CIVB)."""
+    """Scrape supplementary facts from bordeaux.com (CIVB) using shared helpers."""
     facts = []
-    seen = set()
 
-    paths = [
-        "/us/our-terroir/appellations",
-        "/us/our-wines",
-        "/us/our-terroir",
-    ]
+    logger.info("Attempting to scrape bordeaux.com (CIVB)...")
+    url_filter = re.compile(r"(?:appellation|wine|terroir|grape|vineyard)", re.IGNORECASE)
 
-    session = requests.Session()
-    session.headers.update(CIVB_HEADERS)
+    try:
+        page_texts = scrape_site_texts(
+            base_url="https://www.bordeaux.com",
+            seed_paths=[
+                "/us/our-terroir/appellations",
+                "/us/our-wines",
+                "/us/our-terroir",
+            ],
+            max_pages=30,
+            delay=5.0,
+            url_filter=url_filter,
+        )
+    except Exception as e:
+        logger.warning(f"CIVB scraping failed: {e}")
+        return facts
 
-    bordeaux_keywords = re.compile(
-        r"\b(?:appellation|vineyard|château|chateau|grape|wine|AOC|hectare|"
-        r"terroir|cabernet|merlot|sauvignon|sémillon|semillon|muscadelle|"
-        r"petit verdot|malbec|carménère|vintage|barrel|oak|tannin|blend)\b",
-        re.IGNORECASE,
-    )
+    if not page_texts:
+        logger.warning("CIVB website returned no pages (may be blocked)")
+        return facts
 
-    for path in paths:
-        url = f"{CIVB_BASE_URL}{path}"
-        logger.info(f"Attempting to scrape: {url}")
-        try:
-            time.sleep(CIVB_REQUEST_DELAY)
-            resp = session.get(url, timeout=REQUEST_TIMEOUT)
-            if resp.status_code != 200:
-                logger.warning(f"HTTP {resp.status_code} for {url}")
+    # Process all text blocks through the fact pipeline
+    marketing_rejected = 0
+    for url, blocks in page_texts:
+        # Filter out marketing/promotional text and URL-encoded junk
+        filtered_blocks = []
+        for b in blocks:
+            if _MARKETING_RE.search(b):
+                marketing_rejected += 1
                 continue
+            # Reject blocks with URL-encoded content or HTML artifacts
+            if "%2" in b or "%3" in b or ".Html" in b or ".html" in b:
+                continue
+            filtered_blocks.append(b)
 
-            soup = BeautifulSoup(resp.text, "html.parser")
-            for tag in soup.find_all(["p", "li", "h2", "h3"]):
-                text = tag.get_text(strip=True)
-                if not text or len(text) < 30:
-                    continue
-                words = text.split()
-                if len(words) < 6 or len(words) > 45:
-                    continue
-                if not bordeaux_keywords.search(text):
-                    continue
-                if text in seen:
-                    continue
-                seen.add(text)
+        # Try to extract an entity name from the URL path
+        url_entity = None
+        url_path = url.rsplit("/", 1)[-1] if "/" in url else ""
+        if (url_path
+                and url_path not in ("our-terroir", "our-wines", "appellations", "")
+                and "%" not in url_path
+                and "." not in url_path
+                and len(url_path) < 60):
+            url_entity = url_path.replace("-", " ").title()
 
-                # Clean up
-                text = text.strip().rstrip(".")
-                if not text:
-                    continue
-                text += "."
+        processed = process_facts(
+            raw_texts=filtered_blocks,
+            subject=url_entity or "Bordeaux",
+            region_keywords=BORDEAUX_REGION_KEYWORDS,
+        )
+        for pf in processed:
+            entities = []
+            if url_entity:
+                entities = [{"type": "region", "name": url_entity}]
+            facts.append({
+                **pf,
+                "source_id": source_id,
+                "subdomain": "bordeaux",
+                "entities": entities,
+                "confidence": 0.8,
+                "tags": ["bordeaux", "civb", "scraped"],
+            })
 
-                facts.append({
-                    "fact_text": text,
-                    "domain": "wine_regions",
-                    "subdomain": "bordeaux",
-                    "source_id": source_id,
-                    "entities": [],
-                    "confidence": 0.8,
-                    "tags": ["bordeaux", "civb", "scraped"],
-                })
-
-        except requests.exceptions.RequestException as e:
-            logger.warning(f"Failed to scrape {url}: {e}")
-
+    if marketing_rejected:
+        logger.info(f"CIVB: rejected {marketing_rejected} marketing/promotional text blocks")
     logger.info(f"CIVB scraping yielded {len(facts)} facts")
     return facts
 
@@ -481,14 +609,20 @@ def validate_facts(facts: list[dict]) -> None:
     for f in long[:5]:
         logger.info(f"  LONG: {f['fact_text']}")
 
-    # Near-duplicate check
+    # Entity population rate
+    with_entities = sum(1 for f in facts if f.get("entities"))
+    logger.info(f"\nFacts with entities: {with_entities}/{len(facts)} "
+                f"({100*with_entities/max(len(facts),1):.1f}%)")
+
+    # Near-duplicate check (limit to avoid O(n^2) on large sets)
     texts = [f["fact_text"].lower() for f in facts]
     dupes = 0
-    for i, t1 in enumerate(texts):
-        for t2 in texts[i + 1:]:
-            if t1 in t2 or t2 in t1:
+    check_limit = min(len(texts), 500)
+    for i in range(check_limit):
+        for j in range(i + 1, check_limit):
+            if texts[i] in texts[j] or texts[j] in texts[i]:
                 dupes += 1
-    logger.info(f"\nNear-duplicate pairs (substring): {dupes}")
+    logger.info(f"\nNear-duplicate pairs (substring, checked {check_limit}): {dupes}")
 
     # Sample facts
     logger.info(f"\n10 random sample facts:")
@@ -509,17 +643,17 @@ def collect_all_facts(
     session = wiki_session()
     all_facts = []
 
-    # Wikipedia classifications
-    logger.info("--- Wikipedia: Classifications ---")
-    classification_facts = _scrape_wikipedia_classifications(session, wiki_source_id)
-    logger.info(f"Classification facts: {len(classification_facts)}")
-    all_facts.extend(classification_facts)
+    # Wikipedia key articles
+    logger.info("--- Wikipedia: Key Articles ---")
+    article_facts = _scrape_wikipedia_articles(session, wiki_source_id)
+    logger.info(f"Key article facts: {len(article_facts)}")
+    all_facts.extend(article_facts)
 
-    # Wikipedia appellations
-    logger.info("--- Wikipedia: Appellations ---")
-    appellation_facts = _scrape_wikipedia_appellations(session, wiki_source_id)
-    logger.info(f"Appellation facts: {len(appellation_facts)}")
-    all_facts.extend(appellation_facts)
+    # Wikipedia category crawl
+    logger.info("--- Wikipedia: Category Crawl ---")
+    category_facts = _scrape_wikipedia_categories(session, wiki_source_id)
+    logger.info(f"Category facts: {len(category_facts)}")
+    all_facts.extend(category_facts)
 
     # Wikidata
     logger.info("--- Wikidata SPARQL ---")
@@ -534,7 +668,7 @@ def collect_all_facts(
         logger.info(f"CIVB facts: {len(civb_facts)}")
         all_facts.extend(civb_facts)
 
-    # Deduplicate across sources
+    # Deduplicate across sources (exact match)
     deduped = []
     seen_texts = set()
     for f in all_facts:
@@ -542,6 +676,23 @@ def collect_all_facts(
         if key not in seen_texts:
             seen_texts.add(key)
             deduped.append(f)
+
+    # Substring dedup: if fact A is a substring of fact B, keep only B (the longer one)
+    texts_lower = [f["fact_text"].lower().strip() for f in deduped]
+    to_remove = set()
+    for i in range(len(texts_lower)):
+        if i in to_remove:
+            continue
+        for j in range(i + 1, len(texts_lower)):
+            if j in to_remove:
+                continue
+            if texts_lower[i] in texts_lower[j]:
+                to_remove.add(i)
+            elif texts_lower[j] in texts_lower[i]:
+                to_remove.add(j)
+    if to_remove:
+        logger.info(f"Substring dedup removed {len(to_remove)} facts")
+        deduped = [f for idx, f in enumerate(deduped) if idx not in to_remove]
 
     logger.info(f"Total after dedup: {len(deduped)} (from {len(all_facts)} raw)")
     return deduped
@@ -556,18 +707,9 @@ def run_test(cleanup: bool = False) -> None:
 
     logger.info("=== TEST RUN: Bordeaux Scraper ===")
     wiki_sid = ensure_wiki_source("Bordeaux wine")
-    wikidata_sid = ensure_wikidata_source("Bordeaux wine")
-    civb_sid = ensure_source(
-        name="CIVB (Bordeaux Wine Council)",
-        url="https://www.bordeaux.com",
-        source_type="official_body",
-        tier="tier_2_authoritative",
-        language="en",
-    )
 
     session = wiki_session()
 
-    # Just fetch a few specific articles
     test_articles = ["Pauillac", "Margaux AOC", "Saint-Julien AOC",
                      "Château Lafite Rothschild", "Bordeaux wine"]
     facts = []
@@ -575,14 +717,18 @@ def run_test(cleanup: bool = False) -> None:
     for title in test_articles[:TEST_RUN_LIMIT]:
         extract, wikitext = fetch_article(session, title)
         if extract:
-            for s in extract_lead_sentences(extract)[:3]:
-                if s not in seen:
-                    seen.add(s)
+            atomic = extract_atomic_facts(
+                extract, title,
+                region_keywords=BORDEAUX_REGION_KEYWORDS,
+            )
+            for af in atomic:
+                key = af["fact_text"].lower()
+                if key not in seen:
+                    seen.add(key)
                     facts.append({
-                        "fact_text": s,
-                        "domain": "wine_regions",
-                        "subdomain": "bordeaux",
+                        **af,
                         "source_id": wiki_sid,
+                        "subdomain": "bordeaux",
                         "entities": [{"type": "region", "name": title}],
                         "confidence": 0.9,
                         "tags": ["bordeaux", "wikipedia", "test"],
@@ -621,7 +767,7 @@ def main(run_all, list_sections, dry_run, validate, test_run, cleanup):
     if list_sections:
         click.echo("Bordeaux Scraper — Data Sources:")
         click.echo("  1. Wikipedia: Bordeaux classification & appellation articles")
-        click.echo("  2. Wikidata: Bordeaux châteaux & appellations (SPARQL)")
+        click.echo("  2. Wikidata: Wine regions, appellations, wineries (SPARQL, country-scoped)")
         click.echo("  3. CIVB (bordeaux.com): Supplementary web scraping")
         return
 

@@ -4,10 +4,12 @@ OenoBench — Greek Wine Scraper (genuine external data only)
 Extracts Greek wine knowledge from:
   1. Wikipedia — key articles on Greek wine regions, grapes, styles
   2. Wikidata SPARQL — Greek wine regions, grape varieties, PDO/PGI appellations
-  3. EU GIView API — supplementary PDO/PGI data (best-effort)
 
 Every fact traces to a URL that was actually fetched and parsed.
 No hardcoded wine knowledge.
+
+Note: The EU GIView/eAmbrosia API was found to be broken/unreliable and has
+been removed. Focus is on Wikipedia + Wikidata.
 
 Usage:
     python -m src.scrapers.greece --all
@@ -29,6 +31,11 @@ import requests
 from loguru import logger
 
 from src.utils.facts import ensure_source, insert_facts_batch, get_fact_count
+from src.scrapers._fact_processing import (
+    process_facts,
+    classify_domain,
+    validate_fact,
+)
 from src.scrapers._wiki_helpers import (
     wiki_session,
     fetch_article,
@@ -37,22 +44,34 @@ from src.scrapers._wiki_helpers import (
     parse_infobox,
     parse_wikitext_tables,
     extract_lead_sentences,
-    run_sparql,
+    extract_atomic_facts,
+    run_sparql_filtered,
     ensure_wiki_source,
     ensure_wikidata_source,
     clean_wiki_value,
     is_wine_relevant,
+    SPARQL_WINE_REGIONS_BY_COUNTRY,
+    SPARQL_GRAPE_VARIETIES_BY_COUNTRY,
+    SPARQL_APPELLATIONS_BY_COUNTRY,
 )
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
 TEST_RUN_LIMIT = 5
-GIVIEW_BASE_URL = "https://www.tmdn.org/giview/api/geographical-indication"
-GIVIEW_REQUEST_DELAY = 3
-REQUEST_TIMEOUT = 30
-GIVIEW_HEADERS = {
-    "User-Agent": "OenoBench-Research/1.0 (academic wine benchmark)",
-    "Accept": "application/json",
+
+# Greece = Q41 on Wikidata
+GREECE_QID = "Q41"
+
+# Region keywords for on-topic filtering
+GREECE_KEYWORDS = {
+    "greece", "greek", "santorini", "crete", "naoussa", "nemea",
+    "macedonia", "peloponnese", "aegean", "ionian", "thessaly", "attica",
+    "cyclades", "dodecanese", "epirus", "thrace", "sterea ellada",
+    "assyrtiko", "xinomavro", "agiorgitiko", "moschofilero", "roditis",
+    "savatiano", "malagousia", "vidiano", "athiri", "robola",
+    "mavrodaphne", "limnio", "mandilaria", "kotsifali", "liatiko",
+    "retsina", "mavrodafni", "muscat", "samos",
+    "pdo", "pgi", "opap", "ope",
 }
 
 
@@ -60,24 +79,9 @@ GIVIEW_HEADERS = {
 
 
 def _scrape_wikipedia_key_articles(session: requests.Session, source_id: str) -> list[dict]:
-    """Scrape key Wikipedia articles about Greek wine."""
+    """Scrape key Wikipedia articles about Greek wine using atomic fact pipeline."""
     facts = []
     seen = set()
-
-    def _add(text, domain="wine_regions", subdomain="greece", entities=None,
-             tags=None, confidence=0.9):
-        if text in seen:
-            return
-        seen.add(text)
-        facts.append({
-            "fact_text": text,
-            "domain": domain,
-            "subdomain": subdomain,
-            "source_id": source_id,
-            "entities": entities or [],
-            "confidence": confidence,
-            "tags": tags or ["greece", "wikipedia"],
-        })
 
     key_articles = [
         "Greek wine",
@@ -92,6 +96,7 @@ def _scrape_wikipedia_key_articles(session: requests.Session, source_id: str) ->
         "Moschofilero",
         "Mantinia (wine region)",
         "Mavrodaphne",
+        "Greek wine regions",
     ]
 
     for title in key_articles:
@@ -99,10 +104,23 @@ def _scrape_wikipedia_key_articles(session: requests.Session, source_id: str) ->
         extract, wikitext = fetch_article(session, title)
 
         if extract:
-            sentences = extract_lead_sentences(extract)
-            for s in sentences[:10]:
-                _add(s, entities=[{"type": "region", "name": title}],
-                     tags=["greece", "wikipedia", "key_article"])
+            atomic = extract_atomic_facts(
+                extract, title,
+                region_keywords=GREECE_KEYWORDS,
+            )
+            for item in atomic:
+                text = item["fact_text"]
+                if text.lower() not in seen:
+                    seen.add(text.lower())
+                    facts.append({
+                        "fact_text": text,
+                        "domain": item["domain"],
+                        "subdomain": "greece",
+                        "source_id": source_id,
+                        "entities": [{"type": "region", "name": title}],
+                        "confidence": 0.9,
+                        "tags": ["greece", "wikipedia", "key_article"],
+                    })
 
         if wikitext:
             infobox = parse_infobox(wikitext)
@@ -112,72 +130,131 @@ def _scrape_wikipedia_key_articles(session: requests.Session, source_id: str) ->
                 classification = infobox.get("classification", "") or infobox.get("appellation", "")
                 region = infobox.get("region", "")
                 year = infobox.get("year established", "") or infobox.get("established", "")
+                colour = infobox.get("color", "") or infobox.get("colour", "")
+                species = infobox.get("species", "")
+                also_called = infobox.get("also called", "") or infobox.get("synonyms", "")
 
                 if grape:
                     grapes = [g.strip() for g in re.split(r"[,;]", grape) if g.strip()]
                     for g in grapes[:5]:
                         if 2 < len(g) < 50:
-                            _add(
-                                f"{title} permits the {g} grape variety.",
-                                domain="grape_varieties",
-                                entities=[
-                                    {"type": "region", "name": title},
-                                    {"type": "grape", "name": g},
-                                ],
-                                tags=["greece", "wikipedia", "grape"],
-                            )
+                            text = f"{title} permits the {g} grape variety."
+                            if text.lower() not in seen:
+                                seen.add(text.lower())
+                                facts.append({
+                                    "fact_text": text,
+                                    "domain": "grape_varieties",
+                                    "subdomain": "greece",
+                                    "source_id": source_id,
+                                    "entities": [
+                                        {"type": "region", "name": title},
+                                        {"type": "grape", "name": g},
+                                    ],
+                                    "confidence": 0.9,
+                                    "tags": ["greece", "wikipedia", "grape"],
+                                })
 
                 if area and re.search(r"\d", area):
                     area_clean = re.sub(r"[^\d.,]", " ", area).strip()
                     if area_clean:
-                        _add(
-                            f"{title} covers approximately {area_clean} hectares.",
-                            entities=[{"type": "region", "name": title}],
-                            tags=["greece", "wikipedia", "area"],
-                        )
+                        text = f"{title} covers approximately {area_clean} hectares."
+                        if text.lower() not in seen:
+                            seen.add(text.lower())
+                            facts.append({
+                                "fact_text": text,
+                                "domain": classify_domain(text),
+                                "subdomain": "greece",
+                                "source_id": source_id,
+                                "entities": [{"type": "region", "name": title}],
+                                "confidence": 0.9,
+                                "tags": ["greece", "wikipedia", "area"],
+                            })
 
                 if classification and not classification.startswith("Q"):
-                    _add(
-                        f"{title} holds {classification} classification.",
-                        entities=[{"type": "region", "name": title}],
-                        tags=["greece", "wikipedia", "classification"],
-                    )
+                    text = f"{title} holds {classification} classification."
+                    if text.lower() not in seen:
+                        seen.add(text.lower())
+                        facts.append({
+                            "fact_text": text,
+                            "domain": classify_domain(text),
+                            "subdomain": "greece",
+                            "source_id": source_id,
+                            "entities": [{"type": "region", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["greece", "wikipedia", "classification"],
+                        })
 
                 if region and not region.startswith("Q"):
-                    _add(
-                        f"{title} is located in the {region} wine region.",
-                        entities=[{"type": "region", "name": title}],
-                        tags=["greece", "wikipedia", "region"],
-                    )
+                    text = f"{title} is located in the {region} wine region."
+                    if text.lower() not in seen:
+                        seen.add(text.lower())
+                        facts.append({
+                            "fact_text": text,
+                            "domain": "wine_regions",
+                            "subdomain": "greece",
+                            "source_id": source_id,
+                            "entities": [{"type": "region", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["greece", "wikipedia", "region"],
+                        })
 
                 if year and re.search(r"\d{4}", year):
                     year_match = re.search(r"\d{4}", year)
                     if year_match:
-                        _add(
-                            f"{title} was established in {year_match.group()}.",
-                            entities=[{"type": "region", "name": title}],
-                            tags=["greece", "wikipedia", "history"],
-                        )
+                        text = f"{title} was established in {year_match.group()}."
+                        if text.lower() not in seen:
+                            seen.add(text.lower())
+                            facts.append({
+                                "fact_text": text,
+                                "domain": classify_domain(text),
+                                "subdomain": "greece",
+                                "source_id": source_id,
+                                "entities": [{"type": "region", "name": title}],
+                                "confidence": 0.9,
+                                "tags": ["greece", "wikipedia", "history"],
+                            })
 
-            # Parse tables for additional structured data
-            rows = parse_wikitext_tables(wikitext)
-            for row in rows:
-                if len(row) >= 2:
-                    name = row[0].strip()
-                    detail = row[1].strip()
+                if colour and len(colour) < 30:
+                    text = f"{title} is a {colour} grape variety."
+                    if text.lower() not in seen:
+                        seen.add(text.lower())
+                        facts.append({
+                            "fact_text": text,
+                            "domain": "grape_varieties",
+                            "subdomain": "greece",
+                            "source_id": source_id,
+                            "entities": [{"type": "grape", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["greece", "wikipedia", "grape"],
+                        })
 
-                    if not name or len(name) < 3 or len(name) > 80:
-                        continue
-                    if name.lower() in ("name", "grape", "variety", "region", "wine"):
-                        continue
+                if species and "vinifera" in species.lower():
+                    text = f"{title} is a Vitis vinifera grape variety."
+                    if text.lower() not in seen:
+                        seen.add(text.lower())
+                        facts.append({
+                            "fact_text": text,
+                            "domain": "grape_varieties",
+                            "subdomain": "greece",
+                            "source_id": source_id,
+                            "entities": [{"type": "grape", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["greece", "wikipedia", "grape"],
+                        })
 
-                    if detail and len(detail) < 60 and not detail.startswith(("–", "—", "-")):
-                        if is_wine_relevant(f"{name} {detail}"):
-                            _add(
-                                f"{name}: {detail}.",
-                                entities=[{"type": "region", "name": title}],
-                                tags=["greece", "wikipedia", "table"],
-                            )
+                if also_called and len(also_called) < 80:
+                    text = f"{title} is also known as {also_called}."
+                    if text.lower() not in seen:
+                        seen.add(text.lower())
+                        facts.append({
+                            "fact_text": text,
+                            "domain": "grape_varieties",
+                            "subdomain": "greece",
+                            "source_id": source_id,
+                            "entities": [{"type": "grape", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["greece", "wikipedia", "synonym"],
+                        })
 
     return facts
 
@@ -186,21 +263,6 @@ def _scrape_wikipedia_categories(session: requests.Session, source_id: str) -> l
     """Scrape Greek wine articles discovered via Wikipedia category crawling."""
     facts = []
     seen = set()
-
-    def _add(text, domain="wine_regions", subdomain="greece", entities=None,
-             tags=None, confidence=0.9):
-        if text in seen:
-            return
-        seen.add(text)
-        facts.append({
-            "fact_text": text,
-            "domain": domain,
-            "subdomain": subdomain,
-            "source_id": source_id,
-            "entities": entities or [],
-            "confidence": confidence,
-            "tags": tags or ["greece", "wikipedia"],
-        })
 
     categories = [
         "Category:Wine regions of Greece",
@@ -221,92 +283,108 @@ def _scrape_wikipedia_categories(session: requests.Session, source_id: str) -> l
         extract, wikitext = fetch_article(session, title)
 
         if extract:
-            sentences = extract_lead_sentences(extract)
-            for s in sentences[:6]:
-                _add(s, entities=[{"type": "region", "name": title}],
-                     tags=["greece", "wikipedia", "category"])
+            atomic = extract_atomic_facts(
+                extract, title,
+                region_keywords=GREECE_KEYWORDS,
+            )
+            for item in atomic:
+                text = item["fact_text"]
+                if text.lower() not in seen:
+                    seen.add(text.lower())
+                    facts.append({
+                        "fact_text": text,
+                        "domain": item["domain"],
+                        "subdomain": "greece",
+                        "source_id": source_id,
+                        "entities": [{"type": "region", "name": title}],
+                        "confidence": 0.9,
+                        "tags": ["greece", "wikipedia", "category"],
+                    })
 
         if wikitext:
             infobox = parse_infobox(wikitext)
             if infobox:
                 region = infobox.get("region", "")
                 grape = infobox.get("grapes", "") or infobox.get("grape", "")
-                area = infobox.get("area", "") or infobox.get("size", "") or infobox.get("hectares", "")
-                classification = infobox.get("classification", "") or infobox.get("appellation", "") or infobox.get("designation", "")
-                year = infobox.get("year established", "") or infobox.get("established", "")
                 colour = infobox.get("color", "") or infobox.get("colour", "")
                 species = infobox.get("species", "")
                 also_called = infobox.get("also called", "") or infobox.get("synonyms", "")
 
                 if region and not region.startswith("Q"):
-                    _add(
-                        f"{title} is a wine appellation in {region}.",
-                        entities=[{"type": "region", "name": title}],
-                        tags=["greece", "wikipedia", "appellation"],
-                    )
+                    text = f"{title} is a wine appellation in {region}."
+                    if text.lower() not in seen:
+                        seen.add(text.lower())
+                        facts.append({
+                            "fact_text": text,
+                            "domain": "wine_regions",
+                            "subdomain": "greece",
+                            "source_id": source_id,
+                            "entities": [{"type": "region", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["greece", "wikipedia", "appellation"],
+                        })
 
                 if grape:
                     grapes = [g.strip() for g in re.split(r"[,;]", grape) if g.strip()]
                     for g in grapes[:5]:
                         if 2 < len(g) < 50:
-                            _add(
-                                f"{title} permits the {g} grape variety.",
-                                domain="grape_varieties",
-                                entities=[
-                                    {"type": "region", "name": title},
-                                    {"type": "grape", "name": g},
-                                ],
-                                tags=["greece", "wikipedia", "grape"],
-                            )
-
-                if area and re.search(r"\d", area):
-                    area_clean = re.sub(r"[^\d.,]", " ", area).strip()
-                    if area_clean:
-                        _add(
-                            f"{title} covers approximately {area_clean} hectares.",
-                            entities=[{"type": "region", "name": title}],
-                            tags=["greece", "wikipedia", "area"],
-                        )
-
-                if classification and not classification.startswith("Q"):
-                    _add(
-                        f"{title} holds {classification} classification.",
-                        entities=[{"type": "region", "name": title}],
-                        tags=["greece", "wikipedia", "classification"],
-                    )
-
-                if year and re.search(r"\d{4}", year):
-                    year_match = re.search(r"\d{4}", year)
-                    if year_match:
-                        _add(
-                            f"{title} was established in {year_match.group()}.",
-                            entities=[{"type": "region", "name": title}],
-                            tags=["greece", "wikipedia", "history"],
-                        )
+                            text = f"{title} permits the {g} grape variety."
+                            if text.lower() not in seen:
+                                seen.add(text.lower())
+                                facts.append({
+                                    "fact_text": text,
+                                    "domain": "grape_varieties",
+                                    "subdomain": "greece",
+                                    "source_id": source_id,
+                                    "entities": [
+                                        {"type": "region", "name": title},
+                                        {"type": "grape", "name": g},
+                                    ],
+                                    "confidence": 0.9,
+                                    "tags": ["greece", "wikipedia", "grape"],
+                                })
 
                 if colour and len(colour) < 30:
-                    _add(
-                        f"{title} is a {colour} grape variety.",
-                        domain="grape_varieties",
-                        entities=[{"type": "grape", "name": title}],
-                        tags=["greece", "wikipedia", "grape"],
-                    )
+                    text = f"{title} is a {colour} grape variety."
+                    if text.lower() not in seen:
+                        seen.add(text.lower())
+                        facts.append({
+                            "fact_text": text,
+                            "domain": "grape_varieties",
+                            "subdomain": "greece",
+                            "source_id": source_id,
+                            "entities": [{"type": "grape", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["greece", "wikipedia", "grape"],
+                        })
 
                 if species and "vinifera" in species.lower():
-                    _add(
-                        f"{title} is a Vitis vinifera grape variety.",
-                        domain="grape_varieties",
-                        entities=[{"type": "grape", "name": title}],
-                        tags=["greece", "wikipedia", "grape"],
-                    )
+                    text = f"{title} is a Vitis vinifera grape variety."
+                    if text.lower() not in seen:
+                        seen.add(text.lower())
+                        facts.append({
+                            "fact_text": text,
+                            "domain": "grape_varieties",
+                            "subdomain": "greece",
+                            "source_id": source_id,
+                            "entities": [{"type": "grape", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["greece", "wikipedia", "grape"],
+                        })
 
                 if also_called and len(also_called) < 80:
-                    _add(
-                        f"{title} is also known as {also_called}.",
-                        domain="grape_varieties",
-                        entities=[{"type": "grape", "name": title}],
-                        tags=["greece", "wikipedia", "synonym"],
-                    )
+                    text = f"{title} is also known as {also_called}."
+                    if text.lower() not in seen:
+                        seen.add(text.lower())
+                        facts.append({
+                            "fact_text": text,
+                            "domain": "grape_varieties",
+                            "subdomain": "greece",
+                            "source_id": source_id,
+                            "entities": [{"type": "grape", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["greece", "wikipedia", "synonym"],
+                        })
 
     return facts
 
@@ -315,39 +393,32 @@ def _scrape_wikipedia_categories(session: requests.Session, source_id: str) -> l
 
 
 def _scrape_wikidata(source_id: str) -> list[dict]:
-    """Query Wikidata for Greek wine entities."""
+    """Query Wikidata for Greek wine entities using country-scoped SPARQL."""
     facts = []
     seen = set()
 
-    def _add(text, domain="wine_regions", subdomain="greece", entities=None,
-             tags=None, confidence=0.85):
-        if text in seen:
+    def _add(text, domain="wine_regions", entities=None, tags=None, confidence=0.85):
+        if text.lower() in seen:
             return
-        seen.add(text)
+        seen.add(text.lower())
         facts.append({
             "fact_text": text,
             "domain": domain,
-            "subdomain": subdomain,
+            "subdomain": "greece",
             "source_id": source_id,
             "entities": entities or [],
             "confidence": confidence,
             "tags": tags or ["greece", "wikidata"],
         })
 
-    # Query 1: Wine regions in Greece (P17 = Q41)
-    query_regions = """
-    SELECT DISTINCT ?item ?itemLabel ?regionLabel WHERE {
-        ?item wdt:P31/wdt:P279* wd:Q10864048 .  # wine appellation
-        ?item wdt:P17 wd:Q41 .  # country: Greece
-        OPTIONAL { ?item wdt:P131 ?region }
-        SERVICE wikibase:label { bd:serviceParam wikibase:language "en,el" }
-    }
-    ORDER BY ?itemLabel
-    LIMIT 200
-    """
-
+    # Query 1: Wine regions in Greece using country-scoped template
     try:
-        rows = run_sparql(query_regions)
+        query = SPARQL_WINE_REGIONS_BY_COUNTRY.format(country_qid=GREECE_QID)
+        rows = run_sparql_filtered(
+            query,
+            expected_country="Greece",
+            region_keywords=GREECE_KEYWORDS,
+        )
         for row in rows:
             name = row.get("itemLabel", "")
             region = row.get("regionLabel", "")
@@ -355,31 +426,25 @@ def _scrape_wikidata(source_id: str) -> list[dict]:
                 continue
             if region and not region.startswith("Q"):
                 _add(
-                    f"{name} is a wine appellation in {region}, Greece.",
+                    f"{name} is a wine region in {region}, Greece.",
                     entities=[{"type": "region", "name": name}],
                 )
             else:
                 _add(
-                    f"{name} is a wine appellation in Greece.",
+                    f"{name} is a wine region in Greece.",
                     entities=[{"type": "region", "name": name}],
                 )
     except Exception as e:
         logger.warning(f"Wikidata regions query failed: {e}")
 
-    # Query 2: Greek-origin grape varieties (P495 = Q41)
-    query_grapes = """
-    SELECT DISTINCT ?item ?itemLabel ?colorLabel WHERE {
-        ?item wdt:P31 wd:Q10978 .  # grape variety
-        ?item wdt:P495 wd:Q41 .  # country of origin: Greece
-        OPTIONAL { ?item wdt:P462 ?color }
-        SERVICE wikibase:label { bd:serviceParam wikibase:language "en,el" }
-    }
-    ORDER BY ?itemLabel
-    LIMIT 300
-    """
-
+    # Query 2: Greek-origin grape varieties
     try:
-        rows = run_sparql(query_grapes)
+        query = SPARQL_GRAPE_VARIETIES_BY_COUNTRY.format(country_qid=GREECE_QID)
+        rows = run_sparql_filtered(
+            query,
+            expected_country="Greece",
+            region_keywords=GREECE_KEYWORDS,
+        )
         for row in rows:
             name = row.get("itemLabel", "")
             color = row.get("colorLabel", "")
@@ -403,138 +468,33 @@ def _scrape_wikidata(source_id: str) -> list[dict]:
         logger.warning(f"Wikidata grapes query failed: {e}")
 
     # Query 3: Greek PDO/PGI wine appellations
-    query_pdo = """
-    SELECT DISTINCT ?item ?itemLabel ?typeLabel ?regionLabel WHERE {
-        {
-            ?item wdt:P31 wd:Q18564734 .  # PDO
-            ?item wdt:P17 wd:Q41 .
-        }
-        UNION
-        {
-            ?item wdt:P31 wd:Q18564727 .  # PGI
-            ?item wdt:P17 wd:Q41 .
-        }
-        OPTIONAL { ?item wdt:P31 ?type }
-        OPTIONAL { ?item wdt:P131 ?region }
-        SERVICE wikibase:label { bd:serviceParam wikibase:language "en,el" }
-    }
-    ORDER BY ?itemLabel
-    LIMIT 200
-    """
-
     try:
-        rows = run_sparql(query_pdo)
+        query = SPARQL_APPELLATIONS_BY_COUNTRY.format(country_qid=GREECE_QID)
+        rows = run_sparql_filtered(
+            query,
+            expected_country="Greece",
+            region_keywords=GREECE_KEYWORDS,
+        )
         for row in rows:
             name = row.get("itemLabel", "")
-            type_label = row.get("typeLabel", "")
             region = row.get("regionLabel", "")
             if not name or name.startswith("Q"):
                 continue
-
-            designation = ""
-            if type_label and "protected designation" in type_label.lower():
-                designation = "PDO"
-            elif type_label and "protected geographical" in type_label.lower():
-                designation = "PGI"
-
-            if designation:
-                if region and not region.startswith("Q"):
-                    _add(
-                        f"{name} is a {designation} wine appellation in {region}, Greece.",
-                        entities=[{"type": "region", "name": name}],
-                        tags=["greece", "wikidata", designation.lower()],
-                    )
-                else:
-                    _add(
-                        f"{name} is a {designation} wine appellation in Greece.",
-                        entities=[{"type": "region", "name": name}],
-                        tags=["greece", "wikidata", designation.lower()],
-                    )
+            if region and not region.startswith("Q"):
+                _add(
+                    f"{name} is a wine appellation in {region}, Greece.",
+                    entities=[{"type": "region", "name": name}],
+                    tags=["greece", "wikidata", "appellation"],
+                )
+            else:
+                _add(
+                    f"{name} is a wine appellation in Greece.",
+                    entities=[{"type": "region", "name": name}],
+                    tags=["greece", "wikidata", "appellation"],
+                )
     except Exception as e:
-        logger.warning(f"Wikidata PDO/PGI query failed: {e}")
+        logger.warning(f"Wikidata appellations query failed: {e}")
 
-    return facts
-
-
-# ─── EU GIView API Scraping ─────────────────────────────────────────────────
-
-
-def _scrape_giview(source_id: str) -> list[dict]:
-    """Scrape supplementary facts from the EU GIView database for Greek wines."""
-    facts = []
-    seen = set()
-
-    urls_to_try = [
-        f"{GIVIEW_BASE_URL}?country=GR&category=WINE",
-        f"{GIVIEW_BASE_URL}?filters=%7B%22country%22%3A%5B%22GR%22%5D%2C%22category%22%3A%5B%22WINE%22%5D%7D",
-    ]
-
-    session = requests.Session()
-    session.headers.update(GIVIEW_HEADERS)
-
-    for url in urls_to_try:
-        logger.info(f"Attempting GIView API: {url}")
-        try:
-            time.sleep(GIVIEW_REQUEST_DELAY)
-            resp = session.get(url, timeout=REQUEST_TIMEOUT)
-            if resp.status_code != 200:
-                logger.warning(f"HTTP {resp.status_code} for {url}")
-                continue
-
-            data = resp.json()
-            items = []
-            if isinstance(data, list):
-                items = data
-            elif isinstance(data, dict):
-                items = data.get("data", data.get("results", data.get("items", [])))
-
-            if not items:
-                logger.info(f"No items found in GIView response from {url}")
-                continue
-
-            logger.info(f"GIView returned {len(items)} items")
-            for item in items:
-                name = item.get("name", "") or item.get("denomination", "") or ""
-                gi_type = item.get("type", "") or item.get("giType", "") or ""
-                status = item.get("status", "")
-
-                if not name or len(name) < 2:
-                    continue
-
-                designation = ""
-                if "PDO" in gi_type.upper() or "designation of origin" in gi_type.lower():
-                    designation = "PDO"
-                elif "PGI" in gi_type.upper() or "geographical indication" in gi_type.lower():
-                    designation = "PGI"
-
-                text = ""
-                if designation:
-                    text = f"{name} is a {designation} wine from Greece registered in the EU GIView database."
-                else:
-                    text = f"{name} is a registered Greek wine in the EU GIView database."
-
-                if text in seen:
-                    continue
-                seen.add(text)
-
-                facts.append({
-                    "fact_text": text,
-                    "domain": "wine_regions",
-                    "subdomain": "greece",
-                    "source_id": source_id,
-                    "entities": [{"type": "region", "name": name}],
-                    "confidence": 0.8,
-                    "tags": ["greece", "giview", designation.lower()] if designation else ["greece", "giview"],
-                })
-
-            # If we got results, don't try other URLs
-            if facts:
-                break
-
-        except (requests.exceptions.RequestException, ValueError) as e:
-            logger.warning(f"Failed to scrape GIView {url}: {e}")
-
-    logger.info(f"GIView scraping yielded {len(facts)} facts")
     return facts
 
 
@@ -586,11 +546,12 @@ def validate_facts(facts: list[dict]) -> None:
     # Near-duplicate check
     texts = [f["fact_text"].lower() for f in facts]
     dupes = 0
-    for i, t1 in enumerate(texts):
-        for t2 in texts[i + 1:]:
+    sample = texts[:200]
+    for i, t1 in enumerate(sample):
+        for t2 in sample[i + 1:]:
             if t1 in t2 or t2 in t1:
                 dupes += 1
-    logger.info(f"\nNear-duplicate pairs (substring): {dupes}")
+    logger.info(f"\nNear-duplicate pairs (substring, sampled): {dupes}")
 
     # Sample facts
     logger.info(f"\n10 random sample facts:")
@@ -604,8 +565,6 @@ def validate_facts(facts: list[dict]) -> None:
 def collect_all_facts(
     wiki_source_id: str,
     wikidata_source_id: str,
-    giview_source_id: str,
-    scrape_giview: bool = True,
 ) -> list[dict]:
     """Collect all facts from all sources."""
     session = wiki_session()
@@ -628,13 +587,6 @@ def collect_all_facts(
     wikidata_facts = _scrape_wikidata(wikidata_source_id)
     logger.info(f"Wikidata facts: {len(wikidata_facts)}")
     all_facts.extend(wikidata_facts)
-
-    # GIView
-    if scrape_giview:
-        logger.info("--- EU GIView API ---")
-        giview_facts = _scrape_giview(giview_source_id)
-        logger.info(f"GIView facts: {len(giview_facts)}")
-        all_facts.extend(giview_facts)
 
     # Deduplicate across sources
     deduped = []
@@ -669,12 +621,17 @@ def run_test(cleanup: bool = False) -> None:
     for title in test_articles[:TEST_RUN_LIMIT]:
         extract, wikitext = fetch_article(session, title)
         if extract:
-            for s in extract_lead_sentences(extract)[:3]:
-                if s not in seen:
-                    seen.add(s)
+            atomic = extract_atomic_facts(
+                extract, title,
+                region_keywords=GREECE_KEYWORDS,
+            )
+            for item in atomic[:3]:
+                text = item["fact_text"]
+                if text.lower() not in seen:
+                    seen.add(text.lower())
                     facts.append({
-                        "fact_text": s,
-                        "domain": "wine_regions",
+                        "fact_text": text,
+                        "domain": item["domain"],
                         "subdomain": "greece",
                         "source_id": wiki_sid,
                         "entities": [{"type": "region", "name": title}],
@@ -714,10 +671,13 @@ def main(run_all, list_sections, dry_run, validate, test_run, cleanup):
 
     if list_sections:
         click.echo("Greece Scraper — Data Sources:")
-        click.echo("  1. Wikipedia: Key Greek wine articles (12 articles)")
+        click.echo("  1. Wikipedia: Key Greek wine articles (13 articles)")
         click.echo("  2. Wikipedia: Category crawl (wine regions, grapes)")
-        click.echo("  3. Wikidata: Greek wine regions, grapes, PDO/PGI (SPARQL)")
-        click.echo("  4. EU GIView: Greek PDO/PGI registrations (best-effort)")
+        click.echo("  3. Wikidata: Greek wine regions, grapes, appellations (SPARQL)")
+        click.echo("     - Wine regions with P17=Q41 (country=Greece)")
+        click.echo("     - Grape varieties with P495=Q41 (origin=Greece)")
+        click.echo("     - Appellations with P17=Q41")
+        click.echo("  Note: EU GIView API removed (broken/unreliable)")
         return
 
     if test_run:
@@ -731,16 +691,9 @@ def main(run_all, list_sections, dry_run, validate, test_run, cleanup):
     # Register sources
     wiki_sid = ensure_wiki_source("Greek wine")
     wikidata_sid = ensure_wikidata_source("Greek wine")
-    giview_sid = ensure_source(
-        name="EU GIView: Greek wine",
-        url="https://www.tmdn.org/giview",
-        source_type="official_body",
-        tier="tier_2_authoritative",
-        language="en",
-    )
 
     # Collect facts
-    facts = collect_all_facts(wiki_sid, wikidata_sid, giview_sid)
+    facts = collect_all_facts(wiki_sid, wikidata_sid)
 
     if validate or dry_run:
         validate_facts(facts)

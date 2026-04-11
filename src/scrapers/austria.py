@@ -26,10 +26,20 @@ from typing import Optional
 
 import click
 import requests
-from bs4 import BeautifulSoup
 from loguru import logger
 
 from src.utils.facts import ensure_source, insert_facts_batch, get_fact_count
+from src.scrapers._fact_processing import (
+    process_facts,
+    classify_domain,
+    validate_fact,
+)
+from src.scrapers._web_helpers import (
+    create_session,
+    fetch_page as web_fetch_page,
+    extract_text_blocks as web_extract_text_blocks,
+    scrape_site_texts,
+)
 from src.scrapers._wiki_helpers import (
     wiki_session,
     fetch_article,
@@ -38,11 +48,15 @@ from src.scrapers._wiki_helpers import (
     parse_infobox,
     parse_wikitext_tables,
     extract_lead_sentences,
-    run_sparql,
+    extract_atomic_facts,
+    run_sparql_filtered,
     ensure_wiki_source,
     ensure_wikidata_source,
     clean_wiki_value,
     is_wine_relevant,
+    SPARQL_WINE_REGIONS_BY_COUNTRY,
+    SPARQL_GRAPE_VARIETIES_BY_COUNTRY,
+    SPARQL_WINERIES_BY_COUNTRY,
 )
 
 # ─── Configuration ────────────────────────────────────────────────────────────
@@ -51,10 +65,21 @@ TEST_RUN_LIMIT = 5
 AUSTRIANWINE_BASE_URL = "https://www.austrianwine.com"
 AUSTRIANWINE_REQUEST_DELAY = 5
 REQUEST_TIMEOUT = 30
-AUSTRIANWINE_HEADERS = {
-    "User-Agent": "OenoBench-Research/1.0 (academic wine benchmark)",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
+
+# Austria = Q40 on Wikidata
+AUSTRIA_QID = "Q40"
+
+# Region keywords for on-topic filtering
+AUSTRIA_KEYWORDS = {
+    "austria", "austrian", "wachau", "burgenland", "steiermark", "styria",
+    "niederösterreich", "lower austria", "wien", "vienna", "kamptal",
+    "kremstal", "traisental", "thermenregion", "carnuntum", "neusiedlersee",
+    "weinviertel", "südsteiermark", "weststeiermark", "vulkanland",
+    "leithaberg", "eisenberg", "mittelburgenland", "dac",
+    "grüner veltliner", "blaufränkisch", "zweigelt", "welschriesling",
+    "muskateller", "neuburger", "rotgipfler", "zierfandler", "sankt laurent",
+    "prädikat", "qualitätswein", "kabinett", "spätlese", "auslese",
+    "beerenauslese", "trockenbeerenauslese", "eiswein", "strohwein",
 }
 
 
@@ -62,24 +87,9 @@ AUSTRIANWINE_HEADERS = {
 
 
 def _scrape_wikipedia_key_articles(session: requests.Session, source_id: str) -> list[dict]:
-    """Scrape key Austrian wine articles from Wikipedia."""
+    """Scrape key Austrian wine articles from Wikipedia using atomic fact pipeline."""
     facts = []
     seen = set()
-
-    def _add(text, domain="wine_regions", subdomain="austria", entities=None,
-             tags=None, confidence=0.9):
-        if text in seen:
-            return
-        seen.add(text)
-        facts.append({
-            "fact_text": text,
-            "domain": domain,
-            "subdomain": subdomain,
-            "source_id": source_id,
-            "entities": entities or [],
-            "confidence": confidence,
-            "tags": tags or ["austria", "wikipedia"],
-        })
 
     key_articles = [
         "Austrian wine",
@@ -93,6 +103,7 @@ def _scrape_wikipedia_key_articles(session: requests.Session, source_id: str) ->
         "Steiermark (wine region)",
         "Weinviertel",
         "Wien (wine)",
+        "Austrian wine classification",
     ]
 
     for title in key_articles:
@@ -100,34 +111,27 @@ def _scrape_wikipedia_key_articles(session: requests.Session, source_id: str) ->
         extract, wikitext = fetch_article(session, title)
 
         if extract:
-            sentences = extract_lead_sentences(extract)
-            for s in sentences[:10]:
-                _add(s, entities=[{"type": "region", "name": title}],
-                     tags=["austria", "wikipedia", "key_article"])
+            # Use atomic fact extraction pipeline
+            atomic = extract_atomic_facts(
+                extract, title,
+                region_keywords=AUSTRIA_KEYWORDS,
+            )
+            for item in atomic:
+                text = item["fact_text"]
+                if text.lower() not in seen:
+                    seen.add(text.lower())
+                    facts.append({
+                        "fact_text": text,
+                        "domain": item["domain"],
+                        "subdomain": "austria",
+                        "source_id": source_id,
+                        "entities": [{"type": "region", "name": title}],
+                        "confidence": 0.9,
+                        "tags": ["austria", "wikipedia", "key_article"],
+                    })
 
         if wikitext:
-            # Parse tables for classification data (DAC, Prädikat, etc.)
-            rows = parse_wikitext_tables(wikitext)
-            for row in rows:
-                if len(row) >= 2:
-                    name = row[0].strip()
-                    detail = row[1].strip() if len(row) > 1 else ""
-
-                    # Skip headers and non-data rows
-                    if not name or name.lower() in ("name", "region", "area",
-                                                      "variety", "grape", "wine"):
-                        continue
-                    if len(name) < 3 or len(name) > 80:
-                        continue
-
-                    if detail and len(detail) < 60 and not detail.startswith(("–", "—", "-")):
-                        _add(
-                            f"{name}: {detail}.",
-                            entities=[{"type": "region", "name": name}],
-                            tags=["austria", "wikipedia", "table"],
-                        )
-
-            # Parse infobox data
+            # Parse infobox for structured data
             infobox = parse_infobox(wikitext)
             if infobox:
                 grape = infobox.get("grapes", "") or infobox.get("grape", "")
@@ -140,45 +144,79 @@ def _scrape_wikipedia_key_articles(session: requests.Session, source_id: str) ->
                     grapes = [g.strip() for g in re.split(r"[,;]", grape) if g.strip()]
                     for g in grapes[:5]:
                         if 2 < len(g) < 50:
-                            _add(
-                                f"{title} permits the {g} grape variety.",
-                                domain="grape_varieties",
-                                entities=[
-                                    {"type": "region", "name": title},
-                                    {"type": "grape", "name": g},
-                                ],
-                                tags=["austria", "wikipedia", "grape"],
-                            )
+                            text = f"{title} permits the {g} grape variety."
+                            if text.lower() not in seen:
+                                seen.add(text.lower())
+                                facts.append({
+                                    "fact_text": text,
+                                    "domain": "grape_varieties",
+                                    "subdomain": "austria",
+                                    "source_id": source_id,
+                                    "entities": [
+                                        {"type": "region", "name": title},
+                                        {"type": "grape", "name": g},
+                                    ],
+                                    "confidence": 0.9,
+                                    "tags": ["austria", "wikipedia", "grape"],
+                                })
 
                 if area and re.search(r"\d", area):
-                    _add(
-                        f"{title} covers approximately {area} hectares.",
-                        entities=[{"type": "region", "name": title}],
-                        tags=["austria", "wikipedia", "area"],
-                    )
+                    text = f"{title} covers approximately {area} hectares."
+                    if text.lower() not in seen:
+                        seen.add(text.lower())
+                        facts.append({
+                            "fact_text": text,
+                            "domain": classify_domain(text),
+                            "subdomain": "austria",
+                            "source_id": source_id,
+                            "entities": [{"type": "region", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["austria", "wikipedia", "area"],
+                        })
 
                 if classification:
-                    _add(
-                        f"{title} holds {classification} classification.",
-                        entities=[{"type": "region", "name": title}],
-                        tags=["austria", "wikipedia", "classification"],
-                    )
+                    text = f"{title} holds {classification} classification."
+                    if text.lower() not in seen:
+                        seen.add(text.lower())
+                        facts.append({
+                            "fact_text": text,
+                            "domain": classify_domain(text),
+                            "subdomain": "austria",
+                            "source_id": source_id,
+                            "entities": [{"type": "region", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["austria", "wikipedia", "classification"],
+                        })
 
                 if region and not region.startswith("Q"):
-                    _add(
-                        f"{title} is a wine region in {region}.",
-                        entities=[{"type": "region", "name": title}],
-                        tags=["austria", "wikipedia", "region"],
-                    )
+                    text = f"{title} is a wine region in {region}."
+                    if text.lower() not in seen:
+                        seen.add(text.lower())
+                        facts.append({
+                            "fact_text": text,
+                            "domain": "wine_regions",
+                            "subdomain": "austria",
+                            "source_id": source_id,
+                            "entities": [{"type": "region", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["austria", "wikipedia", "region"],
+                        })
 
                 if year and re.search(r"\d{4}", year):
                     year_match = re.search(r"\d{4}", year)
                     if year_match:
-                        _add(
-                            f"{title} was established in {year_match.group()}.",
-                            entities=[{"type": "region", "name": title}],
-                            tags=["austria", "wikipedia", "history"],
-                        )
+                        text = f"{title} was established in {year_match.group()}."
+                        if text.lower() not in seen:
+                            seen.add(text.lower())
+                            facts.append({
+                                "fact_text": text,
+                                "domain": classify_domain(text),
+                                "subdomain": "austria",
+                                "source_id": source_id,
+                                "entities": [{"type": "region", "name": title}],
+                                "confidence": 0.9,
+                                "tags": ["austria", "wikipedia", "history"],
+                            })
 
     return facts
 
@@ -187,21 +225,6 @@ def _scrape_wikipedia_categories(session: requests.Session, source_id: str) -> l
     """Scrape Austrian wine articles discovered via Wikipedia category crawl."""
     facts = []
     seen = set()
-
-    def _add(text, domain="wine_regions", subdomain="austria", entities=None,
-             tags=None, confidence=0.9):
-        if text in seen:
-            return
-        seen.add(text)
-        facts.append({
-            "fact_text": text,
-            "domain": domain,
-            "subdomain": subdomain,
-            "source_id": source_id,
-            "entities": entities or [],
-            "confidence": confidence,
-            "tags": tags or ["austria", "wikipedia"],
-        })
 
     categories = [
         "Category:Wine regions of Austria",
@@ -221,10 +244,23 @@ def _scrape_wikipedia_categories(session: requests.Session, source_id: str) -> l
         extract, wikitext = fetch_article(session, title)
 
         if extract:
-            sentences = extract_lead_sentences(extract)
-            for s in sentences[:6]:
-                _add(s, entities=[{"type": "region", "name": title}],
-                     tags=["austria", "wikipedia", "category"])
+            atomic = extract_atomic_facts(
+                extract, title,
+                region_keywords=AUSTRIA_KEYWORDS,
+            )
+            for item in atomic:
+                text = item["fact_text"]
+                if text.lower() not in seen:
+                    seen.add(text.lower())
+                    facts.append({
+                        "fact_text": text,
+                        "domain": item["domain"],
+                        "subdomain": "austria",
+                        "source_id": source_id,
+                        "entities": [{"type": "region", "name": title}],
+                        "confidence": 0.9,
+                        "tags": ["austria", "wikipedia", "category"],
+                    })
 
         if wikitext:
             infobox = parse_infobox(wikitext)
@@ -233,53 +269,70 @@ def _scrape_wikipedia_categories(session: requests.Session, source_id: str) -> l
                 grape = infobox.get("grapes", "") or infobox.get("grape", "")
                 area = infobox.get("area", "") or infobox.get("size", "") or infobox.get("hectares", "")
                 classification = infobox.get("classification", "") or infobox.get("appellation", "") or infobox.get("designation", "")
-                year = infobox.get("year established", "") or infobox.get("established", "")
 
                 if region and not region.startswith("Q"):
-                    _add(
-                        f"{title} is a wine region in {region}.",
-                        entities=[{"type": "region", "name": title}],
-                        tags=["austria", "wikipedia", "region"],
-                    )
+                    text = f"{title} is a wine region in {region}."
+                    if text.lower() not in seen:
+                        seen.add(text.lower())
+                        facts.append({
+                            "fact_text": text,
+                            "domain": "wine_regions",
+                            "subdomain": "austria",
+                            "source_id": source_id,
+                            "entities": [{"type": "region", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["austria", "wikipedia", "region"],
+                        })
 
                 if grape:
                     grapes = [g.strip() for g in re.split(r"[,;]", grape) if g.strip()]
                     for g in grapes[:5]:
                         if 2 < len(g) < 50:
-                            _add(
-                                f"{title} permits the {g} grape variety.",
-                                domain="grape_varieties",
-                                entities=[
-                                    {"type": "region", "name": title},
-                                    {"type": "grape", "name": g},
-                                ],
-                                tags=["austria", "wikipedia", "grape"],
-                            )
+                            text = f"{title} permits the {g} grape variety."
+                            if text.lower() not in seen:
+                                seen.add(text.lower())
+                                facts.append({
+                                    "fact_text": text,
+                                    "domain": "grape_varieties",
+                                    "subdomain": "austria",
+                                    "source_id": source_id,
+                                    "entities": [
+                                        {"type": "region", "name": title},
+                                        {"type": "grape", "name": g},
+                                    ],
+                                    "confidence": 0.9,
+                                    "tags": ["austria", "wikipedia", "grape"],
+                                })
 
                 if area and re.search(r"\d", area):
                     area_clean = re.sub(r"[^\d.,]", " ", area).strip()
                     if area_clean:
-                        _add(
-                            f"{title} covers approximately {area_clean} hectares.",
-                            entities=[{"type": "region", "name": title}],
-                            tags=["austria", "wikipedia", "area"],
-                        )
+                        text = f"{title} covers approximately {area_clean} hectares."
+                        if text.lower() not in seen:
+                            seen.add(text.lower())
+                            facts.append({
+                                "fact_text": text,
+                                "domain": classify_domain(text),
+                                "subdomain": "austria",
+                                "source_id": source_id,
+                                "entities": [{"type": "region", "name": title}],
+                                "confidence": 0.9,
+                                "tags": ["austria", "wikipedia", "area"],
+                            })
 
                 if classification:
-                    _add(
-                        f"{title} holds {classification} classification.",
-                        entities=[{"type": "region", "name": title}],
-                        tags=["austria", "wikipedia", "classification"],
-                    )
-
-                if year and re.search(r"\d{4}", year):
-                    year_match = re.search(r"\d{4}", year)
-                    if year_match:
-                        _add(
-                            f"{title} was established in {year_match.group()}.",
-                            entities=[{"type": "region", "name": title}],
-                            tags=["austria", "wikipedia", "history"],
-                        )
+                    text = f"{title} holds {classification} classification."
+                    if text.lower() not in seen:
+                        seen.add(text.lower())
+                        facts.append({
+                            "fact_text": text,
+                            "domain": classify_domain(text),
+                            "subdomain": "austria",
+                            "source_id": source_id,
+                            "entities": [{"type": "region", "name": title}],
+                            "confidence": 0.9,
+                            "tags": ["austria", "wikipedia", "classification"],
+                        })
 
     return facts
 
@@ -288,51 +341,36 @@ def _scrape_wikipedia_categories(session: requests.Session, source_id: str) -> l
 
 
 def _scrape_wikidata(source_id: str) -> list[dict]:
-    """Query Wikidata for Austrian wine entities."""
+    """Query Wikidata for Austrian wine entities using country-scoped SPARQL."""
     facts = []
     seen = set()
 
-    def _add(text, domain="wine_regions", subdomain="austria", entities=None,
-             tags=None, confidence=0.85):
-        if text in seen:
+    def _add(text, domain="wine_regions", entities=None, tags=None, confidence=0.85):
+        if text.lower() in seen:
             return
-        seen.add(text)
+        seen.add(text.lower())
         facts.append({
             "fact_text": text,
             "domain": domain,
-            "subdomain": subdomain,
+            "subdomain": "austria",
             "source_id": source_id,
             "entities": entities or [],
             "confidence": confidence,
             "tags": tags or ["austria", "wikidata"],
         })
 
-    # Query 1: Wine regions in Austria (P17 = Q40)
-    query_regions = """
-    SELECT DISTINCT ?item ?itemLabel ?regionLabel ?areaLabel WHERE {
-        {
-            ?item wdt:P31/wdt:P279* wd:Q2516866 .  # wine region
-            ?item wdt:P17 wd:Q40 .                   # country = Austria
-        }
-        UNION
-        {
-            ?item wdt:P31/wdt:P279* wd:Q10864048 .  # wine appellation
-            ?item wdt:P17 wd:Q40 .
-        }
-        OPTIONAL { ?item wdt:P131 ?region }
-        OPTIONAL { ?item wdt:P2046 ?area }
-        SERVICE wikibase:label { bd:serviceParam wikibase:language "en,de" }
-    }
-    ORDER BY ?itemLabel
-    LIMIT 200
-    """
-
+    # Query 1: Wine regions in Austria using country-scoped template
     try:
-        rows = run_sparql(query_regions)
+        query = SPARQL_WINE_REGIONS_BY_COUNTRY.format(country_qid=AUSTRIA_QID)
+        rows = run_sparql_filtered(
+            query,
+            expected_country="Austria",
+            region_keywords=AUSTRIA_KEYWORDS,
+        )
         for row in rows:
             name = row.get("itemLabel", "")
             region = row.get("regionLabel", "")
-            area = row.get("areaLabel", "")
+            area = row.get("areaHa", "")
             if not name or name.startswith("Q"):
                 continue
             if region and not region.startswith("Q"):
@@ -345,7 +383,7 @@ def _scrape_wikidata(source_id: str) -> list[dict]:
                     f"{name} is a wine region in Austria.",
                     entities=[{"type": "region", "name": name}],
                 )
-            if area and re.search(r"\d", area):
+            if area and re.search(r"\d", str(area)):
                 _add(
                     f"{name} covers approximately {area} hectares.",
                     entities=[{"type": "region", "name": name}],
@@ -355,20 +393,13 @@ def _scrape_wikidata(source_id: str) -> list[dict]:
         logger.warning(f"Wikidata regions query failed: {e}")
 
     # Query 2: Austrian grape varieties
-    query_grapes = """
-    SELECT DISTINCT ?item ?itemLabel ?colorLabel ?originLabel WHERE {
-        ?item wdt:P31/wdt:P279* wd:Q10978 .  # grape variety
-        ?item wdt:P495 wd:Q40 .                # country of origin = Austria
-        OPTIONAL { ?item wdt:P462 ?color }
-        OPTIONAL { ?item wdt:P495 ?origin }
-        SERVICE wikibase:label { bd:serviceParam wikibase:language "en,de" }
-    }
-    ORDER BY ?itemLabel
-    LIMIT 200
-    """
-
     try:
-        rows = run_sparql(query_grapes)
+        query = SPARQL_GRAPE_VARIETIES_BY_COUNTRY.format(country_qid=AUSTRIA_QID)
+        rows = run_sparql_filtered(
+            query,
+            expected_country="Austria",
+            region_keywords=AUSTRIA_KEYWORDS,
+        )
         for row in rows:
             name = row.get("itemLabel", "")
             color = row.get("colorLabel", "")
@@ -391,31 +422,17 @@ def _scrape_wikidata(source_id: str) -> list[dict]:
     except Exception as e:
         logger.warning(f"Wikidata grapes query failed: {e}")
 
-    # Query 3: Austrian wineries / wine producers
-    query_producers = """
-    SELECT DISTINCT ?item ?itemLabel ?locationLabel WHERE {
-        {
-            ?item wdt:P31/wdt:P279* wd:Q156362 .  # winery
-            ?item wdt:P17 wd:Q40 .
-        }
-        UNION
-        {
-            ?item wdt:P31 wd:Q4830453 .  # business enterprise
-            ?item wdt:P17 wd:Q40 .
-            ?item wdt:P452 wd:Q282 .      # industry = wine
-        }
-        OPTIONAL { ?item wdt:P131 ?location }
-        SERVICE wikibase:label { bd:serviceParam wikibase:language "en,de" }
-    }
-    ORDER BY ?itemLabel
-    LIMIT 200
-    """
-
+    # Query 3: Austrian wineries
     try:
-        rows = run_sparql(query_producers)
+        query = SPARQL_WINERIES_BY_COUNTRY.format(country_qid=AUSTRIA_QID)
+        rows = run_sparql_filtered(
+            query,
+            expected_country="Austria",
+            region_keywords=AUSTRIA_KEYWORDS,
+        )
         for row in rows:
             name = row.get("itemLabel", "")
-            location = row.get("locationLabel", "")
+            location = row.get("regionLabel", "")
             if not name or name.startswith("Q"):
                 continue
             if location and not location.startswith("Q"):
@@ -445,64 +462,49 @@ def _scrape_wikidata(source_id: str) -> list[dict]:
 
 
 def _scrape_austrianwine(source_id: str) -> list[dict]:
-    """Scrape supplementary facts from austrianwine.com."""
+    """Scrape supplementary facts from austrianwine.com using shared web helpers."""
     facts = []
     seen = set()
 
-    paths = [
+    seed_paths = [
         "/en/our-wine/grape-varieties",
         "/en/our-wine/wine-growing-regions",
         "/en/our-wine/austrian-wine-and-the-law",
         "/en/our-wine",
     ]
 
-    session = requests.Session()
-    session.headers.update(AUSTRIANWINE_HEADERS)
+    try:
+        page_results = scrape_site_texts(
+            base_url=AUSTRIANWINE_BASE_URL,
+            seed_paths=seed_paths,
+            max_pages=20,
+            delay=AUSTRIANWINE_REQUEST_DELAY,
+            min_words=8,
+            max_words=60,
+        )
 
-    austria_keywords = re.compile(
-        r"\b(?:appellation|vineyard|grape|wine|DAC|hectare|"
-        r"terroir|grüner veltliner|riesling|zweigelt|blaufränkisch|"
-        r"welschriesling|muskateller|sauvignon|pinot|chardonnay|"
-        r"niederösterreich|burgenland|steiermark|wien|wachau|kamptal|"
-        r"kremstal|weinviertel|neusiedlersee|thermenregion|"
-        r"prädikat|spätlese|auslese|beerenauslese|trockenbeerenauslese|"
-        r"eiswein|strohwein|qualitätswein|vintage|barrel|oak|tannin|blend)\b",
-        re.IGNORECASE,
-    )
+        all_texts = []
+        for url, blocks in page_results:
+            all_texts.extend(blocks)
 
-    for path in paths:
-        url = f"{AUSTRIANWINE_BASE_URL}{path}"
-        logger.info(f"Attempting to scrape: {url}")
-        try:
-            time.sleep(AUSTRIANWINE_REQUEST_DELAY)
-            resp = session.get(url, timeout=REQUEST_TIMEOUT)
-            if resp.status_code != 200:
-                logger.warning(f"HTTP {resp.status_code} for {url}")
-                continue
+        if not all_texts:
+            logger.warning("austrianwine.com returned no text blocks (may be blocked)")
+            return facts
 
-            soup = BeautifulSoup(resp.text, "html.parser")
-            for tag in soup.find_all(["p", "li", "h2", "h3"]):
-                text = tag.get_text(strip=True)
-                if not text or len(text) < 30:
-                    continue
-                words = text.split()
-                if len(words) < 6 or len(words) > 45:
-                    continue
-                if not austria_keywords.search(text):
-                    continue
-                if text in seen:
-                    continue
-                seen.add(text)
+        # Process through atomic fact pipeline
+        processed = process_facts(
+            raw_texts=all_texts,
+            subject="Austrian wine",
+            region_keywords=AUSTRIA_KEYWORDS,
+        )
 
-                # Clean up
-                text = text.strip().rstrip(".")
-                if not text:
-                    continue
-                text += "."
-
+        for item in processed:
+            text = item["fact_text"]
+            if text.lower() not in seen:
+                seen.add(text.lower())
                 facts.append({
                     "fact_text": text,
-                    "domain": "wine_regions",
+                    "domain": item["domain"],
                     "subdomain": "austria",
                     "source_id": source_id,
                     "entities": [],
@@ -510,8 +512,8 @@ def _scrape_austrianwine(source_id: str) -> list[dict]:
                     "tags": ["austria", "austrianwine", "scraped"],
                 })
 
-        except requests.exceptions.RequestException as e:
-            logger.warning(f"Failed to scrape {url}: {e}")
+    except Exception as e:
+        logger.warning(f"Failed to scrape austrianwine.com: {e}")
 
     logger.info(f"austrianwine.com scraping yielded {len(facts)} facts")
     return facts
@@ -561,11 +563,12 @@ def validate_facts(facts: list[dict]) -> None:
     # Near-duplicate check
     texts = [f["fact_text"].lower() for f in facts]
     dupes = 0
-    for i, t1 in enumerate(texts):
-        for t2 in texts[i + 1:]:
+    sample = texts[:200]  # limit to avoid O(n^2) explosion
+    for i, t1 in enumerate(sample):
+        for t2 in sample[i + 1:]:
             if t1 in t2 or t2 in t1:
                 dupes += 1
-    logger.info(f"\nNear-duplicate pairs (substring): {dupes}")
+    logger.info(f"\nNear-duplicate pairs (substring, sampled): {dupes}")
 
     # Entity coverage
     with_entities = sum(1 for f in facts if f.get("entities"))
@@ -656,12 +659,17 @@ def run_test(cleanup: bool = False) -> None:
     for title in test_articles[:TEST_RUN_LIMIT]:
         extract, wikitext = fetch_article(session, title)
         if extract:
-            for s in extract_lead_sentences(extract)[:3]:
-                if s not in seen:
-                    seen.add(s)
+            atomic = extract_atomic_facts(
+                extract, title,
+                region_keywords=AUSTRIA_KEYWORDS,
+            )
+            for item in atomic[:3]:
+                text = item["fact_text"]
+                if text.lower() not in seen:
+                    seen.add(text.lower())
                     facts.append({
-                        "fact_text": s,
-                        "domain": "wine_regions",
+                        "fact_text": text,
+                        "domain": item["domain"],
                         "subdomain": "austria",
                         "source_id": wiki_sid,
                         "entities": [{"type": "region", "name": title}],
@@ -707,6 +715,7 @@ def main(run_all, list_sections, dry_run, validate, test_run, cleanup):
         click.echo("  2. Wikidata: Austrian wine regions & grape varieties (SPARQL)")
         click.echo("     - Wine regions with P17=Q40 (country=Austria)")
         click.echo("     - Grape varieties with P495=Q40 (origin=Austria)")
+        click.echo("     - Wineries with P17=Q40")
         click.echo("  3. austrianwine.com: Supplementary web scraping")
         return
 
