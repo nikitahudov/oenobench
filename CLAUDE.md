@@ -80,7 +80,9 @@ All significant work on this project must be documented in `docs/PROCESS_LOG.md`
 ├── .gitignore
 ├── docs/
 │   ├── PROCESS_LOG.md            # Chronological lab notebook (all phases)
-│   └── DATA_COLLECTION_SUMMARY.md # Paper-ready summary (after data collection)
+│   ├── ARCHITECTURE.md           # Architecture documentation
+│   ├── DATA_COLLECTION_SUMMARY.md # Paper-ready summary (after data collection)
+│   └── figures/                  # Diagrams and figures
 ├── config/
 │   └── postgres/
 │       └── init.sql              # PostgreSQL schema (auto-runs on first docker compose up)
@@ -96,28 +98,44 @@ All significant work on this project must be documented in `docs/PROCESS_LOG.md`
 │   │   └── facts.py              # ensure_source(), insert_facts_batch(), get_fact_count()
 │   ├── scrapers/
 │   │   ├── __init__.py
-│   │   ├── wikidata.py           # ✅ Done — Wikidata SPARQL (20,910 facts)
-│   │   ├── wikipedia.py          # ✅ Done — Wikipedia MediaWiki API
-│   │   ├── huggingface.py        # ✅ Done — HuggingFace datasets (16,514 facts)
-│   │   ├── ucdavis.py            # ✅ Done — UC Davis ontology, AVA, FPS
-│   │   ├── kaggle_data.py        # ✅ Done — Kaggle wine-quality & wine-reviews (1,509 facts)
-│   │   ├── inao.py              # ✅ Done — INAO French appellations (1,473 facts)
-│   │   ├── italian_wine_central.py  # ✅ Done — Italian Wine Central (1,556 facts)
-│   │   ├── austria.py              # ✅ Done — Austrian Wine (731 facts)
-│   │   ├── greece.py               # ✅ Done — Greek Wine (587 facts)
-│   │   ├── rhone_loire_alsace.py   # ✅ Done — Rhône/Loire/Alsace (763 facts)
-│   │   ├── spain_enrichment.py    # ✅ Done — Spain enrichment (493 facts)
-│   │   ├── portugal_enrichment.py # ✅ Done — Portugal enrichment (438 facts)
-│   │   ├── south_america.py       # ✅ Done — Argentina & Chile (393 facts)
-│   │   ├── australia_nz_enrichment.py # ✅ Done — Australia & NZ (391 facts)
-│   │   ├── hungary_georgia.py     # ✅ Done — Hungary & Georgia (429 facts)
-│   │   ├── germany_enrichment.py  # ✅ Done — Germany enrichment (333 facts)
-│   │   ├── canada.py              # ✅ Done — Canada (268 facts)
-│   │   ├── croatia_slovenia.py    # ✅ Done — Croatia & Slovenia (391 facts)
-│   │   ├── england.py             # ✅ Done — England (225 facts)
-│   │   ├── lebanon_israel.py      # ✅ Done — Lebanon & Israel (182 facts)
-│   │   ├── south_africa_enrichment.py # ✅ Done — South Africa (339 facts)
-│   │   └── usa_enrichment.py      # ✅ Done — USA enrichment (632 facts)
+│   │   ├── _fact_processing.py   # Shared: decompose, resolve refs, classify domain, validate
+│   │   ├── _web_helpers.py       # Shared: HTTP session, page discovery, text extraction
+│   │   ├── _wiki_helpers.py      # Shared: extract_atomic_facts, run_sparql_filtered, SPARQL templates
+│   │   ├── wikidata.py           # ✅ Genuine — Wikidata SPARQL (2,145 facts)
+│   │   ├── wikipedia.py          # ✅ Genuine — Wikipedia MediaWiki API (323 facts)
+│   │   ├── huggingface.py        # ✅ Genuine — HuggingFace datasets (3,231 facts)
+│   │   ├── ucdavis.py            # ✅ Genuine — UC Davis ontology, AVA, FPS (2,199 facts)
+│   │   ├── kaggle_data.py        # ✅ Genuine — Kaggle wine-quality & wine-reviews (1,509 facts)
+│   │   ├── inao.py               # ✅ Genuine — INAO French appellations (1,473 facts)
+│   │   ├── academic.py           # ✅ Genuine — OENO One, Vitis, AJEV (925 facts)
+│   │   ├── ucipm.py              # ✅ Genuine — UC IPM pages (1,145 facts)
+│   │   ├── extension.py          # ✅ Genuine — USDA, Penn State, Oregon State (705 facts)
+│   │   ├── oiv_docs.py           # ✅ Genuine — OIV PDF downloads (63 facts)
+│   │   ├── bordeaux.py           # ✅ Rebuilt — Wikipedia + SPARQL + bordeaux.com (484 facts)
+│   │   ├── burgundy.py           # ✅ Rebuilt — Wikipedia + SPARQL + bourgogne-wines.com (483 facts)
+│   │   ├── champagne.py          # ✅ Rebuilt — Wikipedia + SPARQL + champagne.fr (466 facts)
+│   │   ├── italian_wine_central.py  # ✅ Rebuilt — Wikipedia + SPARQL (788 facts)
+│   │   ├── austria.py            # ✅ Rebuilt — Wikipedia + SPARQL (146 facts)
+│   │   ├── greece.py             # ✅ Rebuilt — Wikipedia + SPARQL (255 facts)
+│   │   ├── consortiums_italy.py  # ✅ Rebuilt — Consortium websites (85 facts)
+│   │   ├── ttb.py                # ✅ Rebuilt — TTB.gov + eCFR (513 facts)
+│   │   ├── italy.py              # ✅ Rebuilt — Wikipedia + SPARQL
+│   │   ├── europe.py             # ✅ Rebuilt — Wikipedia + SPARQL
+│   │   ├── newworld.py           # ✅ Rebuilt — Wikipedia + SPARQL
+│   │   ├── eu_oiv.py             # ✅ Rebuilt — Wikipedia + SPARQL
+│   │   ├── rhone_loire_alsace.py # ✅ Rebuilt — Wikipedia + SPARQL
+│   │   ├── spain_enrichment.py   # ✅ Rebuilt — Wikipedia + SPARQL
+│   │   ├── portugal_enrichment.py # ✅ Rebuilt — Wikipedia + SPARQL
+│   │   ├── south_america.py      # ✅ Rebuilt — Wikipedia + SPARQL
+│   │   ├── australia_nz_enrichment.py # ✅ Rebuilt — Wikipedia + SPARQL
+│   │   ├── hungary_georgia.py    # ✅ Rebuilt — Wikipedia + SPARQL
+│   │   ├── germany_enrichment.py # ✅ Rebuilt — Wikipedia + SPARQL
+│   │   ├── canada.py             # ✅ Rebuilt — Wikipedia + SPARQL
+│   │   ├── croatia_slovenia.py   # ✅ Rebuilt — Wikipedia + SPARQL
+│   │   ├── england.py            # ✅ Rebuilt — Wikipedia + SPARQL
+│   │   ├── lebanon_israel.py     # ✅ Rebuilt — Wikipedia + SPARQL
+│   │   ├── south_africa_enrichment.py # ✅ Rebuilt — Wikipedia + SPARQL
+│   │   └── usa_enrichment.py     # ✅ Rebuilt — 22 Wikipedia articles + SPARQL
 │   ├── dashboard/
 │   │   ├── __init__.py
 │   │   ├── app.py                # Flask monitoring dashboard (python -m src.dashboard.app)
@@ -147,54 +165,27 @@ All significant work on this project must be documented in `docs/PROCESS_LOG.md`
 
 ### Files Not Yet Created (Planned)
 
-These scrapers are specified in `SCRAPER_PROMPTS.md` but have not been implemented yet:
-
 | File | Scraper | Target |
 |------|---------|--------|
-| ~~`src/scrapers/inao.py`~~ | ~~INAO French appellations~~ | ~~2,000-3,000 facts~~ ✅ Done (1,473 facts) |
-| `src/scrapers/italy.py` | Italian registries | 1,500-2,000 facts |
-| `src/scrapers/ttb.py` | US TTB regulations | 500-800 facts |
-| `src/scrapers/europe.py` | Spain, Germany, Portugal | 1,500-2,400 facts |
-| `src/scrapers/newworld.py` | Australia, NZ, South Africa, South America | 800-1,200 facts |
-| `src/scrapers/eu_oiv.py` | EU regulations & OIV | 500-800 facts |
-| `src/scrapers/regional_france.py` | Burgundy, Champagne, Bordeaux | 800-1,500 facts |
-| `src/scrapers/consortiums_italy.py` | Italian consortiums | 400-600 facts |
-| `src/scrapers/academic.py` | Journal abstracts | 500-800 facts |
 | `src/scrapers/verify.py` | Post-scraping gap analysis | N/A |
 
-## Current Status (as of March 2026)
+All other planned scrapers have been implemented and rebuilt with genuine data provenance.
 
-**Phase:** Data Collection (Phase 1)
-**Facts collected:** ~43,000+ raw facts (27,408 in DB after dedup)
-**Completed scrapers:** 24 enrichment scrapers + 6 original
+## Current Status (as of April 11, 2026)
 
-| # | Scraper | Status | Facts |
-|---|---------|--------|-------|
-| 1 | Wikidata (`wikidata.py`) | ✅ Complete | 20,910 |
-| 2 | Wikipedia (`wikipedia.py`) | ✅ Complete | — |
-| 3 | HuggingFace (`huggingface.py`) | ✅ Complete | 16,514 |
-| 4 | UC Davis (`ucdavis.py`) | ✅ Complete | — |
-| 5 | Kaggle (`kaggle_data.py`) | ✅ Complete | 1,509 |
-| 6 | INAO (`inao.py`) | ✅ Complete | 1,473 |
-| 15 | Italian Wine Central (`italian_wine_central.py`) | ✅ Complete | 1,556 |
-| 16 | Austrian Wine (`austria.py`) | ✅ Complete | 731 |
-| 17 | Greek Wine (`greece.py`) | ✅ Complete | 587 |
-| 18 | Rhône/Loire/Alsace (`rhone_loire_alsace.py`) | ✅ Complete | 763 |
-| 19 | Spain Enrichment (`spain_enrichment.py`) | ✅ Complete | 493 |
-| 20 | Portugal Enrichment (`portugal_enrichment.py`) | ✅ Complete | 438 |
-| 21 | South America (`south_america.py`) | ✅ Complete | 393 |
-| 22 | Australia/NZ (`australia_nz_enrichment.py`) | ✅ Complete | 391 |
-| 23 | Hungary & Georgia (`hungary_georgia.py`) | ✅ Complete | 429 |
-| 24 | Germany Enrichment (`germany_enrichment.py`) | ✅ Complete | 333 |
-| 25 | Canada (`canada.py`) | ✅ Complete | 268 |
-| 26 | Croatia & Slovenia (`croatia_slovenia.py`) | ✅ Complete | 391 |
-| 27 | England (`england.py`) | ✅ Complete | 225 |
-| 28 | Lebanon & Israel (`lebanon_israel.py`) | ✅ Complete | 182 |
-| 29 | South Africa (`south_africa_enrichment.py`) | ✅ Complete | 339 |
-| 30 | USA Enrichment (`usa_enrichment.py`) | ✅ Complete | 632 |
-| 7-14 | Remaining scrapers | Not started | See `SCRAPER_PROMPTS.md` |
+**Phase:** Data Collection (Phase 1) — provenance rebuild complete
+**All scrapers rebuilt:** 35 scrapers, all using genuine HTTP-fetched data
+**DB status:** Being repopulated after hardcoded fact purge
 
-**Remaining scrapers:** 5-14 (see `SCRAPER_PROMPTS.md`)
+### Scraper Summary
+
+| Category | Scrapers | Status |
+|----------|----------|--------|
+| Original genuine | 10 | ✅ Verified genuine |
+| Fixed (Phase 1 rebuild) | 8 | ✅ Quality issues resolved |
+| Rebuilt (Phase 2 rebuild) | 17 | ✅ Hardcoded data removed, genuine sources |
+
+See `CURRENT_STATUS.md` for full per-scraper details and fact counts.
 
 ## Documentation Maintenance — MANDATORY
 
@@ -351,10 +342,12 @@ See `config/postgres/init.sql` for full schema with enums, indexes, views, and t
 
 ## What to Work On Next
 
-1. **Implement remaining scrapers** (5-14) using prompts in `SCRAPER_PROMPTS.md`
-2. **Run verify.py** after each batch of scrapers to check coverage gaps
-3. **Transition to question generation** once fact collection reaches targets
-4. See `CURRENT_STATUS.md` for detailed phase tracking
+1. **Re-run all rebuilt scrapers** to populate DB with genuine facts
+2. **Run --validate on all scrapers** and compile quality report
+3. **Full database analysis** — fact counts, domain distribution, coverage gaps
+4. **Implement verify.py** gap analysis tool
+5. **Transition to question generation** once fact collection is verified
+6. See `CURRENT_STATUS.md` for detailed phase tracking
 
 ## Important Links
 

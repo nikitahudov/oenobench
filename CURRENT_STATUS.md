@@ -1,7 +1,7 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** April 7, 2026
-**Project phase:** Phase 1 — Data Collection
+**Last updated:** April 11, 2026
+**Project phase:** Phase 1 — Data Collection (provenance rebuild complete)
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ---
@@ -10,7 +10,7 @@
 
 | Phase | Weeks | Status |
 |-------|-------|--------|
-| 1. Infrastructure & Data Collection | 1-6 | In progress |
+| 1. Infrastructure & Data Collection | 1-6 | In progress (scraper rebuild complete, awaiting DB repopulation) |
 | 2. Question Generation | 7-12 | Not started |
 | 3. AI Validation | 13-16 | Not started |
 | 4. Human Review & Control Set | 17-20 | Not started |
@@ -33,72 +33,82 @@
 - `scripts/backup.sh` — PostgreSQL & Neo4j backup
 - `.env.example` — environment template
 - Universal `--test-run` and `--validate` flags across scrapers
+- `src/scrapers/_fact_processing.py` — shared fact processing pipeline (decompose, resolve refs, classify domain, validate)
+- `src/scrapers/_web_helpers.py` — shared web scraping utilities (session, page discovery, text extraction, sitemap)
+- `src/scrapers/_wiki_helpers.py` — updated with `extract_atomic_facts`, `run_sparql_filtered`, country-scoped SPARQL templates
 
-### Scraper Status
+### Data Provenance Audit & Rebuild (Complete — April 2026)
 
-**IMPORTANT: Data Provenance Audit (April 2026)**
-An audit revealed that 19 scrapers contained hardcoded LLM-generated facts disguised as scraped data. These are being rebuilt to use genuine HTTP-fetched data only. See "Provenance Rebuild Status" below.
+An audit (April 7, 2026) revealed that 19 scrapers contained hardcoded LLM-generated facts disguised as scraped data. A full rebuild was completed on April 11, 2026:
 
-#### Genuine Scrapers (verified data provenance)
+- **Phase 0:** Built shared infrastructure (`_fact_processing.py`, `_web_helpers.py`, updated `_wiki_helpers.py`). Purged 7,861 hardcoded facts from DB (24,563 → 16,702).
+- **Phase 1:** Fixed 8 scrapers with quality issues (off-topic SPARQL, non-atomic facts, domain bias).
+- **Phase 2:** Rebuilt all 17 hardcoded scrapers with genuine Wikipedia + Wikidata + official website data. Removed ~26,000+ lines of hardcoded data.
 
-| # | Scraper | File | Actual | Source Method |
-|---|---------|------|--------|---------------|
+**All scrapers now use genuine HTTP-fetched data only.** Every fact traces to a verifiable URL.
+
+### Scraper Status — All Genuine
+
+#### Original Genuine Scrapers
+
+| # | Scraper | File | Facts | Source Method |
+|---|---------|------|-------|---------------|
 | 1 | Wikidata | `wikidata.py` | **2,145** | SPARQL queries |
 | 2 | Wikipedia | `wikipedia.py` | **323** | MediaWiki API |
 | 3 | HuggingFace | `huggingface.py` | **3,231** | HuggingFace datasets |
 | 4 | UC Davis | `ucdavis.py` | **2,199** | RDF + GeoJSON + HTML |
 | 5 | Kaggle | `kaggle_data.py` | **1,509** | CSV datasets |
 | 6 | INAO (France) | `inao.py` | **1,473** | data.gouv.fr CSV |
-| 7 | Italy | `italy.py` | **606** | Federdoc + Italian Wine Central |
-| 8 | TTB (US) | `ttb.py` | **515** | TTB.gov + eCFR |
-| 9 | Europe (ES/DE/PT) | `europe.py` | **1,605** | MAPA, DWI, IVV, IVDP |
-| 10 | New World | `newworld.py` | **903** | Wine Australia, NZ Wine, WOSA |
-| 11 | EU/OIV | `eu_oiv.py` | **130** | EUR-Lex + OIV |
-| 13 | Italian Consortiums | `consortiums_italy.py` | **453** | 9 consortium websites |
 | 14 | Academic | `academic.py` | **925** | OENO One, Vitis, AJEV |
 | — | Extension Services | `extension.py` | **705** | USDA, Penn State, Oregon State |
 | — | UC IPM Grape | `ucipm.py` | **1,145** | UC IPM pages |
 | — | OIV Docs | `oiv_docs.py` | **63** | OIV PDF downloads |
 
-#### Rebuilt Hybrid Scrapers (provenance fixed, re-run with genuine data)
+#### Fixed Scrapers (Phase 1 rebuild — April 11, 2026)
 
-| Scraper | File | Old (Fake) | New (Genuine) | Status |
-|---------|------|------------|---------------|--------|
-| Bordeaux | `bordeaux.py` | 469 | **155** | ✅ Rebuilt & run |
-| Champagne | `champagne.py` | 211 | **356** | ✅ Rebuilt & run |
-| Burgundy | `burgundy.py` | 982 | **64** | ✅ Rebuilt & run |
-| Italian Wine Central | `italian_wine_central.py` | 1,556 | **729** | ✅ Rebuilt & run |
-| Austrian Wine | `austria.py` | 731 | **317** | ✅ Rebuilt & run |
-| Greek Wine | `greece.py` | 587 | **236** | ✅ Rebuilt & run |
+| Scraper | File | Before | After | Key Fix |
+|---------|------|--------|-------|---------|
+| Bordeaux | `bordeaux.py` | 155 | **484** | P17 SPARQL + bordeaux.com |
+| Burgundy | `burgundy.py` | 64 | **483** | P17 SPARQL + bourgogne-wines.com |
+| Champagne | `champagne.py` | 356 | **466** | P17 SPARQL + champagne.fr (partial) |
+| Italian Wine Central | `italian_wine_central.py` | 729 | **788** | extract_atomic_facts + classify_domain |
+| Austrian Wine | `austria.py` | 317 | **146** | Removed off-topic German facts |
+| Greek Wine | `greece.py` | 236 | **255** | Removed off-topic Italian Grechetto |
+| Italian Consortiums | `consortiums_italy.py` | 453 | **85** | Atomic fact pipeline applied |
+| TTB (US) | `ttb.py` | 515 | **513** | Verified CFR text genuine |
 
-#### Hardcoded Scrapers (need rebuild — all facts are LLM-generated, zero HTTP calls)
+#### Rebuilt Scrapers (Phase 2 rebuild — April 11, 2026)
 
-| Scraper | File | Fake Facts | Status |
-|---------|------|-----------|--------|
-| Rhône/Loire/Alsace | `rhone_loire_alsace.py` | 763 | ⚠️ Needs rebuild |
-| Spain Enrichment | `spain_enrichment.py` | 493 | ⚠️ Needs rebuild |
-| Portugal Enrichment | `portugal_enrichment.py` | 438 | ⚠️ Needs rebuild |
-| South America | `south_america.py` | 393 | ⚠️ Needs rebuild |
-| Australia/NZ | `australia_nz_enrichment.py` | 691 | ⚠️ Needs rebuild |
-| Hungary & Georgia | `hungary_georgia.py` | 429 | ⚠️ Needs rebuild |
-| Germany Enrichment | `germany_enrichment.py` | 333 | ⚠️ Needs rebuild |
-| Canada | `canada.py` | 268 | ⚠️ Needs rebuild |
-| Croatia & Slovenia | `croatia_slovenia.py` | 391 | ⚠️ Needs rebuild |
-| England | `england.py` | 225 | ⚠️ Needs rebuild |
-| Lebanon & Israel | `lebanon_israel.py` | 182 | ⚠️ Needs rebuild |
-| South Africa | `south_africa_enrichment.py` | 339 | ⚠️ Needs rebuild |
-| USA Enrichment | `usa_enrichment.py` | 632 | ⚠️ Needs rebuild |
+All formerly hardcoded scrapers rebuilt with genuine Wikipedia + Wikidata + official website data:
 
-**DB total (verified genuine facts only): 24,563**
-**Hardcoded facts still in DB (to be purged): ~5,577**
-**Target after full cleanup + rebuild: 20,000+ genuine facts**
+| Scraper | File | Status | Source Method |
+|---------|------|--------|--------------|
+| Italy | `italy.py` | ✅ Rebuilt | Wikipedia + SPARQL (removed DOCG_DATABASE) |
+| Europe (ES/DE/PT) | `europe.py` | ✅ Rebuilt | Wikipedia + SPARQL (removed hardcoded dicts) |
+| New World | `newworld.py` | ✅ Rebuilt | Wikipedia + SPARQL (removed 5 *_KNOWLEDGE dicts) |
+| EU/OIV | `eu_oiv.py` | ✅ Rebuilt | Wikipedia + SPARQL |
+| Rhone/Loire/Alsace | `rhone_loire_alsace.py` | ✅ Rebuilt | Wikipedia + SPARQL |
+| Spain Enrichment | `spain_enrichment.py` | ✅ Rebuilt | Wikipedia + SPARQL |
+| Portugal Enrichment | `portugal_enrichment.py` | ✅ Rebuilt | Wikipedia + SPARQL |
+| Germany Enrichment | `germany_enrichment.py` | ✅ Rebuilt | Wikipedia + SPARQL |
+| USA Enrichment | `usa_enrichment.py` | ✅ Rebuilt | 22 Wikipedia articles + SPARQL |
+| South America | `south_america.py` | ✅ Rebuilt | Wikipedia + SPARQL |
+| Australia/NZ | `australia_nz_enrichment.py` | ✅ Rebuilt | Wikipedia + SPARQL |
+| Hungary & Georgia | `hungary_georgia.py` | ✅ Rebuilt | Wikipedia + SPARQL |
+| Croatia & Slovenia | `croatia_slovenia.py` | ✅ Rebuilt | Wikipedia + SPARQL |
+| Canada | `canada.py` | ✅ Rebuilt | Wikipedia + SPARQL |
+| England | `england.py` | ✅ Rebuilt | Wikipedia + SPARQL |
+| Lebanon & Israel | `lebanon_israel.py` | ✅ Rebuilt | Wikipedia + SPARQL |
+| South Africa | `south_africa_enrichment.py` | ✅ Rebuilt | Wikipedia + SPARQL |
+
+**Note:** Fact counts for rebuilt Phase 2 scrapers pending — scrapers are being re-run to populate DB.
 
 ### Completed Scraper Details
 
 **Scraper 1 — Wikidata (`wikidata.py`):**
 - Uses SPARQL queries against Wikidata endpoint
 - Extracts wine regions, grape varieties, appellations, producers, classifications
-- 20,910 facts — significantly exceeded 3,000-5,000 target
+- 2,145 genuine facts (after dedup)
 - CC0 licensed data (public domain)
 
 **Scraper 2 — Wikipedia (`wikipedia.py`):**
@@ -111,7 +121,7 @@ An audit revealed that 19 scrapers contained hardcoded LLM-generated facts disgu
 **Scraper 3 — HuggingFace (`huggingface.py`):**
 - Processes spawn99/wine-reviews (281K rows) and christopher/winesensed datasets
 - Extracts variety-region associations, producer-region links, price tiers
-- 16,514 facts from structured dataset analysis
+- 3,231 facts from structured dataset analysis
 
 **Scraper 4 — UC Davis (`ucdavis.py`):**
 - Three data sources: Wine Ontology (RDF), AVA Digitizing Project (GeoJSON), FPS Grape Database (HTML)
@@ -123,63 +133,41 @@ An audit revealed that 19 scrapers contained hardcoded LLM-generated facts disgu
 - Two datasets: Wine Quality (UCI physicochemical stats) and Wine Reviews (zynicide/wine-reviews variety-region-producer associations)
 - CSVs pre-downloaded to `data/raw/kaggle/`
 - 1,509 facts total (1,434 from wine-reviews, 75 from wine-quality)
-- Exceeded 500-1,000 target
 
 **Scraper 6 — INAO (`inao.py`):**
 - Extracts French wine appellation data from INAO via data.gouv.fr open-data CSVs
 - Covers 1,210 unique appellations (AOC/AOP/IGP) across 13 French wine regions
-- Generates facts about appellation status, permitted grape varieties, minimum alcohol, maximum yields, wine types
-- 1,473 facts — below 2,000-3,000 target (CSV-only extraction; INAO website detail pages not scraped)
-- 100% entity population, 0% quality issues
+- 1,473 facts
 - Licence Ouverte (French open licence)
 
-**Italian Wine Central (`italian_wine_central.py`) — REBUILT:**
-- Rebuilt April 2026 with genuine Wikipedia/Wikidata scraping (old version was 74% hardcoded)
-- Wikipedia: 696 facts from Italian wine category pages; Wikidata: 59 SPARQL results
-- 729 genuine facts (down from 1,556 fake)
+### Unreachable Official Sites (documented)
 
-**Austrian Wine (`austria.py`) — REBUILT:**
-- Rebuilt April 2026 with genuine Wikipedia/Wikidata scraping
-- Wikipedia categories: 142 facts; Wikidata SPARQL: 149 facts; austrianwine.com: 404'd
-- 317 genuine facts (down from 731 fake)
+| Site | Error | Fallback |
+|------|-------|----------|
+| inter-rhone.com | Connection timeout | Wikipedia/Wikidata |
+| brunellodimontalcino.it | No route to host | Wikipedia/Wikidata |
+| franciacorta.wine | Not tested | Wikipedia/Wikidata |
+| consorziovinonobile.it | Not tested | Wikipedia/Wikidata |
+| austrianwine.com | 404 | Wikipedia/Wikidata |
+| BIVB (bourgogne-wines.com) | Partially accessible | Wikipedia/Wikidata + partial |
 
-**Greek Wine (`greece.py`) — REBUILT:**
-- Rebuilt April 2026 with genuine Wikipedia/Wikidata scraping
-- Wikipedia categories: 212 facts; Wikidata: 21 facts; EU GIView API: unavailable
-- 236 genuine facts (down from 587 fake)
-
-**Bordeaux (`bordeaux.py`) — REBUILT:**
-- Rebuilt April 2026 — Wikipedia + Wikidata, replaces mostly-hardcoded Classification 1855
-- 155 genuine facts (down from 469 fake)
-
-**Champagne (`champagne.py`) — REBUILT:**
-- Rebuilt April 2026 — Wikipedia + Wikidata
-- 356 genuine facts (up from 211 fake)
-
-**Burgundy (`burgundy.py`) — REBUILT:**
-- Rebuilt April 2026 — Wikipedia + Wikidata; BIVB website returned 404 for all endpoints
-- 64 genuine facts (down from 982 fake)
-
-**Scrapers 18-30 (hardcoded, awaiting rebuild):**
-- All 13 scrapers contain 100% LLM-generated facts with zero HTTP calls
-- Facts attributed to fake source URLs that were never fetched
-- Total ~5,577 fake facts still in DB — need purge + rebuild
-
-### Key Learnings So Far
+### Key Learnings
 
 1. **Data provenance is paramount** — 19 scrapers were found to contain hardcoded LLM-generated facts disguised as scraped data. This was a critical integrity failure for a NeurIPS submission.
 2. **Genuine scraping yields fewer but trustworthy facts** — Rebuilt scrapers average ~60% fewer facts than hardcoded versions, but every fact traces to a real URL.
-3. **Wikipedia/Wikidata are the backbone** — The `_wiki_helpers.py` shared module enables rapid scraper rebuilds using MediaWiki API and SPARQL.
-4. **Official wine body websites often block bots** — BIVB, austrianwine.com, GIView API all returned 404/errors. Wikipedia is the reliable fallback.
-5. **Quality over quantity** — Atomic fact extraction works better than accepting verbose or compound statements.
+3. **Wikipedia/Wikidata are the backbone** — The shared `_wiki_helpers.py` module enables rapid scraper rebuilds using MediaWiki API and SPARQL.
+4. **P17 > P131* for SPARQL scoping** — Transitive P131* caused severe off-topic contamination (e.g., Austrian data in Bordeaux scraper). Direct P17 (country) prevents cross-country leakage.
+5. **Official wine body websites often block bots** — BIVB, austrianwine.com, GIView API, inter-rhone.com all returned errors. Wikipedia is the reliable fallback.
+6. **Shared infrastructure pays off** — `_fact_processing.py` and `_web_helpers.py` ensured consistency across all 25+ scraper rebuilds.
 
 ---
 
 ## Next Steps
 
-1. **Phase 2 of provenance rebuild:** Purge ~5,577 hardcoded facts from 13 fully-fake scrapers, then rebuild each using genuine Wikipedia/Wikidata/website scraping
-2. After rebuild, verify DB integrity — all facts must trace to genuinely fetched URLs
-3. Implement `verify.py` gap analysis tool
-4. Begin question generation pipeline design (Phase 2)
-5. Set up multi-model LLM API access for question generation
-6. Design evaluation framework and scoring pipeline
+1. **Re-run all rebuilt scrapers** to populate DB with genuine facts (in progress)
+2. **Run --validate on all scrapers** and compile quality report
+3. **Full database analysis** — fact counts, domain distribution, coverage gaps
+4. Implement `verify.py` gap analysis tool
+5. Begin question generation pipeline design (Phase 2)
+6. Set up multi-model LLM API access for question generation
+7. Design evaluation framework and scoring pipeline

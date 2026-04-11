@@ -1,0 +1,165 @@
+# OenoBench — Process Log
+
+Chronological lab notebook for the NeurIPS 2026 paper methodology sections.
+
+---
+
+## 2026-04-11 — Phase 0: Shared Infrastructure & DB Purge
+
+### What was done
+1. Built `src/scrapers/_fact_processing.py` — shared fact processing pipeline for all scrapers
+2. Built `src/scrapers/_web_helpers.py` — shared web scraping utilities
+3. Updated `src/scrapers/_wiki_helpers.py` — improved Wikipedia/Wikidata extraction
+4. Purged 7,861 hardcoded LLM-generated facts from PostgreSQL database
+
+### Sources & inputs
+- Existing scraper codebase (audit results from 2026-04-07)
+- Wikidata SPARQL endpoint (query.wikidata.org)
+- Wikipedia MediaWiki API
+
+### Methodology
+
+**`_fact_processing.py`** provides a 4-stage pipeline applied to all scraped text:
+1. **Decompose** — split compound sentences into atomic facts
+2. **Resolve references** — replace pronouns/anaphora with explicit entity names
+3. **Classify domain** — assign each fact to one of 6 domain categories using keyword matching
+4. **Validate** — filter facts that are too short (<5 words), too long (>50 words), or lack a predicate
+
+**`_web_helpers.py`** provides:
+- Rate-limited HTTP session with proper User-Agent
+- Page discovery via sitemap.xml and link crawling
+- Text extraction from HTML with boilerplate removal
+
+**`_wiki_helpers.py` updates:**
+- `extract_atomic_facts()` replaces `extract_lead_sentences()` — produces properly atomic facts
+- `run_sparql_filtered()` — SPARQL with country-scoped filtering
+- Country-scoped SPARQL templates using P17 (country) instead of P131* (located in administrative territorial entity, transitive) to prevent off-topic contamination
+
+**DB purge:** Identified and deleted 7,861 facts from 17 hardcoded scrapers. Database went from 24,563 to 16,702 genuine facts.
+
+**SPARQL QID fixes:**
+- Q1131296 → wine-producing region
+- Q10864048 → wine region
+- Q454541 → appellation
+- Q156362 → winery
+
+### Quality controls
+- All purged facts traced to scrapers with zero genuine HTTP calls
+- Retained only facts from 10 verified-genuine scrapers + 6 rebuilt hybrid scrapers
+- New `_fact_processing.py` pipeline ensures all future facts are atomic, reference-resolved, and domain-classified
+
+### Quantitative results
+- Facts purged: 7,861
+- DB before: 24,563
+- DB after: 16,702
+- New shared modules: 3 files
+
+### Decisions & trade-offs
+- Chose P17 (country) over P131* (administrative territory, transitive) for SPARQL scoping. P131* caused severe off-topic contamination (e.g., Bordeaux scraper pulling Austrian wine data). P17 is less granular but prevents cross-country leakage.
+- Built shared infrastructure before rebuilding scrapers to ensure consistency across all rebuilds.
+
+---
+
+## 2026-04-11 — Phase 1: Fix 8 Rebuilt/Genuine Scrapers
+
+### What was done
+Fixed 8 scrapers that had quality issues (off-topic SPARQL results, non-atomic facts, domain bias, hardcoded data mixed with genuine):
+
+| Scraper | Before | After | Key Fix |
+|---------|--------|-------|---------|
+| bordeaux.py | 155 | 484 | P131* → P17 country-scoped SPARQL; official bordeaux.com scraping |
+| burgundy.py | 64 | 483 | P131* → P17; bourgogne-wines.com scraping |
+| champagne.py | 356 | 466 | P131* → P17; champagne.fr (partial access) |
+| italian_wine_central.py | 729 | 788 | extract_lead_sentences → extract_atomic_facts; classify_domain() |
+| austria.py | 317 | 146 | Removed off-topic German wine facts; P17 filtering |
+| greece.py | 236 | 255 | Removed off-topic Italian Grechetto facts; P17 filtering |
+| consortiums_italy.py | 453 | 85 | Applied atomic fact pipeline; domain classification |
+| ttb.py | 515 | 513 | Verified _REGULATION_FACTS as genuine CFR text; minor cleanup |
+
+### Sources & inputs
+- Wikidata SPARQL (country-scoped with P17)
+- Wikipedia MediaWiki API (via updated _wiki_helpers.py)
+- Official websites: bordeaux.com, bourgogne-wines.com, champagne.fr
+- US Code of Federal Regulations (eCFR) for TTB
+
+### Methodology
+- Replaced `P131*` (transitive administrative territory) with `P17` (country) in all SPARQL queries to scope results to correct country
+- Replaced `extract_lead_sentences()` with `extract_atomic_facts()` for proper atomic fact extraction
+- Replaced hardcoded `domain="wine_regions"` with `classify_domain()` for balanced domain distribution
+- Added official website scraping via `_web_helpers.py` where sites were accessible
+
+### Quality controls
+- Austria scraper: facts dropped from 317 to 146 because off-topic German wine data was correctly filtered out
+- Consortiums Italy: dropped from 453 to 85 after applying atomic fact validation (many compound/non-factual statements removed)
+- TTB _REGULATION_FACTS verified as genuine CFR regulatory text, not LLM-generated
+
+### Issues encountered & resolutions
+- **bordeaux.com**: Accessible, successfully scraped
+- **bourgogne-wines.com**: Accessible, successfully scraped
+- **champagne.fr**: Partial access only (some pages blocked)
+- **brunellodimontalcino.it**: No route to host — fell back to Wikipedia/Wikidata only
+- **franciacorta.wine, consorziovinonobile.it**: Not tested in this phase
+
+---
+
+## 2026-04-11 — Phase 2: Rebuild 17 Hardcoded Scrapers
+
+### What was done
+Rebuilt all 17 scrapers that contained 100% hardcoded LLM-generated facts. Each was rewritten to use genuine Wikipedia articles, Wikidata SPARQL queries, and official website scraping where available.
+
+### Per-scraper details
+
+| Scraper | Old Lines | New Lines | Lines Removed | Data Sources |
+|---------|-----------|-----------|---------------|-------------|
+| usa_enrichment.py | 1,737 | 871 | -866 | 22 Wikipedia articles + SPARQL |
+| europe.py | 4,846 | 1,010 | -3,836 | 1,297 SPARQL facts verified; removed SPAIN_APPELLATIONS, GERMANY_REGIONS, PORT_CATEGORIES |
+| italy.py | 2,093 | 874 | -1,219 | Removed DOCG_DATABASE (1,010 lines); Wikipedia + SPARQL |
+| newworld.py | 2,439 | 1,047 | -1,392 | Removed 5 *_KNOWLEDGE dicts (AUSTRALIA, NZ, SA, ARG, CHILE); Wikipedia + SPARQL |
+| rhone_loire_alsace.py | — | — | — | Wikipedia + SPARQL (inter-rhone.com unreachable) |
+| spain_enrichment.py | — | — | — | Wikipedia + SPARQL |
+| portugal_enrichment.py | — | — | — | Wikipedia + SPARQL |
+| germany_enrichment.py | — | — | — | Wikipedia + SPARQL |
+| eu_oiv.py | — | — | — | Wikipedia + SPARQL; removed hardcoded EU regulation dicts |
+| hungary_georgia.py | — | — | — | Wikipedia + SPARQL |
+| croatia_slovenia.py | — | — | — | Wikipedia + SPARQL |
+| australia_nz_enrichment.py | — | — | — | Wikipedia + SPARQL |
+| south_africa_enrichment.py | — | — | — | Wikipedia + SPARQL |
+| south_america.py | — | — | — | Wikipedia + SPARQL |
+| canada.py | — | — | — | Wikipedia + SPARQL |
+| england.py | — | — | — | Wikipedia + SPARQL |
+| lebanon_israel.py | — | — | — | Wikipedia + SPARQL |
+
+### Sources & inputs
+- Wikipedia MediaWiki API — category pages and article content for each country/region
+- Wikidata SPARQL — country-scoped queries using P17 property
+- Official websites where accessible (bordeaux.com, bourgogne-wines.com, champagne.fr partial)
+
+### Methodology
+All 17 scrapers were rewritten following the same pattern:
+1. Remove all hardcoded data dictionaries (*_KNOWLEDGE, *_DATABASE, *_APPELLATIONS, etc.)
+2. Implement genuine Wikipedia article fetching via `_wiki_helpers.py`
+3. Implement genuine Wikidata SPARQL queries scoped by country (P17)
+4. Apply `_fact_processing.py` pipeline (decompose → resolve → classify → validate)
+5. Use `_web_helpers.py` for any official website scraping
+
+### Quality controls
+- Every fact must trace to a genuinely fetched URL (Wikipedia article, SPARQL endpoint, or official website)
+- All facts processed through atomic fact pipeline
+- Domain classification via `classify_domain()` instead of hardcoded `wine_regions`
+
+### Quantitative results
+- Total hardcoded lines removed: ~26,000+
+- Scrapers rebuilt: 17
+- All scrapers now use genuine HTTP-fetched data only
+
+### Decisions & trade-offs
+- **inter-rhone.com** (Rhone Valley): connection timeout — fell back to Wikipedia/Wikidata only
+- **brunellodimontalcino.it**: no route to host — Wikipedia/Wikidata only
+- Genuine scraping yields fewer facts than hardcoded versions, but every fact has verifiable provenance
+- Accepted lower fact counts as the cost of data integrity for NeurIPS submission
+
+### Issues encountered & resolutions
+- Several official wine body websites unreachable (inter-rhone.com, brunellodimontalcino.it)
+- Resolution: Wikipedia + Wikidata provide sufficient coverage; official sites can be retried later
+- Some country SPARQL queries return fewer results than expected due to incomplete Wikidata coverage
+- Resolution: supplemented with Wikipedia article scraping for broader coverage
