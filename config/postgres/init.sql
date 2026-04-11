@@ -52,6 +52,7 @@ CREATE TABLE sources (
     tier            source_tier NOT NULL DEFAULT 'tier_3_reliable',
     language        TEXT DEFAULT 'en',
     accessed_date   DATE,
+    content_date    DATE,                    -- when the source information was current/valid
     notes           TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()

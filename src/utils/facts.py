@@ -19,8 +19,16 @@ def ensure_source(
     source_type: str,
     tier: str = "tier_3_reliable",
     language: str = "en",
+    content_date: Optional[date] = None,
 ) -> str:
-    """Insert a source if it doesn't exist, return its UUID."""
+    """Insert a source if it doesn't exist, return its UUID.
+
+    Args:
+        content_date: When the source information was current/valid.
+            For Wikipedia: last revision date. For government DBs: publication date.
+            For wine classifications: vintage of the classification.
+            Defaults to today if not specified.
+    """
     conn = get_pg()
     cur = conn.cursor()
 
@@ -33,10 +41,10 @@ def ensure_source(
     source_id = str(uuid.uuid4())
     cur.execute(
         """
-        INSERT INTO sources (id, name, url, source_type, tier, language, accessed_date)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO sources (id, name, url, source_type, tier, language, accessed_date, content_date)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """,
-        (source_id, name, url, source_type, tier, language, date.today()),
+        (source_id, name, url, source_type, tier, language, date.today(), content_date or date.today()),
     )
     conn.commit()
     logger.debug(f"Added source: {name}")
