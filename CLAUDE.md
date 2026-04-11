@@ -29,6 +29,40 @@ The key innovation is an AI-driven pipeline: automated data collection → multi
 - **Flag uncertainty.** If you're unsure about a wine-related classification, domain assignment, or fact accuracy, explicitly flag it for the user's review rather than making assumptions.
 - **Provide verification commands.** After making changes, suggest commands the user can run to verify the results (e.g., `--validate` flag, SQL queries, dashboard checks).
 
+### Process Documentation — MANDATORY (for NeurIPS paper)
+
+All significant work on this project must be documented in `docs/PROCESS_LOG.md`. This is a **chronological lab notebook** that will be the primary source for writing the methodology sections of the NeurIPS paper. Every major project phase — data collection, question generation, validation, evaluation — must be traceable from this log. If it isn't logged, it didn't happen.
+
+**After every significant action (scraper build/rebuild/fix, infrastructure change, pipeline step, quality audit, evaluation run), append a dated entry covering:**
+
+1. **What was done** — what was built, fixed, rebuilt, or changed
+2. **Sources & inputs** — exact URLs, APIs, datasets, models, or prior pipeline outputs used
+3. **Methodology** — how inputs were processed, transformed, or evaluated. Include algorithms, heuristics, prompts, and any source-specific handling
+4. **Quality controls** — what was filtered, rejected, or flagged, with counts and reasons
+5. **Quantitative results** — counts, distributions, acceptance/rejection rates, before/after comparisons
+6. **Decisions & trade-offs** — what alternatives were considered, why this approach was chosen, what was sacrificed (e.g., "Site X was unreachable, fell back to Wikipedia-only", "switched from transitive to direct SPARQL property to fix off-topic contamination")
+7. **Issues encountered & resolutions** — failures, bugs, unexpected results, and how each was resolved
+8. **Human review notes** — any decisions made by the domain expert (sample reviews, quality judgments, coverage priorities)
+
+**Format guidelines:**
+- Each entry is a dated section with a phase label (e.g., `## 2026-04-11 — Phase 0: Shared Infrastructure`)
+- Keep it factual and quantitative — lab notebook style, not prose
+- Include before/after counts where relevant
+- Group by project phase when multiple things happen on one day
+
+**What the NeurIPS paper will need from this log (by section):**
+
+| Paper Section | Key details from log |
+|---------------|---------------------|
+| Data Collection | Source inventory (types, URLs, tiers), collection methods per source, fact processing pipeline (decompose → resolve → classify → validate), provenance guarantees |
+| Quality Assurance | Automated validation rules, acceptance/rejection rates, human expert review process, the provenance audit story (discovery + rebuild of integrity issues) |
+| Question Generation | Which LLMs generated questions (Claude/GPT-4/Gemini/Llama/templates), prompt design, generation methodology, self-preference controls |
+| Validation | AI validation pipeline, inter-annotator agreement, human review targeting strategy |
+| Evaluation | Models tested, held-out subset methodology, scoring, Self-Preference Score analysis |
+| Statistics | Total facts/questions, domain distributions, source type distributions, geographic coverage, known limitations |
+
+**At the end of each major phase,** compile the relevant log entries into a structured summary in `docs/` (e.g., `DATA_COLLECTION_SUMMARY.md`, `QUESTION_GENERATION_SUMMARY.md`). These summaries should be paper-ready: concise, quantitative, with tables and statistics that can be directly cited or adapted into paper prose.
+
 ## Repository Structure
 
 ```
@@ -44,6 +78,9 @@ The key innovation is an AI-driven pipeline: automated data collection → multi
 ├── .env.example                  # Environment template (copy to .env)
 ├── .env                          # Database credentials (not in git)
 ├── .gitignore
+├── docs/
+│   ├── PROCESS_LOG.md            # Chronological lab notebook (all phases)
+│   └── DATA_COLLECTION_SUMMARY.md # Paper-ready summary (after data collection)
 ├── config/
 │   └── postgres/
 │       └── init.sql              # PostgreSQL schema (auto-runs on first docker compose up)

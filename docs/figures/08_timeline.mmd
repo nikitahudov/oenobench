@@ -1,0 +1,35 @@
+gantt
+    title OenoBench Data Collection Execution Timeline
+    dateFormat  YYYY-MM-DD
+    axisFormat  %b %d
+
+    section Phase 0
+    DB Backup                          :p0pre, 2026-04-11, 1d
+    Build _fact_processing.py          :p0a, after p0pre, 1d
+    Build _web_helpers.py              :p0b, after p0a, 1d
+    Update _wiki_helpers.py            :p0c, after p0b, 1d
+    Purge hardcoded facts              :p0d, after p0c, 1d
+    Comprehensive testing              :p0e, after p0d, 2d
+    GATE: Tests pass                   :milestone, after p0e, 0d
+
+    section Phase 1 (Team scraper-fix)
+    Teammate 1A: bordeaux + burgundy      :t1a, after p0e, 3d
+    Teammate 1B: champagne + IWC          :t1b, after p0e, 3d
+    Teammate 1C: austria + greece + 2     :t1c, after p0e, 4d
+    Lead: merge + validate                :p1m, after t1c, 1d
+    GATE: All merged                      :milestone, after p1m, 0d
+
+    section Phase 2.1 (Team rebuild-major)
+    7 teammates in parallel               :t2a, after p1m, 4d
+    Lead: merges + logging                :p2am, after t2a, 1d
+
+    section Phase 2.2 (Team rebuild-remaining)
+    8 teammates in parallel               :t2b, after p2am, 4d
+    Lead: merges + logging                :p2bm, after t2b, 1d
+
+    section Phase 3 (Team verification)
+    3A: Per-scraper checks                :t3a, after p2bm, 2d
+    3B: Full DB analysis                  :t3b, after p2bm, 3d
+    3C: Provenance audit + samples        :t3c, after p2bm, 2d
+    Lead: compile report + summary        :p3l, after t3b, 2d
+    GATE: Report delivered                :milestone, after p3l, 0d

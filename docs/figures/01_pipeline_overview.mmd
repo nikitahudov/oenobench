@@ -1,0 +1,51 @@
+flowchart TB
+    subgraph SOURCES["DATA SOURCES"]
+        direction TB
+        S1["Knowledge Bases\n(Wikidata SPARQL)"]
+        S2["Encyclopedias\n(Wikipedia MediaWiki API)"]
+        S3["Official Wine Bodies\n(CIVB, BIVB, Inter-Rhone,\naustrianwine.com, etc.)"]
+        S4["Government Registries\n(INAO, TTB, eCFR,\ndata.gouv.fr)"]
+        S5["Academic Sources\n(OENO One, AJEV,\nVitis, UC Davis)"]
+        S6["Datasets\n(HuggingFace, Kaggle,\nUC IPM)"]
+    end
+
+    subgraph COLLECTION["COLLECTION LAYER (30 Scrapers)"]
+        direction TB
+        C1["SPARQL Queries\n(country-scoped via P17,\ndirect P131)"]
+        C2["MediaWiki API\n(article extracts,\ncategory crawls,\ninfobox parsing)"]
+        C3["Web Scraping\n(session management,\npage discovery,\nsitemap parsing)"]
+        C4["API/Dataset Clients\n(HuggingFace load_dataset,\nKaggle CSV, RDF/GeoJSON)"]
+    end
+
+    subgraph PROCESSING["FACT PROCESSING PIPELINE"]
+        direction TB
+        P1["Sentence Decomposition\n(split compound sentences\nat conjunctions)"]
+        P2["Reference Resolution\n(replace He/She/It/They\nwith explicit subjects)"]
+        P3["Domain Classification\n(keyword-based:\n6 wine domains)"]
+        P4["Validation Filter\n(reject: <5 or >30 words,\nno verb, off-topic,\nunresolved pronouns)"]
+    end
+
+    subgraph QA["QUALITY ASSURANCE"]
+        direction TB
+        Q1["Automated Checks\n(--validate per scraper:\ndomain distribution,\nword counts, duplicates)"]
+        Q2["Cross-Database Analysis\n(near-duplicates,\ncontradictions,\ncoverage gaps)"]
+        Q3["Provenance Audit\n(every fact traces to\na fetched URL)"]
+        Q4["Human Expert Review\n(10-sample per scraper,\ndomain verification)"]
+    end
+
+    subgraph DB["STORAGE"]
+        direction LR
+        DB1[("PostgreSQL\n(facts, sources,\nmetadata)")]
+        DB2[("Elasticsearch\n(full-text search,\nwine synonyms)")]
+        DB3[("Neo4j\n(entity\nrelationships)")]
+        DB4[("Redis\n(cache,\nrate limits)")]
+    end
+
+    OUTPUT["Validated Atomic Facts\n(target: 20,000+)"]
+
+    SOURCES --> COLLECTION
+    COLLECTION --> PROCESSING
+    PROCESSING --> DB
+    DB --> QA
+    QA -->|"issues found"| PROCESSING
+    QA -->|"clean"| OUTPUT

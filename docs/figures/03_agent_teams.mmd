@@ -1,0 +1,68 @@
+flowchart TB
+    subgraph PHASE0["PHASE 0: Infrastructure (Lead Solo)"]
+        direction LR
+        P0A["DB Backup"]
+        P0B["Build _fact_processing.py\n_web_helpers.py\n_wiki_helpers.py"]
+        P0C["Purge 8,821\nhardcoded facts"]
+        P0D["Comprehensive\ntesting"]
+        P0A --> P0B --> P0C --> P0D
+    end
+
+    subgraph PHASE1["PHASE 1: Team scraper-fix (Lead + 3 Teammates)"]
+        direction TB
+        LEAD1["Lead\n(escalation handler,\ninfra fixes,\nworktree merges)"]
+        T1A["Teammate 1A\n(worktree)\nborderaux.py\nburgundy.py"]
+        T1B["Teammate 1B\n(worktree)\nchampagne.py\nitalian_wine_central.py"]
+        T1C["Teammate 1C\n(worktree)\naustria.py, greece.py\nconsortiums_italy.py\nttb.py"]
+        T1A <-->|"escalation\n& status"| LEAD1
+        T1B <-->|"escalation\n& status"| LEAD1
+        T1C <-->|"escalation\n& status"| LEAD1
+        T1A <-.->|"cross-team\nintel"| T1B
+        T1B <-.->|"cross-team\nintel"| T1C
+    end
+
+    subgraph PHASE2A["PHASE 2.1: Team rebuild-major (Lead + 7 Teammates)"]
+        direction TB
+        LEAD2A["Lead\n(rate-limit coord,\nmerges, logging)"]
+        T2A1["europe.py\nSpain/Portugal"]
+        T2A2["italy.py"]
+        T2A3["newworld.py\nAU/NZ/SA"]
+        T2A4["rhone_loire\n_alsace.py"]
+        T2A5["spain_\nenrichment.py"]
+        T2A6["portugal_\nenrichment.py"]
+        T2A7["germany_enrichment.py\n+ eu_oiv.py"]
+        T2A1 & T2A2 & T2A3 & T2A4 & T2A5 & T2A6 & T2A7 <-->|"rate limits\n& escalation"| LEAD2A
+    end
+
+    subgraph PHASE2B["PHASE 2.2: Team rebuild-remaining (Lead + 8 Teammates)"]
+        direction TB
+        LEAD2B["Lead\n(carries intel\nfrom 2.1)"]
+        T2B1["hungary_\ngeorgia.py"]
+        T2B2["croatia_\nslovenia.py"]
+        T2B3["usa_\nenrichment.py"]
+        T2B4["aus_nz + sa\nenrichment.py"]
+        T2B5["south_\namerica.py"]
+        T2B6["canada.py\n+ england.py"]
+        T2B7["lebanon_\nisrael.py"]
+        T2B8["eu_oiv.py\n(EU regs)"]
+        T2B1 & T2B2 & T2B3 & T2B4 & T2B5 & T2B6 & T2B7 & T2B8 <-->|"rate limits\n& escalation"| LEAD2B
+    end
+
+    subgraph PHASE3["PHASE 3: Team verification (Lead + 3 Teammates)"]
+        direction TB
+        LEAD3["Lead\n(compiles report,\nwrites summary,\nupdates docs)"]
+        T3A["Teammate 3A\nPer-scraper\nquality checks"]
+        T3B["Teammate 3B\nFull-database\nanalysis"]
+        T3C["Teammate 3C\nProvenance audit\n+ sample review"]
+        T3A <-->|"findings"| LEAD3
+        T3B <-->|"findings"| LEAD3
+        T3C <-->|"findings"| LEAD3
+        T3A <-.->|"cross-ref"| T3B
+        T3B <-.->|"cross-ref"| T3C
+    end
+
+    PHASE0 -->|"gate: tests pass"| PHASE1
+    PHASE1 -->|"gate: all merged\n& validated"| PHASE2A
+    PHASE2A -->|"intel carried\nforward"| PHASE2B
+    PHASE2B -->|"all scrapers\nrebuilt"| PHASE3
+    PHASE3 --> REPORT["Final Report\n+ DATA_COLLECTION_SUMMARY.md\n+ PROCESS_LOG.md"]

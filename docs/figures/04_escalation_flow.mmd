@@ -1,0 +1,47 @@
+sequenceDiagram
+    participant Lead
+    participant T_A as Teammate A
+    participant T_B as Teammate B
+    participant T_C as Teammate C
+    participant Shared as Shared Task List
+
+    Note over Lead,Shared: Phase start: Lead creates team & assigns tasks
+
+    Lead->>Shared: Create tasks (one per scraper)
+    T_A->>Shared: Pick task - in progress
+    T_B->>Shared: Pick task - in progress
+    T_C->>Shared: Pick task - in progress
+
+    Note over T_A: Encounters _web_helpers.py bug
+
+    T_A->>Lead: ESCALATION: create_session() fails on CIVB (403, Cloudflare)
+    T_A->>T_B: Heads up: CIVB blocked
+    T_A->>T_C: Heads up: CIVB blocked
+
+    Note over Lead: Fixes _web_helpers.py (adds Cloudflare bypass)
+
+    Lead->>T_A: Fix applied - git pull origin main
+    Lead->>T_B: Fix applied - git pull origin main
+    Lead->>T_C: Fix applied - git pull origin main
+
+    T_A->>T_A: git pull, resume work
+    T_B->>T_B: git pull, continue
+
+    Note over T_B: Discovers site is down
+
+    T_B->>Lead: wineaustralia.com returning 503
+    T_B->>T_C: FYI: wineaustralia.com down, using Wikipedia fallback
+
+    Note over T_A: Completes work
+
+    T_A->>Lead: DONE: bordeaux 180 facts, burgundy 95 facts
+    T_A->>Shared: Tasks - completed
+    Lead->>Lead: Merge worktree, review output
+
+    T_B->>Lead: DONE: champagne 340 facts, IWC 720 facts
+    T_B->>Shared: Tasks - completed
+
+    T_C->>Lead: DONE: austria 310, greece 240, consortiums 430, ttb 500
+    T_C->>Shared: Tasks - completed
+
+    Note over Lead: All tasks complete - log and proceed

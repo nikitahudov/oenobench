@@ -1,0 +1,39 @@
+flowchart LR
+    subgraph ORIGIN["Origin (verifiable)"]
+        O1["URL fetched\nvia HTTP GET"]
+        O2["SPARQL query\nexecuted against\nWikidata endpoint"]
+        O3["Dataset downloaded\nvia API/URL"]
+    end
+
+    subgraph TRANSFORM["Transformation (reproducible)"]
+        T1["HTML to text blocks\n(BeautifulSoup)"]
+        T2["SPARQL bindings\nto fact templates"]
+        T3["CSV/JSON rows\nto structured facts"]
+        T4["Decompose then\nResolve then\nClassify then\nValidate"]
+    end
+
+    subgraph STORE["Storage (auditable)"]
+        S1["facts table\n(fact_text, domain,\nsource_id, confidence)"]
+        S2["sources table\n(name, url,\nsource_type, tier)"]
+        S3["Scraper log\n(data/logs/)"]
+    end
+
+    subgraph AUDIT["Audit Trail"]
+        A1["source_id FK\nto source URL"]
+        A2["Log file records\nevery HTTP request\nand response code"]
+        A3["PROCESS_LOG.md\nrecords methodology\nand decisions"]
+    end
+
+    O1 --> T1
+    O2 --> T2
+    O3 --> T3
+    T1 & T2 & T3 --> T4
+    T4 --> S1
+    O1 & O2 & O3 --> S2
+    O1 & O2 & O3 --> S3
+    S1 --> A1
+    S3 --> A2
+    A3 --> A2
+    S2 --> A1
+
+    A1 -.- VERIFY["Any fact can be\nverified by:\n1. Look up source_id\n2. Visit source URL\n3. Confirm fact text\n   derived from content"]

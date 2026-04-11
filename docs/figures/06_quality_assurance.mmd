@@ -1,0 +1,52 @@
+flowchart TB
+    subgraph L1["LAYER 1: Per-Fact Validation (automated, inline)"]
+        direction LR
+        L1A["Word count\n5-30 words"]
+        L1B["Has verb"]
+        L1C["No dangling\npronouns"]
+        L1D["On-topic\nfor region"]
+        L1E["Wine-relevant\nkeyword match"]
+    end
+
+    subgraph L2["LAYER 2: Per-Scraper Checks (automated, --validate)"]
+        direction LR
+        L2A["Domain distribution\n(wine_regions < 60%)"]
+        L2B["No facts > 30 words\n(<2% over 25 words)"]
+        L2C["Entity coverage\n(>60% with entities)"]
+        L2D["No hardcoded\ndata patterns"]
+    end
+
+    subgraph L3["LAYER 3: Cross-Database Analysis (automated, Phase 3)"]
+        direction LR
+        L3A["Near-duplicate\ndetection\n(fuzzy matching)"]
+        L3B["Factual\nconsistency\n(contradiction\ndetection)"]
+        L3C["Coverage &\nbalance\n(domain/geographic\ngaps)"]
+        L3D["Entity name\nnormalization\n(spelling\nvariants)"]
+    end
+
+    subgraph L4["LAYER 4: Provenance Audit (automated + manual, Phase 3)"]
+        direction LR
+        L4A["Every fact\ntraces to\nfetched URL"]
+        L4B["No fake\nsource URLs"]
+        L4C["Source tier\ndistribution\ncheck"]
+        L4D["Suspicious\npattern\ndetection"]
+    end
+
+    subgraph L5["LAYER 5: Human Expert Review (manual, ongoing)"]
+        direction LR
+        L5A["10-sample review\nper scraper"]
+        L5B["Domain accuracy\nverification"]
+        L5C["Wine knowledge\nfact-checking"]
+        L5D["Coverage priority\ndecisions"]
+    end
+
+    L1 -->|"rejected facts\nlogged with reason"| L1_OUT["Rejection Log"]
+    L1 -->|"accepted"| L2
+    L2 -->|"flags"| L2_OUT["Scraper-Level\nReport"]
+    L2 -->|"clean"| L3
+    L3 -->|"issues"| L3_OUT["Database Health\nReport"]
+    L3 -->|"clean"| L4
+    L4 -->|"issues"| L4_OUT["Provenance\nReport"]
+    L4 -->|"clean"| L5
+    L5 -->|"decisions"| L5_OUT["Expert Review\nLog"]
+    L5 -->|"approved"| FINAL["Validated\nFact Database"]

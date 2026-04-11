@@ -1,0 +1,37 @@
+flowchart LR
+    RAW["Raw Text\n(Wikipedia extract,\nHTML paragraph,\nSPARQL result)"]
+
+    subgraph DECOMPOSE["1. Decompose"]
+        D1["Split at ', and'\n'; ' ', which'"]
+        D2["Prepend subject\nto fragments"]
+        D3["Cap at 25 words"]
+    end
+
+    subgraph RESOLVE["2. Resolve References"]
+        R1["Detect leading\npronouns:\nHe/She/It/They"]
+        R2["Replace with\nexplicit subject\nfrom article title"]
+    end
+
+    subgraph CLASSIFY["3. Classify Domain"]
+        CL1["wine_regions"]
+        CL2["grape_varieties"]
+        CL3["producers"]
+        CL4["winemaking"]
+        CL5["viticulture"]
+        CL6["wine_business"]
+    end
+
+    subgraph VALIDATE["4. Validate"]
+        V1["Length: 5-30 words"]
+        V2["Has verb"]
+        V3["No unresolved\npronouns"]
+        V4["On-topic for\ntarget region"]
+        V5["Wine-relevant\n(keyword match)"]
+    end
+
+    ACCEPTED["Accepted\nAtomic Fact"]
+    REJECTED["Rejected\n(logged with reason)"]
+
+    RAW --> DECOMPOSE --> RESOLVE --> CLASSIFY --> VALIDATE
+    VALIDATE -->|"pass"| ACCEPTED
+    VALIDATE -->|"fail"| REJECTED
