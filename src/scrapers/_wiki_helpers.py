@@ -14,6 +14,14 @@ from loguru import logger
 from SPARQLWrapper import SPARQLWrapper, JSON
 
 from src.utils.facts import ensure_source
+from src.scrapers._fact_processing import (
+    decompose_sentence,
+    resolve_references,
+    classify_domain,
+    validate_fact,
+    is_on_topic,
+    process_facts,
+)
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -424,3 +432,137 @@ def ensure_wikidata_source(scope: str = "wine") -> str:
 def is_wine_relevant(text: str) -> bool:
     """Return True if text contains at least one wine keyword."""
     return bool(_WINE_KW_RE.search(text))
+
+
+# ─── Atomic Fact Extraction ─────────────────────────────────────────────────
+
+
+def extract_atomic_facts(
+    extract: str,
+    article_title: str,
+    region_keywords: Optional[set[str]] = None,
+    default_domain: Optional[str] = None,
+) -> list[dict]:
+    """Extract atomic facts from a Wikipedia article extract.
+
+    Pipes text through:
+    1. extract_lead_sentences() — split + wine-relevance filter
+    2. process_facts() — decompose → resolve → classify → validate → on-topic filter
+
+    Args:
+        extract: Plain-text Wikipedia article extract.
+        article_title: Article title (used as subject for reference resolution).
+        region_keywords: Optional set of keywords for on-topic filtering.
+        default_domain: If set, override classify_domain for all facts.
+
+    Returns:
+        List of dicts with keys: fact_text, domain.
+    """
+    sentences = extract_lead_sentences(extract)
+    if not sentences:
+        return []
+
+    return process_facts(
+        raw_texts=sentences,
+        subject=article_title,
+        region_keywords=region_keywords,
+        default_domain=default_domain,
+    )
+
+
+# ─── Country-Scoped SPARQL ──────────────────────────────────────────────────
+
+
+# SPARQL templates using P17 (country) + direct P131 (NOT transitive P131*)
+# to prevent off-topic leakage across regions.
+
+SPARQL_WINE_REGIONS_BY_COUNTRY = """
+SELECT DISTINCT ?item ?itemLabel ?regionLabel ?grapeLabel ?areaHa WHERE {{
+  {{ ?item wdt:P31/wdt:P279* wd:Q1131296 . }}  # wine-producing region
+  UNION
+  {{ ?item wdt:P31/wdt:P279* wd:Q10864048 . }}  # wine region
+  ?item wdt:P17 wd:{country_qid} .              # country (direct)
+  OPTIONAL {{ ?item wdt:P131 ?region . }}
+  OPTIONAL {{ ?item wdt:P186 ?grape . }}
+  OPTIONAL {{ ?item p:P2046 ?areaStmt . ?areaStmt psv:P2046 ?areaNode .
+              ?areaNode wikibase:quantityAmount ?areaHa . }}
+  SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en" . }}
+}}
+"""
+
+SPARQL_WINERIES_BY_COUNTRY = """
+SELECT DISTINCT ?item ?itemLabel ?regionLabel ?founded ?coord WHERE {{
+  ?item wdt:P31/wdt:P279* wd:Q156362 .    # instance of winery
+  ?item wdt:P17 wd:{country_qid} .        # country (direct)
+  OPTIONAL {{ ?item wdt:P131 ?region . }}
+  OPTIONAL {{ ?item wdt:P571 ?founded . }}
+  OPTIONAL {{ ?item wdt:P625 ?coord . }}
+  SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en" . }}
+}}
+"""
+
+SPARQL_GRAPE_VARIETIES_BY_COUNTRY = """
+SELECT DISTINCT ?item ?itemLabel ?colorLabel ?originLabel WHERE {{
+  ?item wdt:P31/wdt:P279* wd:Q10978 .     # instance of grape variety
+  ?item wdt:P495 wd:{country_qid} .       # country of origin
+  OPTIONAL {{ ?item wdt:P462 ?color . }}
+  OPTIONAL {{ ?item wdt:P495 ?origin . }}
+  SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en" . }}
+}}
+"""
+
+SPARQL_APPELLATIONS_BY_COUNTRY = """
+SELECT DISTINCT ?item ?itemLabel ?typeLabel ?regionLabel WHERE {{
+  ?item wdt:P31/wdt:P279* wd:Q454541 .    # appellation d'origine
+  ?item wdt:P17 wd:{country_qid} .        # country (direct)
+  OPTIONAL {{ ?item wdt:P131 ?region . }}
+  SERVICE wikibase:label {{ bd:serviceParam wikibase:language "en" . }}
+}}
+"""
+
+
+def run_sparql_filtered(
+    query: str,
+    expected_country: Optional[str] = None,
+    region_keywords: Optional[set[str]] = None,
+) -> list[dict]:
+    """Execute a SPARQL query and post-filter results for relevance.
+
+    Args:
+        query: SPARQL query string (already formatted with country QID).
+        expected_country: Expected country name for sanity checking labels.
+        region_keywords: Set of keywords to filter results by region relevance.
+
+    Returns:
+        Filtered list of SPARQL result dicts.
+    """
+    results = run_sparql(query)
+    if not results:
+        return results
+
+    if not expected_country and not region_keywords:
+        return results
+
+    filtered = []
+    for row in results:
+        # Build a text blob from all label fields for relevance checking
+        labels = " ".join(
+            v for k, v in row.items()
+            if k.endswith("Label") and v
+        ).lower()
+
+        # If region_keywords provided, check that at least the item isn't
+        # clearly about a different region
+        if region_keywords:
+            # Check if any off-topic region name appears in the labels
+            if not is_on_topic(labels, region_keywords):
+                logger.debug(f"Filtered off-topic SPARQL result: {labels[:80]}")
+                continue
+
+        filtered.append(row)
+
+    removed = len(results) - len(filtered)
+    if removed:
+        logger.info(f"SPARQL filter removed {removed} off-topic results ({len(filtered)} kept)")
+
+    return filtered
