@@ -717,29 +717,33 @@ def _collect_region(
     region_keywords: set[str],
     subdomain: str,
     tags_prefix: str,
+    skip_wikipedia: bool = False,
 ) -> list[dict]:
     """Collect facts for a single sub-region from Wikipedia + Wikidata."""
     all_facts = []
     seen_texts = set()
 
-    # Wikipedia key articles
-    logger.info(f"--- Wikipedia key articles: {subdomain} ---")
-    key_facts = _scrape_wikipedia_key_articles(
-        session, wiki_source_id, articles, region_keywords, subdomain, tags_prefix,
-    )
-    for f in key_facts:
-        seen_texts.add(f["fact_text"].lower())
-    all_facts.extend(key_facts)
+    if not skip_wikipedia:
+        # Wikipedia key articles
+        logger.info(f"--- Wikipedia key articles: {subdomain} ---")
+        key_facts = _scrape_wikipedia_key_articles(
+            session, wiki_source_id, articles, region_keywords, subdomain, tags_prefix,
+        )
+        for f in key_facts:
+            seen_texts.add(f["fact_text"].lower())
+        all_facts.extend(key_facts)
 
-    # Wikipedia category crawl
-    logger.info(f"--- Wikipedia categories: {subdomain} ---")
-    cat_facts = _scrape_wikipedia_categories(
-        session, wiki_source_id, categories, region_keywords,
-        subdomain, tags_prefix, seen_texts,
-    )
-    for f in cat_facts:
-        seen_texts.add(f["fact_text"].lower())
-    all_facts.extend(cat_facts)
+        # Wikipedia category crawl
+        logger.info(f"--- Wikipedia categories: {subdomain} ---")
+        cat_facts = _scrape_wikipedia_categories(
+            session, wiki_source_id, categories, region_keywords,
+            subdomain, tags_prefix, seen_texts,
+        )
+        for f in cat_facts:
+            seen_texts.add(f["fact_text"].lower())
+        all_facts.extend(cat_facts)
+    else:
+        logger.info(f"--- Skipping Wikipedia for {subdomain} (--skip-wikipedia) ---")
 
     # Wikidata SPARQL
     logger.info(f"--- Wikidata SPARQL: {subdomain} ---")
@@ -759,6 +763,7 @@ def _collect_region(
 def collect_all_facts(
     data_type: Optional[str] = None,
     scrape_web: bool = True,
+    skip_wikipedia: bool = False,
 ) -> list[dict]:
     """Collect all facts from all sources for selected region(s)."""
     session = wiki_session()
@@ -776,6 +781,7 @@ def collect_all_facts(
             session, wiki_rhone_sid, wikidata_sid,
             RHONE_ARTICLES, RHONE_CATEGORIES,
             RHONE_KEYWORDS, "rhone", "rhone",
+            skip_wikipedia=skip_wikipedia,
         )
         all_facts.extend(rhone_facts)
 
@@ -797,6 +803,7 @@ def collect_all_facts(
             session, wiki_loire_sid, wikidata_sid,
             LOIRE_ARTICLES, LOIRE_CATEGORIES,
             LOIRE_KEYWORDS, "loire", "loire",
+            skip_wikipedia=skip_wikipedia,
         )
         all_facts.extend(loire_facts)
 
@@ -818,6 +825,7 @@ def collect_all_facts(
             session, wiki_alsace_sid, wikidata_sid,
             ALSACE_ARTICLES, ALSACE_CATEGORIES,
             ALSACE_KEYWORDS, "alsace", "alsace",
+            skip_wikipedia=skip_wikipedia,
         )
         all_facts.extend(alsace_facts)
 
@@ -901,6 +909,7 @@ def run_test(cleanup: bool = False) -> None:
 @click.option("--validate", "validate_flag", is_flag=True, help="Run quality checks")
 @click.option("--test-run", is_flag=True, help="Limited test with report")
 @click.option("--cleanup", is_flag=True, help="With --test-run, delete inserted facts after reporting")
+@click.option("--skip-wikipedia", is_flag=True, help="Skip Wikipedia sources, use only Wikidata SPARQL + official sites")
 def main(
     run_all_flag: bool,
     data_type: Optional[str],
@@ -909,6 +918,7 @@ def main(
     validate_flag: bool,
     test_run: bool,
     cleanup: bool,
+    skip_wikipedia: bool,
 ) -> None:
     """OenoBench French Regional Scraper — Rhône, Loire, Alsace (genuine data)."""
     logger.add("data/logs/rhone_loire_alsace_{time}.log", rotation="10 MB")
@@ -927,7 +937,7 @@ def main(
 
     if validate_flag:
         click.echo("Running validation (dry-run collection)...")
-        facts = collect_all_facts(data_type=data_type, scrape_web=True)
+        facts = collect_all_facts(data_type=data_type, scrape_web=True, skip_wikipedia=skip_wikipedia)
         validate_facts(facts)
         return
 
@@ -936,7 +946,7 @@ def main(
         return
 
     if run_all_flag or data_type:
-        facts = collect_all_facts(data_type=data_type, scrape_web=True)
+        facts = collect_all_facts(data_type=data_type, scrape_web=True, skip_wikipedia=skip_wikipedia)
         click.echo(f"\nCollected {len(facts)} facts total")
 
         if dry_run:

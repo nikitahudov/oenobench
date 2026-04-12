@@ -701,30 +701,34 @@ def scrape_country(
     wikidata_source_id: str,
     official_source_id: str,
     test_run: bool = False,
+    skip_wikipedia: bool = False,
 ) -> list[dict]:
     """Run all data sources for a single country. Returns list of fact dicts."""
     logger.info(f"=== Scraping {country.upper()} ===")
     all_facts: list[dict] = []
+    seen: set[str] = set()
 
     session = wiki_session()
 
-    # 1. Wikipedia key articles
-    key_facts = _scrape_wikipedia_key_articles(session, country, wiki_source_id)
-    all_facts.extend(key_facts)
-    logger.info(f"[{country}] After key articles: {len(all_facts)} total facts")
+    if not skip_wikipedia:
+        # 1. Wikipedia key articles
+        key_facts = _scrape_wikipedia_key_articles(session, country, wiki_source_id)
+        all_facts.extend(key_facts)
+        seen = {f["fact_text"].lower() for f in all_facts}
+        logger.info(f"[{country}] After key articles: {len(all_facts)} total facts")
 
-    if test_run:
-        return all_facts[:TEST_RUN_LIMIT * 10]
+        if test_run:
+            return all_facts[:TEST_RUN_LIMIT * 10]
 
-    # 2. Wikipedia category crawl
-    cat_facts = _scrape_wikipedia_categories(session, country, wiki_source_id)
-    # Dedup against existing facts
-    seen = {f["fact_text"].lower() for f in all_facts}
-    for f in cat_facts:
-        if f["fact_text"].lower() not in seen:
-            seen.add(f["fact_text"].lower())
-            all_facts.append(f)
-    logger.info(f"[{country}] After categories: {len(all_facts)} total facts")
+        # 2. Wikipedia category crawl
+        cat_facts = _scrape_wikipedia_categories(session, country, wiki_source_id)
+        for f in cat_facts:
+            if f["fact_text"].lower() not in seen:
+                seen.add(f["fact_text"].lower())
+                all_facts.append(f)
+        logger.info(f"[{country}] After categories: {len(all_facts)} total facts")
+    else:
+        logger.info(f"[{country}] Skipping Wikipedia (--skip-wikipedia)")
 
     # 3. Wikidata SPARQL
     wd_facts = _scrape_wikidata(country, wikidata_source_id)
@@ -841,6 +845,7 @@ def run_country(
     country: str,
     sources: dict[str, dict[str, str]],
     dry_run: bool = False,
+    skip_wikipedia: bool = False,
 ) -> list[dict]:
     """Scrape a single country and optionally insert into DB."""
     country = country.lower()
@@ -854,6 +859,7 @@ def run_country(
         wiki_source_id=csrc["wiki"],
         wikidata_source_id=csrc["wikidata"],
         official_source_id=csrc["official"],
+        skip_wikipedia=skip_wikipedia,
     )
 
     if dry_run:
@@ -872,14 +878,14 @@ def run_country(
     return facts
 
 
-def run_all(dry_run: bool = False) -> dict[str, list[dict]]:
+def run_all(dry_run: bool = False, skip_wikipedia: bool = False) -> dict[str, list[dict]]:
     """Scrape all three countries."""
     sources = register_sources()
     results: dict[str, list[dict]] = {}
     total = 0
 
     for country in COUNTRIES:
-        facts = run_country(country, sources, dry_run=dry_run)
+        facts = run_country(country, sources, dry_run=dry_run, skip_wikipedia=skip_wikipedia)
         results[country] = facts
         total += len(facts)
 
@@ -941,6 +947,7 @@ def run_test(
 @click.option("--list", "list_flag", is_flag=True, help="List available countries and sources")
 @click.option("--test-run", "test_run_flag", is_flag=True, help="Quick test run with limited scraping")
 @click.option("--cleanup", is_flag=True, help="(unused, kept for CLI compatibility)")
+@click.option("--skip-wikipedia", is_flag=True, help="Skip Wikipedia sources, use only Wikidata SPARQL + official sites")
 def main(
     run_all_flag: bool,
     country: Optional[str],
@@ -949,6 +956,7 @@ def main(
     list_flag: bool,
     test_run_flag: bool,
     cleanup: bool,
+    skip_wikipedia: bool,
 ):
     """OenoBench European Wine Registries Scraper — Spain, Germany, Portugal."""
     log_time = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -981,6 +989,7 @@ def main(
                 wiki_source_id=csrc["wiki"],
                 wikidata_source_id=csrc["wikidata"],
                 official_source_id=csrc["official"],
+                skip_wikipedia=skip_wikipedia,
             )
             all_facts.extend(facts)
         validate_facts(all_facts)
@@ -991,12 +1000,12 @@ def main(
         return
 
     if run_all_flag:
-        run_all(dry_run=dry_run)
+        run_all(dry_run=dry_run, skip_wikipedia=skip_wikipedia)
         return
 
     if country:
         sources = register_sources()
-        run_country(country, sources, dry_run=dry_run)
+        run_country(country, sources, dry_run=dry_run, skip_wikipedia=skip_wikipedia)
         return
 
     click.echo("Use --all to scrape all countries, or --country <name> for a specific one.")
