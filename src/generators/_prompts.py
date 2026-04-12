@@ -183,22 +183,32 @@ Rules:
 5. Output valid JSON only. No text before or after the JSON object."""
 
 COMPARATIVE_TEMPLATE = """\
-Create a comparative question using these facts about different wine entities.
+Create a comparative question using these facts about different but related \
+wine entities (same region, same category, or same type).
 
-FACTS:
-{facts}
+ENTITY A: {entity_a}
+FACT A: {fact_a}
+
+ENTITY B: {entity_b}
+FACT B: {fact_b}
 
 COMPARISON TYPE: {comparison_type}
 
-The question should require the test-taker to compare or contrast the entities \
-described in the facts above. The correct answer must be derivable from the \
-facts alone.
+The two entities are comparable because they belong to the same category \
+(e.g., both are appellations in the same country, both are grape varieties \
+of the same color, both are producers in the same region). The question \
+should test the ability to distinguish between these similar entities.
 
 QUALITY REQUIREMENTS:
-- Highlight meaningful differences or similarities between the entities
+- The question MUST be about a meaningful, knowledge-testing difference \
+or similarity between the two entities — not trivial metadata differences
+- Frame as: "Both X and Y are [shared context]. Which one [distinguishing fact]?"
 - All options must reference real wine entities or attributes
-- The explanation must cite specific facts that support the correct answer
+- Distractors should be plausible claims about these specific entities
+- The explanation must cite the specific facts that support the correct answer
 - Question difficulty should be intermediate to advanced (level 2-3)
+- If the two facts don't contain a meaningful, testable comparison, output: \
+{{"skip": true, "reason": "Facts not meaningfully comparable"}}
 
 OUTPUT FORMAT (JSON):
 {json_schema}

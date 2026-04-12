@@ -64,15 +64,20 @@ COMPARISON_TYPES = {
 # ─── Core generation logic ────────────────────────────────────────────────────
 
 
-def _format_facts_block(fact_a: dict, fact_b: dict) -> str:
-    """Format a pair of facts into a numbered block for the prompt."""
-    lines = [
-        f"1. [{fact_a.get('subdomain', 'unknown')}] {fact_a['fact_text']}",
-        f"   (Source: {fact_a['source_name']})",
-        f"2. [{fact_b.get('subdomain', 'unknown')}] {fact_b['fact_text']}",
-        f"   (Source: {fact_b['source_name']})",
-    ]
-    return "\n".join(lines)
+def _extract_primary_entity(fact: dict) -> str:
+    """Extract the primary entity name from a fact for prompt display."""
+    entities = fact.get("entities")
+    if entities:
+        if isinstance(entities, str):
+            import orjson
+            try:
+                entities = orjson.loads(entities)
+            except Exception:
+                return "unknown"
+        for e in entities:
+            if e.get("name") and e["name"] != "| varietals =":
+                return e["name"]
+    return fact.get("subdomain", "unknown")
 
 
 def _generate_one(
@@ -86,12 +91,16 @@ def _generate_one(
 
     Returns result dict or None on failure.
     """
-    facts_block = _format_facts_block(fact_a, fact_b)
+    entity_a = _extract_primary_entity(fact_a)
+    entity_b = _extract_primary_entity(fact_b)
     comp_desc = COMPARISON_TYPES[comparison_type]
 
     prompt_rendered = build_prompt(
         COMPARATIVE_TEMPLATE,
-        facts=facts_block,
+        entity_a=entity_a,
+        fact_a=fact_a["fact_text"],
+        entity_b=entity_b,
+        fact_b=fact_b["fact_text"],
         comparison_type=f"{comparison_type} — {comp_desc}",
     )
     phash = prompt_hash(prompt_rendered)

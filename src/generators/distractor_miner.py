@@ -24,7 +24,7 @@ import click
 from loguru import logger
 
 from src.generators._dedup import batch_embed_and_store, check_duplicate
-from src.generators._fact_sampler import sample_facts
+from src.generators._fact_sampler import sample_confusable_facts, sample_facts
 from src.generators._id_generator import mint_question_id
 from src.generators._llm_client import GENERATOR_MODELS, get_client
 from src.generators._prompts import (
@@ -52,57 +52,23 @@ def _sample_target_and_distractors(
     domain: str,
     exclude_ids: set[str],
 ) -> tuple[dict, list[dict]] | None:
-    """Sample 1 target fact and 3-5 distractor facts from different subdomains.
+    """Sample 1 target fact and confusable distractor facts.
+
+    Distractors are from the SAME subdomain or share entity types with the
+    target, so wrong answers are plausible — not obviously about unrelated entities.
 
     Returns (target_fact, distractor_facts) or None if insufficient facts.
     """
-    conn = get_pg()
-    cur = conn.cursor()
-    exclude = list(exclude_ids)
-
-    # Get a random target fact that has a subdomain
-    cur.execute(
-        """
-        SELECT f.id, f.fact_text, f.domain, f.subdomain,
-               f.entities, f.source_id, s.name AS source_name,
-               s.url AS source_url, f.confidence, f.tags
-        FROM facts f
-        JOIN sources s ON s.id = f.source_id
-        WHERE f.domain = %s
-          AND f.subdomain IS NOT NULL
-          AND f.confidence >= 0.7
-          AND NOT (f.id = ANY(%s::uuid[]))
-          AND length(f.fact_text) > 40
-        ORDER BY random()
-        LIMIT 1
-        """,
-        (domain, exclude),
-    )
-    target_row = cur.fetchone()
-    if target_row is None:
+    # Get a random target fact with entities
+    targets = sample_facts(domain, 1, min_confidence=0.7, exclude_ids=exclude_ids)
+    if not targets:
         return None
-    target = dict(target_row)
+    target = targets[0]
 
-    # Get distractor facts from DIFFERENT subdomains in the same domain
-    cur.execute(
-        """
-        SELECT f.id, f.fact_text, f.domain, f.subdomain,
-               f.entities, f.source_id, s.name AS source_name,
-               s.url AS source_url, f.confidence, f.tags
-        FROM facts f
-        JOIN sources s ON s.id = f.source_id
-        WHERE f.domain = %s
-          AND f.subdomain IS NOT NULL
-          AND f.subdomain != %s
-          AND f.confidence >= 0.7
-          AND NOT (f.id = ANY(%s::uuid[]))
-          AND length(f.fact_text) > 40
-        ORDER BY random()
-        LIMIT 5
-        """,
-        (domain, target["subdomain"], exclude),
+    # Get confusable distractors (same subdomain or shared entity types)
+    distractors = sample_confusable_facts(
+        target, domain, count=5, exclude_ids=exclude_ids,
     )
-    distractors = [dict(r) for r in cur.fetchall()]
 
     if len(distractors) < 3:
         logger.debug(
