@@ -1,0 +1,556 @@
+"""
+OenoBench — Distractor-mined question generator (Strategy 5).
+
+Generates questions where wrong answers are mined from related facts about
+different entities, making them factually true but wrong for the specific
+question. This produces harder questions (Level 3-4) because distractors
+are real facts, not fabrications.
+
+Usage:
+    python -m src.generators.distractor_miner --domain wine_regions --count 10
+    python -m src.generators.distractor_miner --generator chatgpt --domain winemaking
+    python -m src.generators.distractor_miner --test-run --domain grape_varieties
+    python -m src.generators.distractor_miner --validate
+    python -m src.generators.distractor_miner --dry-run --count 5 --domain viticulture
+"""
+
+import random
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+import click
+from loguru import logger
+
+from src.generators._dedup import batch_embed_and_store, check_duplicate
+from src.generators._fact_sampler import sample_facts
+from src.generators._id_generator import mint_question_id
+from src.generators._llm_client import GENERATOR_MODELS, get_client
+from src.generators._prompts import (
+    DISTRACTOR_SYSTEM,
+    DISTRACTOR_TEMPLATE,
+    build_prompt,
+    prompt_hash,
+)
+from src.generators._question_db import get_used_fact_ids, insert_question
+from src.generators._schemas import parse_llm_response
+from src.utils.db import get_pg
+
+# ─── Logging setup ────────────────────────────────────────────────────────────
+
+LOG_DIR = Path("data/logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+MAX_RETRIES = 1
+
+
+# ─── Distractor sampling ─────────────────────────────────────────────────────
+
+
+def _sample_target_and_distractors(
+    domain: str,
+    exclude_ids: set[str],
+) -> tuple[dict, list[dict]] | None:
+    """Sample 1 target fact and 3-5 distractor facts from different subdomains.
+
+    Returns (target_fact, distractor_facts) or None if insufficient facts.
+    """
+    conn = get_pg()
+    cur = conn.cursor()
+    exclude = list(exclude_ids)
+
+    # Get a random target fact that has a subdomain
+    cur.execute(
+        """
+        SELECT f.id, f.fact_text, f.domain, f.subdomain,
+               f.entities, f.source_id, s.name AS source_name,
+               s.url AS source_url, f.confidence, f.tags
+        FROM facts f
+        JOIN sources s ON s.id = f.source_id
+        WHERE f.domain = %s
+          AND f.subdomain IS NOT NULL
+          AND f.confidence >= 0.7
+          AND NOT (f.id = ANY(%s::uuid[]))
+          AND length(f.fact_text) > 40
+        ORDER BY random()
+        LIMIT 1
+        """,
+        (domain, exclude),
+    )
+    target_row = cur.fetchone()
+    if target_row is None:
+        return None
+    target = dict(target_row)
+
+    # Get distractor facts from DIFFERENT subdomains in the same domain
+    cur.execute(
+        """
+        SELECT f.id, f.fact_text, f.domain, f.subdomain,
+               f.entities, f.source_id, s.name AS source_name,
+               s.url AS source_url, f.confidence, f.tags
+        FROM facts f
+        JOIN sources s ON s.id = f.source_id
+        WHERE f.domain = %s
+          AND f.subdomain IS NOT NULL
+          AND f.subdomain != %s
+          AND f.confidence >= 0.7
+          AND NOT (f.id = ANY(%s::uuid[]))
+          AND length(f.fact_text) > 40
+        ORDER BY random()
+        LIMIT 5
+        """,
+        (domain, target["subdomain"], exclude),
+    )
+    distractors = [dict(r) for r in cur.fetchall()]
+
+    if len(distractors) < 3:
+        logger.debug(
+            "Not enough distractor facts for subdomain={} (got {})",
+            target["subdomain"], len(distractors),
+        )
+        return None
+
+    return target, distractors
+
+
+# ─── Core generation logic ────────────────────────────────────────────────────
+
+
+def _format_distractor_facts(distractors: list[dict]) -> str:
+    """Format distractor facts as a numbered list for the prompt."""
+    lines = []
+    for i, fact in enumerate(distractors, 1):
+        sub = fact.get("subdomain", "unknown")
+        lines.append(f"{i}. {fact['fact_text']}  [Subdomain: {sub}]")
+    return "\n".join(lines)
+
+
+def _generate_one(
+    target: dict,
+    distractors: list[dict],
+    domain: str,
+    generator: str,
+) -> dict | None:
+    """Generate a single distractor-mined question.
+
+    Returns result dict or None on failure.
+    """
+    distractor_block = _format_distractor_facts(distractors)
+
+    prompt_rendered = build_prompt(
+        DISTRACTOR_TEMPLATE,
+        fact_text=target["fact_text"],
+        distractor_facts=distractor_block,
+    )
+    phash = prompt_hash(prompt_rendered)
+
+    client = get_client()
+    model_id = GENERATOR_MODELS[generator]
+
+    for attempt in range(1 + MAX_RETRIES):
+        t0 = time.time()
+        response = client.generate(
+            prompt=prompt_rendered,
+            system=DISTRACTOR_SYSTEM,
+            model=model_id,
+        )
+        latency = int((time.time() - t0) * 1000)
+
+        if not response.success:
+            logger.warning(
+                "LLM call failed | target_fact={} | attempt={} | error={}",
+                target["id"], attempt + 1, response.error,
+            )
+            continue
+
+        # Check for skip signal
+        if response.parsed and response.parsed.get("skip"):
+            logger.info(
+                "LLM skipped fact | fact={} | reason={}",
+                target["id"], response.parsed.get("reason", "unspecified"),
+            )
+            return None
+
+        parsed = parse_llm_response(response.content, "multiple_choice")
+        if parsed is not None:
+            return {
+                "parsed": parsed,
+                "prompt_rendered": prompt_rendered,
+                "prompt_hash_val": phash,
+                "response": response,
+                "latency_ms": latency,
+            }
+
+        logger.warning(
+            "Parse failed | target_fact={} | attempt={}",
+            target["id"], attempt + 1,
+        )
+
+    return None
+
+
+# ─── CLI ──────────────────────────────────────────────────────────────────────
+
+
+@click.command()
+@click.option(
+    "--domain",
+    type=click.Choice([
+        "wine_regions", "winemaking", "viticulture",
+        "grape_varieties", "wine_business", "producers",
+    ]),
+    help="Domain to generate questions for",
+)
+@click.option("--count", type=int, default=10, help="Number of questions to generate")
+@click.option(
+    "--generator",
+    type=click.Choice(["claude", "chatgpt", "gemini", "llama", "qwen"]),
+    default="claude",
+    help="LLM generator to use",
+)
+@click.option("--dry-run", is_flag=True, help="Generate but don't insert into DB")
+@click.option("--test-run", is_flag=True, help="Generate 3 questions, print details")
+@click.option("--validate", is_flag=True, help="Quality checks on existing questions")
+@click.option("--all", "run_all", is_flag=True, help="Generate full quota (1000)")
+def main(domain, count, generator, dry_run, test_run, validate, run_all):
+    """Generate distractor-mined questions where wrong answers are real facts about other entities."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    logger.add(LOG_DIR / f"distractor_{timestamp}.log", rotation="50 MB")
+
+    if validate:
+        _run_validate()
+        return
+
+    if not domain:
+        logger.error("--domain is required for generation (use --validate without it)")
+        sys.exit(1)
+
+    if test_run:
+        _run_test(domain, generator)
+        return
+
+    target = count
+    if run_all:
+        target = 1000
+        logger.info(f"--all mode: targeting {target} distractor-mined questions")
+
+    _run_generate(domain, target, generator, dry_run)
+
+
+# ─── Generate run ─────────────────────────────────────────────────────────────
+
+
+def _run_generate(
+    domain: str,
+    count: int,
+    generator: str,
+    dry_run: bool,
+):
+    """Main generation loop."""
+    logger.info(
+        "Starting distractor mining | domain={} | count={} | generator={} | "
+        "dry_run={}",
+        domain, count, generator, dry_run,
+    )
+
+    used_fact_ids = get_used_fact_ids()
+    run_used_ids: set[str] = set()
+    generated = 0
+    skipped_parse = 0
+    skipped_dup = 0
+    skipped_sample = 0
+    inserted_uuids: list[str] = []
+
+    max_attempts = count * 5  # prevent infinite loops if facts are exhausted
+    attempts = 0
+
+    while generated < count and attempts < max_attempts:
+        attempts += 1
+
+        result_pair = _sample_target_and_distractors(
+            domain, exclude_ids=used_fact_ids | run_used_ids,
+        )
+        if result_pair is None:
+            skipped_sample += 1
+            if skipped_sample > 20:
+                logger.warning("Too many sampling failures, stopping")
+                break
+            continue
+
+        target_fact, distractor_facts = result_pair
+        all_fact_ids = {str(target_fact["id"])} | {str(f["id"]) for f in distractor_facts}
+        run_used_ids.update(all_fact_ids)
+
+        # Difficulty 3-4 for distractor-mined questions
+        difficulty = str(random.choice([3, 4]))
+
+        result = _generate_one(target_fact, distractor_facts, domain, generator)
+        if result is None:
+            skipped_parse += 1
+            logger.info(
+                "SKIP (parse/skip) | target_fact={} | generator={}",
+                target_fact["id"], generator,
+            )
+            continue
+
+        parsed = result["parsed"]
+
+        # Dedup check
+        is_dup, dup_id = check_duplicate(parsed.question_text)
+        if is_dup:
+            skipped_dup += 1
+            logger.info(
+                "SKIP (duplicate) | question matches existing {} | target_fact={}",
+                dup_id, target_fact["id"],
+            )
+            continue
+
+        if dry_run:
+            generated += 1
+            logger.info(
+                "DRY-RUN | #{} | target_fact={} | Q: {}",
+                generated, target_fact["id"], parsed.question_text[:80],
+            )
+            continue
+
+        # Mint ID and insert
+        qid = mint_question_id(domain, difficulty)
+        options_dicts = (
+            [{"id": o.id, "text": o.text} for o in parsed.options]
+            if parsed.options
+            else None
+        )
+
+        question_data = {
+            "question_id": qid,
+            "domain": domain,
+            "subdomain": target_fact.get("subdomain"),
+            "question_type": "multiple_choice",
+            "difficulty": difficulty,
+            "cognitive_dim": "analysis",
+            "question_text": parsed.question_text,
+            "options": options_dicts,
+            "correct_answer": parsed.correct_answer,
+            "correct_answer_text": parsed.correct_answer_text,
+            "explanation": parsed.explanation,
+            "tags": parsed.tags,
+        }
+
+        generation_meta = {
+            "generator": generator,
+            "generator_version": result["response"].model,
+            "generation_method": "distractor_mining",
+            "template_id": "DISTRACTOR_TEMPLATE",
+            "llm_creativity": "medium",
+            "prompt_hash": result["prompt_hash_val"],
+            "raw_response": {
+                "content": result["response"].content,
+                "input_tokens": result["response"].input_tokens,
+                "output_tokens": result["response"].output_tokens,
+                "latency_ms": result["latency_ms"],
+            },
+        }
+
+        # Link both target fact AND distractor facts
+        fact_ids = [str(target_fact["id"])] + [str(f["id"]) for f in distractor_facts]
+        source_ids = list(
+            {str(target_fact["source_id"])} |
+            {str(f["source_id"]) for f in distractor_facts}
+        )
+
+        q_uuid = insert_question(
+            question_data, generation_meta,
+            fact_ids=fact_ids,
+            source_ids=source_ids,
+        )
+        if q_uuid:
+            generated += 1
+            inserted_uuids.append(q_uuid)
+            logger.info(
+                "OK | #{} | {} | target_fact={} | distractors={} | Q: {}",
+                generated, qid, target_fact["id"],
+                len(distractor_facts), parsed.question_text[:80],
+            )
+        else:
+            logger.error("DB insert failed for target_fact={}", target_fact["id"])
+
+    # Batch-embed inserted questions for future dedup
+    if inserted_uuids:
+        embedded = batch_embed_and_store(inserted_uuids)
+        logger.info(f"Embedded {embedded}/{len(inserted_uuids)} new questions")
+
+    logger.info(
+        "Distractor mining complete | generated={} | skipped_parse={} | "
+        "skipped_dup={} | skipped_sample={} | dry_run={}",
+        generated, skipped_parse, skipped_dup, skipped_sample, dry_run,
+    )
+    click.echo(
+        f"\nDone: {generated} distractor-mined questions generated, "
+        f"{skipped_parse} parse failures, {skipped_dup} duplicates skipped, "
+        f"{skipped_sample} sampling failures."
+    )
+
+
+# ─── Test run ─────────────────────────────────────────────────────────────────
+
+
+def _run_test(domain: str, generator: str):
+    """Generate 3 distractor-mined questions and print details."""
+    click.echo(f"\n=== Test Run: {domain} / {generator} / distractor-mined ===\n")
+
+    used = get_used_fact_ids()
+    tested = 0
+
+    for i in range(1, 4):
+        pair = _sample_target_and_distractors(domain, exclude_ids=used)
+        if pair is None:
+            click.echo(f"--- Question {i}/3 ---")
+            click.echo("  Could not sample target + distractors\n")
+            continue
+
+        target_fact, distractor_facts = pair
+        used.add(str(target_fact["id"]))
+
+        click.echo(f"--- Question {i}/3 ---")
+        click.echo(f"Target fact:  {target_fact['fact_text'][:100]}")
+        click.echo(f"  Subdomain:  {target_fact.get('subdomain')}")
+        click.echo(f"Distractors:  {len(distractor_facts)} facts from other subdomains")
+        for j, df in enumerate(distractor_facts, 1):
+            click.echo(f"  D{j} [{df.get('subdomain')}]: {df['fact_text'][:80]}")
+        click.echo(f"Generator:    {generator} ({GENERATOR_MODELS[generator]})")
+
+        result = _generate_one(target_fact, distractor_facts, domain, generator)
+        if result is None:
+            click.echo("  FAILED: could not parse LLM response\n")
+            continue
+
+        parsed = result["parsed"]
+        click.echo(f"Question:     {parsed.question_text}")
+        if parsed.options:
+            for opt in parsed.options:
+                marker = " *" if opt.id in parsed.correct_answer else ""
+                click.echo(f"  {opt.id}) {opt.text}{marker}")
+        click.echo(f"Answer:       {parsed.correct_answer}")
+        if parsed.correct_answer_text:
+            click.echo(f"Answer text:  {parsed.correct_answer_text}")
+        click.echo(f"Explanation:  {parsed.explanation}")
+        click.echo(f"Tags:         {parsed.tags}")
+        click.echo(f"Latency:      {result['latency_ms']}ms")
+        click.echo()
+        tested += 1
+
+    click.echo(f"Test run complete ({tested}/3 generated). "
+               "No questions were inserted into the database.")
+
+
+# ─── Validate ─────────────────────────────────────────────────────────────────
+
+
+def _run_validate():
+    """Quality checks on existing distractor-mined questions."""
+    conn = get_pg()
+    cur = conn.cursor()
+
+    click.echo("\n=== Distractor Miner Validation Report ===\n")
+
+    # Questions by domain
+    cur.execute(
+        """
+        SELECT q.domain, count(*) AS cnt
+        FROM questions q
+        JOIN generation_metadata gm ON gm.question_id = q.id
+        WHERE gm.generation_method = 'distractor_mining'
+        GROUP BY q.domain ORDER BY q.domain
+        """
+    )
+    rows = cur.fetchall()
+    total = sum(r["cnt"] for r in rows)
+    click.echo(f"Total distractor-mined questions: {total}")
+    click.echo("By domain:")
+    for r in rows:
+        click.echo(f"  {r['domain']:20s} {r['cnt']}")
+
+    # By difficulty (should be 3-4)
+    cur.execute(
+        """
+        SELECT q.difficulty, count(*) AS cnt
+        FROM questions q
+        JOIN generation_metadata gm ON gm.question_id = q.id
+        WHERE gm.generation_method = 'distractor_mining'
+        GROUP BY q.difficulty ORDER BY q.difficulty
+        """
+    )
+    rows = cur.fetchall()
+    click.echo("\nBy difficulty:")
+    for r in rows:
+        click.echo(f"  Level {r['difficulty']:5s} {r['cnt']}")
+    low_diff = sum(r["cnt"] for r in rows if r["difficulty"] in ("1", "2"))
+    if low_diff:
+        click.echo(f"  WARNING: {low_diff} questions below expected L3-4 difficulty")
+
+    # Facts per question (should be 4-6: 1 target + 3-5 distractors)
+    cur.execute(
+        """
+        SELECT q.id, count(qf.fact_id) AS fact_count
+        FROM questions q
+        JOIN generation_metadata gm ON gm.question_id = q.id
+        JOIN question_facts qf ON qf.question_id = q.id
+        WHERE gm.generation_method = 'distractor_mining'
+        GROUP BY q.id
+        """
+    )
+    rows = cur.fetchall()
+    if rows:
+        counts = [r["fact_count"] for r in rows]
+        click.echo(f"\nFacts per question: min={min(counts)}, max={max(counts)}, "
+                    f"avg={sum(counts)/len(counts):.1f}")
+        single_fact = sum(1 for c in counts if c < 2)
+        if single_fact:
+            click.echo(f"  WARNING: {single_fact} questions linked to <2 facts "
+                        "(expected target + distractors)")
+
+    # Generator distribution
+    cur.execute(
+        """
+        SELECT gm.generator, count(*) AS cnt
+        FROM questions q
+        JOIN generation_metadata gm ON gm.question_id = q.id
+        WHERE gm.generation_method = 'distractor_mining'
+        GROUP BY gm.generator ORDER BY gm.generator
+        """
+    )
+    rows = cur.fetchall()
+    click.echo("\nGenerator distribution:")
+    for r in rows:
+        click.echo(f"  {r['generator']:20s} {r['cnt']}")
+
+    # 5 random samples with linked fact count
+    cur.execute(
+        """
+        SELECT q.question_id, q.question_text, q.correct_answer, q.domain,
+               q.difficulty, count(qf.fact_id) AS linked_facts
+        FROM questions q
+        JOIN generation_metadata gm ON gm.question_id = q.id
+        JOIN question_facts qf ON qf.question_id = q.id
+        WHERE gm.generation_method = 'distractor_mining'
+        GROUP BY q.id, q.question_id, q.question_text, q.correct_answer,
+                 q.domain, q.difficulty
+        ORDER BY random()
+        LIMIT 5
+        """
+    )
+    samples = cur.fetchall()
+    if samples:
+        click.echo(f"\nRandom sample ({len(samples)} questions):")
+        for s in samples:
+            click.echo(f"\n  [{s['question_id']}] ({s['domain']}) L{s['difficulty']} "
+                        f"[{s['linked_facts']} linked facts]")
+            click.echo(f"  Q: {s['question_text'][:150]}")
+            click.echo(f"  A: {s['correct_answer']}")
+
+    click.echo("\nValidation complete.\n")
+
+
+if __name__ == "__main__":
+    main()
