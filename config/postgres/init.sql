@@ -37,7 +37,8 @@ CREATE TYPE question_status AS ENUM (
 CREATE TYPE source_tier AS ENUM ('tier_1_official', 'tier_2_authoritative', 'tier_3_reliable');
 
 CREATE TYPE generator_model AS ENUM (
-    'claude', 'gpt4', 'gemini', 'llama', 'template_only', 'human_authored'
+    'claude', 'gpt4', 'gemini', 'llama', 'chatgpt', 'qwen',
+    'template_only', 'human_authored'
 );
 
 -- =============================================================================
