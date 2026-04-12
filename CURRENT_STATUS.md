@@ -1,7 +1,7 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** April 11, 2026
-**Project phase:** Phase 1 — Data Collection (provenance rebuild complete)
+**Last updated:** April 12, 2026
+**Project phase:** Phase 1 — Data Collection complete (38,104 genuine facts)
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ---
@@ -10,7 +10,7 @@
 
 | Phase | Weeks | Status |
 |-------|-------|--------|
-| 1. Infrastructure & Data Collection | 1-6 | In progress (scraper rebuild complete, awaiting DB repopulation) |
+| 1. Infrastructure & Data Collection | 1-6 | **Complete** — 38,104 facts from 35 genuine scrapers |
 | 2. Question Generation | 7-12 | Not started |
 | 3. AI Validation | 13-16 | Not started |
 | 4. Human Review & Control Set | 17-20 | Not started |

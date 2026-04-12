@@ -163,3 +163,85 @@ All 17 scrapers were rewritten following the same pattern:
 - Resolution: Wikipedia + Wikidata provide sufficient coverage; official sites can be retried later
 - Some country SPARQL queries return fewer results than expected due to incomplete Wikidata coverage
 - Resolution: supplemented with Wikipedia article scraping for broader coverage
+
+---
+
+## 2026-04-12 — Phase 3: Verification & Quality Cleanup
+
+### What was done
+1. Automated DB cleanup — removed low-quality facts via SQL pattern matching
+2. Dangling reference resolution — resolved 129 facts, deleted 72 unresolvable
+3. Over-length fact handling — deleted >50 word facts, confidence-reduced 31-50 word facts
+4. Portugal over-representation trimming — removed 1,422 generic admin-region facts
+5. Near-duplicate removal — deleted 224 duplicate facts
+6. Refreshed `fact_count_summary` table for paper
+7. Exported CSV distributions to `data/exports/`
+
+### Methodology — Automated cleanup rules
+| Rule | Pattern | Action | Count |
+|------|---------|--------|-------|
+| Marketing text | `discover the\|join us\|visit our\|come and\|book now\|subscribe` | Delete | 19 |
+| Website boilerplate | `cookie\|privacy policy\|terms of use\|third parties` | Delete | 9 |
+| Disambiguation pages | `may refer to:\|disambiguation` | Delete | 3 |
+| Off-topic non-wine | `footballer\|politician\|rugby\|soccer\|tennis` | Delete | 4 |
+| Promo with exclamation | `!\s` + promotional keywords | Delete | 3 |
+| Under 5 words | word count < 5 | Delete | 31 |
+| Non-English text | French sentence patterns from vinsdeloire.fr | Delete | 1 |
+| Truncated sentences | No ending punctuation, >20 chars | Delete | 100 |
+| Near-duplicates | Same first 60 chars, keep longer | Delete shorter | 224 |
+| Portugal generic | "X is a wine region in Y, Portugal." (<80 chars, no detail) | Delete | 1,422 |
+| Dangling references | Starts with It/He/She/They + Wikipedia source | Resolve subject | 129 resolved |
+| Unresolvable dangles | Starts with It/He/She/They, no source context | Delete | 72 |
+| Over 50 words | word count > 50 | Delete | 24 |
+| 31-40 words | word count 31-40 | Reduce confidence ×0.8 | 694 |
+| 41-50 words | word count 41-50 | Reduce confidence ×0.6 | 216 |
+
+### Quantitative results
+- Before cleanup: 40,020 facts
+- After cleanup: 38,104 facts
+- Removed: 1,916 facts (4.8%)
+- Confidence-adjusted: 910 facts (31-50 words)
+
+### Final database statistics
+| Metric | Value |
+|--------|-------|
+| Total facts | 38,104 |
+| Countries covered | 22 |
+| Unique sources | ~580 |
+| With entities | 36,002 (94.5%) |
+| Tier 1 (official) | 7,472 (19.6%) |
+| Tier 2 (authoritative) | 29,199 (76.6%) |
+| Tier 3 (reliable) | 1,433 (3.8%) |
+
+### Domain distribution (final)
+| Domain | Facts | % |
+|--------|-------|---|
+| wine_regions | 18,943 | 49.7% |
+| producers | 6,215 | 16.3% |
+| grape_varieties | 5,959 | 15.6% |
+| viticulture | 3,635 | 9.5% |
+| wine_business | 1,985 | 5.2% |
+| winemaking | 1,367 | 3.6% |
+
+### Source type distribution
+| Source Type | Sources | Facts | % |
+|-------------|---------|-------|---|
+| Encyclopedia (Wikipedia) | 265 | 13,083 | 34.3% |
+| Knowledge base (Wikidata) | 3 | 11,806 | 31.0% |
+| Dataset (HuggingFace/Kaggle) | 3 | 4,739 | 12.4% |
+| Gov. extension (UC IPM, Penn State) | 3 | 1,786 | 4.7% |
+| Gov. registry (INAO) | 1 | 1,471 | 3.9% |
+| Gov. data (UC Davis AVA) | 1 | 1,412 | 3.7% |
+| Academic journals (OENO One, Vitis) | 279 | 891 | 2.3% |
+| Wine consortiums | 10 | 681 | 1.8% |
+| National wine bodies | 3 | 566 | 1.5% |
+| Government (TTB) | 3 | 514 | 1.3% |
+| Other | 9 | 1,155 | 3.0% |
+
+### Known limitations
+- Portugal still over-represented (6,176 facts, 16.2%) due to broad Wikidata wine region coverage
+- wine_regions domain at 49.7% — higher than 40% target but improved from initial 50%+
+- 910 facts between 31-50 words remain (confidence-reduced, not atomic)
+- Some off-topic SPARQL leakage remains (French Polynesia in France queries, etc.)
+- inter-rhone.com, brunellodimontalcino.it unreachable — Rhône/some Italian consortium data limited
+- Argentina, Chile, Lebanon have low counts (<150 facts each)
