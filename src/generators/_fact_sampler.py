@@ -5,9 +5,42 @@ Selects facts for question generation with source diversity,
 confidence filtering, and support for comparative / cluster queries.
 """
 
+import re
+
 from loguru import logger
 
 from src.utils.db import get_pg
+
+# ─── Fact quality filters ─────────────────────────────────────────────────────
+
+# Patterns that indicate vague, subjective, or marketing-style facts
+_VAGUE_PATTERNS = re.compile(
+    r"\b("
+    r"highly regarded|world-famous|renowned|prestigious|legendary|iconic|"
+    r"intriguing|fascinating|exceptional|extraordinary|outstanding|"
+    r"best known|most famous|widely celebrated|greatly admired|"
+    r"discover the|visit our|come and|join us|book now|must-visit|"
+    r"one of the (best|finest|greatest|most important)|"
+    r"is famous for its|is known for its quality"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# Minimum word count for a fact to be specific enough
+_MIN_SPECIFIC_WORDS = 8
+
+
+def _is_fact_specific(fact_text: str) -> bool:
+    """Check if a fact is specific enough for question generation.
+
+    Rejects vague, subjective, or marketing-style facts.
+    """
+    if len(fact_text.split()) < _MIN_SPECIFIC_WORDS:
+        return False
+    if _VAGUE_PATTERNS.search(fact_text):
+        return False
+    return True
+
 
 # ─── Domain question targets (for quota tracking) ───────────────────────────
 
@@ -71,10 +104,25 @@ def sample_facts(
             LIMIT %s
         """
 
-    cur.execute(query, (domain, min_confidence, exclude, count))
+    # Over-fetch to account for quality filtering
+    cur.execute(query, (domain, min_confidence, exclude, count * 3))
     rows = cur.fetchall()
-    logger.debug(f"Sampled {len(rows)} facts for domain={domain}")
-    return [dict(r) for r in rows]
+
+    # Filter out vague/marketing facts
+    results = []
+    filtered = 0
+    for r in rows:
+        if _is_fact_specific(r["fact_text"]):
+            results.append(dict(r))
+            if len(results) >= count:
+                break
+        else:
+            filtered += 1
+
+    if filtered:
+        logger.debug(f"Filtered {filtered} vague/marketing facts")
+    logger.debug(f"Sampled {len(results)} facts for domain={domain}")
+    return results
 
 
 def sample_fact_pairs(

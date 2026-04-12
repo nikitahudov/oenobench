@@ -136,6 +136,28 @@ QUALITY REQUIREMENTS:
 - Use precise wine terminology appropriate for the difficulty level
 - The explanation should cite the fact and explain why each distractor is wrong
 
+DISTRACTOR RULES:
+- For questions involving years or dates, distractors must be CLOSE (within 2-5 \
+years of the correct answer), not evenly spaced decades apart
+- For questions involving numeric values (hectares, percentages), distractors \
+must be plausible nearby values, not obviously wrong round numbers
+- Never use the pattern of spacing options exactly 10 years apart
+
+FACT QUALITY GATE:
+- If the fact is vague, generic, or subjective (e.g., "wines are highly regarded", \
+"the region is famous", "it is one of the best"), DO NOT generate a question. \
+Instead, output: {{"skip": true, "reason": "Fact too vague for unambiguous question"}}
+- If the fact is promotional or marketing language (e.g., "intriguing and \
+fascinating", "discover the excellence", "a must-visit destination"), DO NOT \
+generate a question. Instead, output: {{"skip": true, "reason": "Marketing content"}}
+- Only generate questions from facts that contain specific, verifiable information
+
+QUESTION STYLE:
+- Ask directly about the underlying knowledge, not about "what research shows" \
+or "what studies indicate". For example, instead of "Which statement about X is \
+supported by research?", ask "What effect does X have on Y?"
+- The question should test wine knowledge, not reading comprehension of the fact
+
 OUTPUT FORMAT (JSON):
 {json_schema}
 

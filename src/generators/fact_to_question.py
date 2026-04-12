@@ -99,6 +99,14 @@ def _generate_one(
             )
             continue
 
+        # Check if LLM signaled to skip (vague/marketing fact)
+        if response.parsed and response.parsed.get("skip"):
+            logger.info(
+                "LLM skipped fact | fact={} | reason={}",
+                fact["id"], response.parsed.get("reason", "unspecified"),
+            )
+            return None
+
         parsed = parse_llm_response(response.content, question_type)
         if parsed is not None:
             return {
