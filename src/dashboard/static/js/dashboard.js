@@ -9,7 +9,7 @@ async function fetchJSON(url) {
 }
 
 function formatNumber(n) {
-    return n != null ? n.toLocaleString() : "—";
+    return n != null ? n.toLocaleString() : "\u2014";
 }
 
 function progressClass(pct) {
@@ -22,13 +22,54 @@ function formatDomain(name) {
     return name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function timeAgo(isoStr) {
-    if (!isoStr) return "—";
-    const diff = (Date.now() - new Date(isoStr).getTime()) / 1000;
-    if (diff < 60) return "just now";
-    if (diff < 3600) return Math.floor(diff / 60) + "m ago";
-    if (diff < 86400) return Math.floor(diff / 3600) + "h ago";
-    return Math.floor(diff / 86400) + "d ago";
+function formatSourceType(name) {
+    const map = {
+        "encyclopedia": "Encyclopedia (Wikipedia)",
+        "knowledge_base": "Knowledge Base (Wikidata)",
+        "dataset": "Datasets (HuggingFace/Kaggle)",
+        "government_extension": "Gov. Extension",
+        "government_registry": "Gov. Registry (INAO)",
+        "government_data": "Gov. Data (UC Davis)",
+        "academic_journal": "Academic Journals",
+        "consortium": "Wine Consortiums",
+        "national_wine_body": "National Wine Bodies",
+        "government": "Government (TTB)",
+        "academic_database": "Academic Database",
+        "official_body": "Official Wine Bodies",
+        "international_organisation": "Intl. Organisations",
+        "reference": "Reference",
+        "trade_body": "Trade Bodies",
+    };
+    return map[name] || name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+/* ── Project Overview ───────────────────────────────────────────────────── */
+
+function updateProject(data) {
+    // Timeline bar
+    const timeline = document.getElementById("timeline");
+    timeline.innerHTML = "";
+    for (const phase of data.phases) {
+        const cls = phase.status === "complete" ? "complete" :
+                    phase.status === "in_progress" ? "in_progress" : "not_started";
+        const actual = phase.actual ? ` (${phase.actual})` : "";
+        timeline.innerHTML += `
+            <div class="timeline-phase ${cls}">
+                <span class="phase-num">${phase.id}</span>
+                <span class="phase-label">${escapeHtml(phase.name)}${actual}</span>
+            </div>`;
+    }
+
+    // Key metrics
+    document.getElementById("metric-facts").textContent = formatNumber(data.metrics.total_facts);
+    document.getElementById("metric-questions").textContent = formatNumber(data.metrics.total_questions);
+    document.getElementById("metric-days").textContent = data.metrics.days_until_deadline;
 }
 
 /* ── Fact Collection ─────────────────────────────────────────────────────── */
@@ -36,7 +77,6 @@ function timeAgo(isoStr) {
 function updateFacts(data) {
     document.getElementById("total-facts").textContent = formatNumber(data.total.count);
     document.getElementById("total-sources").textContent = formatNumber(data.sources.count);
-    document.getElementById("total-questions").textContent = formatNumber(data.questions.total);
 
     const bar = document.getElementById("overall-progress");
     const pct = Math.min(data.total.pct, 100);
@@ -62,50 +102,133 @@ function updateFacts(data) {
             </div>`;
     }
 
-    // Recent facts
-    const tbody = document.getElementById("recent-facts-body");
-    tbody.innerHTML = "";
-    for (const f of data.recent_facts) {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-            <td class="truncate">${escapeHtml(f.fact_text)}</td>
-            <td><span class="badge badge-complete">${formatDomain(f.domain)}</span></td>
-            <td class="mono">${timeAgo(f.created_at)}</td>`;
-        tbody.appendChild(tr);
+    // Country x Domain pivot table
+    updatePivotTable(data);
+
+    // Source distribution
+    updateSourceDistribution(data);
+}
+
+function updatePivotTable(data) {
+    const domainsList = data.domains_list || [];
+    if (!data.pivot || data.pivot.length === 0) return;
+
+    // Compute column maxes for heatmap (excluding General row and Total column)
+    const colMax = {};
+    for (const d of domainsList) {
+        colMax[d] = 0;
+        for (const row of data.pivot) {
+            if (row.country !== "General" && (row[d] || 0) > colMax[d]) {
+                colMax[d] = row[d];
+            }
+        }
     }
-    if (data.recent_facts.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" style="color:var(--text-muted)">No facts yet</td></tr>';
+
+    // Header
+    const header = document.getElementById("pivot-header");
+    header.innerHTML = `<th class="country-col">Country</th>`;
+    for (const d of domainsList) {
+        header.innerHTML += `<th class="cell-value">${formatDomain(d)}</th>`;
+    }
+    header.innerHTML += `<th class="total-col">Total</th>`;
+
+    // Body
+    const tbody = document.getElementById("pivot-body");
+    tbody.innerHTML = "";
+    for (const row of data.pivot) {
+        let tr = `<td class="country-col">${escapeHtml(row.country)}</td>`;
+        for (const d of domainsList) {
+            const val = row[d] || 0;
+            if (val === 0) {
+                tr += `<td class="cell-value cell-zero">\u2014</td>`;
+            } else {
+                const max = colMax[d] || 1;
+                const opacity = Math.min(0.55, Math.log(val + 1) / Math.log(max + 1) * 0.55);
+                tr += `<td class="cell-value" style="background:rgba(139,92,246,${opacity.toFixed(2)})">${formatNumber(val)}</td>`;
+            }
+        }
+        tr += `<td class="cell-value total-col">${formatNumber(row.total)}</td>`;
+        tbody.innerHTML += `<tr>${tr}</tr>`;
+    }
+
+    // Footer (totals)
+    if (data.pivot_totals) {
+        const foot = document.getElementById("pivot-footer");
+        let tr = `<td class="country-col"><strong>Total</strong></td>`;
+        for (const d of domainsList) {
+            tr += `<td class="cell-value"><strong>${formatNumber(data.pivot_totals[d] || 0)}</strong></td>`;
+        }
+        tr += `<td class="cell-value total-col"><strong>${formatNumber(data.pivot_totals.total || 0)}</strong></td>`;
+        foot.innerHTML = tr;
     }
 }
 
-/* ── Scraper Status ──────────────────────────────────────────────────────── */
+function updateSourceDistribution(data) {
+    const container = document.getElementById("source-distribution");
+    if (!data.source_distribution || data.source_distribution.length === 0) {
+        container.innerHTML = '<span style="color:var(--text-muted)">No source data</span>';
+        return;
+    }
 
-function updateScrapers(data) {
-    document.getElementById("phase-name").textContent = data.phase.current;
-    document.getElementById("scrapers-done").textContent =
-        data.phase.completed_scrapers + " / " + data.phase.total_scrapers;
+    const maxCount = data.source_distribution[0].count;
+    container.innerHTML = "";
+    for (const src of data.source_distribution) {
+        const widthPct = Math.max(2, (src.count / maxCount) * 100);
+        container.innerHTML += `
+            <div class="source-bar-row">
+                <span class="source-bar-label">${escapeHtml(formatSourceType(src.type))}</span>
+                <div class="source-bar-track">
+                    <div class="source-bar-fill" style="width:${widthPct.toFixed(1)}%"></div>
+                </div>
+                <span class="source-bar-value">${formatNumber(src.count)}</span>
+            </div>`;
+    }
+}
 
-    const bar = document.getElementById("scraper-progress");
-    const pct = Math.min(data.phase.pct, 100);
-    bar.style.width = pct + "%";
-    bar.className = "progress-fill " + progressClass(pct);
-    document.getElementById("scraper-pct").textContent = pct + "%";
+/* ── Upcoming Phases ────────────────────────────────────────────────────── */
 
-    const tbody = document.getElementById("scraper-table-body");
-    tbody.innerHTML = "";
-    data.scrapers.forEach((s, i) => {
-        const badgeClass = s.status === "complete" ? "badge-complete" :
-                          s.status === "in_progress" ? "badge-in-progress" : "badge-not-started";
-        const statusLabel = s.status.replace(/_/g, " ");
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-            <td class="mono">${i + 1}</td>
-            <td>${escapeHtml(s.name)}</td>
-            <td class="mono">${escapeHtml(s.file)}</td>
-            <td><span class="badge ${badgeClass}">${statusLabel}</span></td>
-            <td class="mono">${s.facts != null ? formatNumber(s.facts) : "—"}</td>`;
-        tbody.appendChild(tr);
-    });
+function updatePhaseDetails(data) {
+    const container = document.getElementById("phase-details");
+    container.innerHTML = "";
+
+    for (const phase of data.phases) {
+        if (phase.id <= 1) continue; // Skip completed Phase 1
+
+        const statusBadge = phase.status === "complete" ? "badge-complete" :
+                           phase.status === "in_progress" ? "badge-in-progress" : "badge-not-started";
+        const statusLabel = phase.status.replace(/_/g, " ");
+        const isNext = phase.id === 2; // Phase 2 is next, open by default
+
+        let subTasksHtml = "";
+        if (phase.sub_tasks) {
+            subTasksHtml = '<ul class="sub-task-list">';
+            for (const st of phase.sub_tasks) {
+                const stBadge = st.status === "complete" ? "badge-complete" :
+                               st.status === "in_progress" ? "badge-in-progress" : "badge-not-started";
+                const stIcon = st.status === "complete" ? "\u2713" : "\u25cb";
+                subTasksHtml += `<li><span class="st-icon ${stBadge}">${stIcon}</span> ${escapeHtml(st.name)}</li>`;
+            }
+            subTasksHtml += "</ul>";
+        }
+
+        const deadlineHtml = phase.deadline ?
+            `<div class="phase-deadline">Deadline: <strong>${phase.deadline}</strong></div>` : "";
+
+        container.innerHTML += `
+            <details ${isNext ? "open" : ""}>
+                <summary>
+                    <span class="phase-id">Phase ${phase.id}</span>
+                    <span class="phase-title">${escapeHtml(phase.name)}</span>
+                    <span class="badge ${statusBadge}">${statusLabel}</span>
+                    <span class="phase-target">${escapeHtml(phase.target)}</span>
+                </summary>
+                <div class="phase-body">
+                    <p>${escapeHtml(phase.details)}</p>
+                    ${subTasksHtml}
+                    ${deadlineHtml}
+                </div>
+            </details>`;
+    }
 }
 
 /* ── Infrastructure Health ───────────────────────────────────────────────── */
@@ -129,7 +252,6 @@ function updateHealth(data) {
             </div>`;
     }
 
-    // Docker stats
     const tbody = document.getElementById("docker-table-body");
     tbody.innerHTML = "";
     if (data.docker_stats.length === 0) {
@@ -146,26 +268,19 @@ function updateHealth(data) {
     }
 }
 
-/* ── Utilities ───────────────────────────────────────────────────────────── */
-
-function escapeHtml(str) {
-    const div = document.createElement("div");
-    div.textContent = str;
-    return div.innerHTML;
-}
-
 /* ── Main Loop ───────────────────────────────────────────────────────────── */
 
 async function refresh() {
     const ts = document.getElementById("last-refresh");
     try {
-        const [facts, scrapers, health] = await Promise.all([
+        const [facts, project, health] = await Promise.all([
             fetchJSON("/api/facts"),
-            fetchJSON("/api/scrapers"),
+            fetchJSON("/api/project"),
             fetchJSON("/api/health"),
         ]);
+        updateProject(project);
         updateFacts(facts);
-        updateScrapers(scrapers);
+        updatePhaseDetails(project);
         updateHealth(health);
         ts.textContent = "Last refresh: " + new Date().toLocaleTimeString();
     } catch (err) {

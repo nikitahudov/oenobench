@@ -335,6 +335,194 @@ main {
     display: block;
 }
 
+/* ── Timeline ───────────────────────────────────────────────────────────── */
+
+.timeline-container {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 1.25rem;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.timeline-phase {
+    flex: 1;
+    padding: 0.75rem 0.5rem;
+    text-align: center;
+    font-size: 0.72rem;
+    font-weight: 500;
+    position: relative;
+    transition: background 0.3s;
+}
+
+.timeline-phase .phase-num { display: block; font-weight: 700; font-size: 0.85rem; }
+.timeline-phase .phase-label { display: block; margin-top: 0.2rem; }
+
+.timeline-phase.complete { background: rgba(34, 197, 94, 0.2); color: var(--green); }
+.timeline-phase.in_progress { background: rgba(234, 179, 8, 0.2); color: var(--yellow); border: 1px solid var(--yellow); }
+.timeline-phase.not_started { background: var(--bg-card-alt); color: var(--text-muted); }
+
+/* ── Accent Stat Box ────────────────────────────────────────────────────── */
+
+.stat-box.accent { border-color: var(--accent); }
+.stat-box.accent .stat-value { color: var(--accent); }
+
+/* ── Pivot Table / Heatmap ──────────────────────────────────────────────── */
+
+.table-scroll { overflow-x: auto; }
+
+.pivot-table td.cell-value {
+    text-align: right;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 0.8rem;
+    min-width: 70px;
+}
+
+.pivot-table th.cell-value {
+    text-align: right;
+}
+
+.pivot-table td.cell-zero { color: var(--text-muted); text-align: right; }
+
+.pivot-table tfoot td {
+    font-weight: 700;
+    border-top: 2px solid var(--accent);
+}
+
+.pivot-table td.country-col { font-weight: 500; white-space: nowrap; }
+.pivot-table th.country-col { text-align: left; }
+.pivot-table td.total-col { font-weight: 600; color: var(--accent); }
+.pivot-table th.total-col { color: var(--accent); text-align: right; }
+
+/* ── Source Distribution Bar Chart ──────────────────────────────────────── */
+
+.source-bar-chart { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.5rem; }
+
+.source-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.source-bar-label {
+    min-width: 180px;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    text-align: right;
+    white-space: nowrap;
+}
+
+.source-bar-track {
+    flex: 1;
+    height: 18px;
+    background: var(--bg-input);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.source-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 0.6s ease;
+}
+
+.source-bar-value {
+    min-width: 55px;
+    font-size: 0.78rem;
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    text-align: right;
+}
+
+/* ── Phase Details (Collapsible) ────────────────────────────────────────── */
+
+#phase-details details {
+    background: var(--bg-card-alt);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+}
+
+#phase-details summary {
+    padding: 0.85rem 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-weight: 500;
+    list-style: none;
+}
+
+#phase-details summary::-webkit-details-marker { display: none; }
+
+#phase-details summary::before {
+    content: "\25B8";
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    transition: transform 0.2s;
+    flex-shrink: 0;
+}
+
+#phase-details details[open] summary::before { transform: rotate(90deg); }
+
+#phase-details .phase-id {
+    font-weight: 700;
+    color: var(--accent);
+    font-size: 0.85rem;
+    min-width: 55px;
+}
+
+#phase-details .phase-title {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+#phase-details .phase-target {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+}
+
+#phase-details .phase-body {
+    padding: 0 1rem 1rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    line-height: 1.7;
+}
+
+#phase-details .phase-deadline {
+    margin-top: 0.5rem;
+    color: var(--accent);
+    font-size: 0.85rem;
+}
+
+.sub-task-list {
+    list-style: none;
+    margin-top: 0.5rem;
+    padding: 0;
+}
+
+.sub-task-list li {
+    padding: 0.25rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.82rem;
+}
+
+.sub-task-list .st-icon {
+    width: 18px;
+    text-align: center;
+    font-size: 0.75rem;
+}
+
+.sub-task-list .st-icon.badge-complete { color: var(--green); }
+.sub-task-list .st-icon.badge-not-started { color: var(--text-muted); }
+.sub-task-list .st-icon.badge-in-progress { color: var(--yellow); }
+
 /* ── Footer ──────────────────────────────────────────────────────────────── */
 
 footer {
@@ -348,8 +536,11 @@ footer {
 
 @media (max-width: 900px) {
     header { flex-direction: column; gap: 0.75rem; }
+    .timeline-container { flex-wrap: wrap; }
+    .timeline-phase { min-width: 30%; }
     .domain-grid { grid-template-columns: repeat(2, 1fr); }
     .health-grid { grid-template-columns: repeat(2, 1fr); }
+    .source-bar-label { min-width: 120px; font-size: 0.7rem; }
     main { padding: 1rem; }
 }
 

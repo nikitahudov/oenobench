@@ -19,21 +19,41 @@
     </header>
 
     <main>
-        <!-- Section 1: Fact Collection -->
+        <!-- Section 1: Project Overview -->
         <section class="card full-width">
-            <h2>Fact Collection</h2>
-            <div class="summary-row" id="facts-summary">
+            <h2>Project Overview</h2>
+            <div class="timeline-container" id="timeline"></div>
+            <div class="summary-row" id="project-summary">
                 <div class="stat-box">
-                    <span class="stat-value" id="total-facts">—</span>
+                    <span class="stat-value" id="metric-facts">--</span>
                     <span class="stat-label">Total Facts</span>
                 </div>
                 <div class="stat-box">
-                    <span class="stat-value" id="total-sources">—</span>
-                    <span class="stat-label">Sources</span>
+                    <span class="stat-value" id="metric-questions">--</span>
+                    <span class="stat-label">Questions Generated</span>
                 </div>
                 <div class="stat-box">
-                    <span class="stat-value" id="total-questions">—</span>
-                    <span class="stat-label">Questions</span>
+                    <span class="stat-value" id="metric-target">5,000</span>
+                    <span class="stat-label">Target Questions</span>
+                </div>
+                <div class="stat-box accent">
+                    <span class="stat-value" id="metric-days">--</span>
+                    <span class="stat-label">Days Until Deadline</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Fact Collection -->
+        <section class="card full-width">
+            <h2>Fact Collection <span class="badge badge-complete">Phase 1 Complete</span></h2>
+            <div class="summary-row" id="facts-summary">
+                <div class="stat-box">
+                    <span class="stat-value" id="total-facts">--</span>
+                    <span class="stat-label">Total Facts</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-value" id="total-sources">--</span>
+                    <span class="stat-label">Active Sources</span>
                 </div>
                 <div class="stat-box wide">
                     <span class="stat-label">Overall Progress</span>
@@ -46,54 +66,26 @@
 
             <div class="domain-grid" id="domain-grid"></div>
 
-            <h3>Recent Facts</h3>
-            <table class="data-table" id="recent-facts-table">
-                <thead>
-                    <tr>
-                        <th>Fact</th>
-                        <th>Domain</th>
-                        <th>Added</th>
-                    </tr>
-                </thead>
-                <tbody id="recent-facts-body"></tbody>
-            </table>
-        </section>
-
-        <!-- Section 2: Scraper Status -->
-        <section class="card full-width">
-            <h2>Scraper Status</h2>
-            <div class="summary-row" id="phase-summary">
-                <div class="stat-box">
-                    <span class="stat-value" id="phase-name">—</span>
-                    <span class="stat-label">Current Phase</span>
-                </div>
-                <div class="stat-box">
-                    <span class="stat-value" id="scrapers-done">—</span>
-                    <span class="stat-label">Scrapers Complete</span>
-                </div>
-                <div class="stat-box wide">
-                    <span class="stat-label">Scraper Progress</span>
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="scraper-progress" style="width: 0%"></div>
-                    </div>
-                    <span class="stat-pct" id="scraper-pct">0%</span>
-                </div>
+            <h3>Country &times; Domain Distribution</h3>
+            <div class="table-scroll">
+                <table class="data-table pivot-table" id="country-domain-table">
+                    <thead><tr id="pivot-header"></tr></thead>
+                    <tbody id="pivot-body"></tbody>
+                    <tfoot><tr id="pivot-footer"></tr></tfoot>
+                </table>
             </div>
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Scraper</th>
-                        <th>File</th>
-                        <th>Status</th>
-                        <th>Facts</th>
-                    </tr>
-                </thead>
-                <tbody id="scraper-table-body"></tbody>
-            </table>
+
+            <h3>Source Type Distribution</h3>
+            <div id="source-distribution" class="source-bar-chart"></div>
         </section>
 
-        <!-- Section 3: Infrastructure Health -->
+        <!-- Section 3: Upcoming Phases -->
+        <section class="card full-width">
+            <h2>Upcoming Phases</h2>
+            <div id="phase-details"></div>
+        </section>
+
+        <!-- Section 4: Infrastructure Health -->
         <section class="card full-width">
             <h2>Infrastructure Health</h2>
             <div class="health-grid" id="health-grid"></div>

@@ -4,6 +4,7 @@ OenoBench — Monitoring Dashboard.
 Run:  python -m src.dashboard.app
 """
 
+import copy
 import os
 import subprocess
 from datetime import datetime, timezone
@@ -32,45 +33,67 @@ DOMAIN_TARGETS = {
     "wine_business": 1000,
 }
 
-SCRAPERS = [
-    # Original genuine scrapers
-    {"name": "Wikidata", "file": "wikidata.py", "status": "complete", "facts": 2145},
-    {"name": "Wikipedia", "file": "wikipedia.py", "status": "complete", "facts": 323},
-    {"name": "HuggingFace", "file": "huggingface.py", "status": "complete", "facts": 3231},
-    {"name": "UC Davis", "file": "ucdavis.py", "status": "complete", "facts": 2199},
-    {"name": "Kaggle", "file": "kaggle_data.py", "status": "complete", "facts": 1509},
-    {"name": "INAO (France)", "file": "inao.py", "status": "complete", "facts": 1473},
-    {"name": "Academic Journals", "file": "academic.py", "status": "complete", "facts": 925},
-    {"name": "UC IPM Grape", "file": "ucipm.py", "status": "complete", "facts": 1145},
-    {"name": "Extension Services", "file": "extension.py", "status": "complete", "facts": 705},
-    {"name": "OIV Docs", "file": "oiv_docs.py", "status": "complete", "facts": 63},
-    # Phase 1 rebuilt scrapers (fixed quality issues)
-    {"name": "Bordeaux", "file": "bordeaux.py", "status": "complete", "facts": 484},
-    {"name": "Burgundy", "file": "burgundy.py", "status": "complete", "facts": 483},
-    {"name": "Champagne", "file": "champagne.py", "status": "complete", "facts": 466},
-    {"name": "Italian Wine Central", "file": "italian_wine_central.py", "status": "complete", "facts": 788},
-    {"name": "Austrian Wine", "file": "austria.py", "status": "complete", "facts": 146},
-    {"name": "Greek Wine", "file": "greece.py", "status": "complete", "facts": 255},
-    {"name": "Italian Consortiums", "file": "consortiums_italy.py", "status": "complete", "facts": 85},
-    {"name": "US TTB", "file": "ttb.py", "status": "complete", "facts": 513},
-    # Phase 2 rebuilt scrapers (formerly hardcoded, now genuine)
-    {"name": "Italy Registries", "file": "italy.py", "status": "rebuilt", "facts": 0},
-    {"name": "Europe (ES/DE/PT)", "file": "europe.py", "status": "rebuilt", "facts": 0},
-    {"name": "New World", "file": "newworld.py", "status": "rebuilt", "facts": 0},
-    {"name": "EU/OIV Regulations", "file": "eu_oiv.py", "status": "rebuilt", "facts": 0},
-    {"name": "Rhône/Loire/Alsace", "file": "rhone_loire_alsace.py", "status": "rebuilt", "facts": 0},
-    {"name": "Spain Enrichment", "file": "spain_enrichment.py", "status": "rebuilt", "facts": 0},
-    {"name": "Portugal Enrichment", "file": "portugal_enrichment.py", "status": "rebuilt", "facts": 0},
-    {"name": "Germany Enrichment", "file": "germany_enrichment.py", "status": "rebuilt", "facts": 0},
-    {"name": "USA Enrichment", "file": "usa_enrichment.py", "status": "rebuilt", "facts": 0},
-    {"name": "South America", "file": "south_america.py", "status": "rebuilt", "facts": 0},
-    {"name": "Australia/NZ Enrichment", "file": "australia_nz_enrichment.py", "status": "rebuilt", "facts": 0},
-    {"name": "Hungary & Georgia", "file": "hungary_georgia.py", "status": "rebuilt", "facts": 0},
-    {"name": "Croatia & Slovenia", "file": "croatia_slovenia.py", "status": "rebuilt", "facts": 0},
-    {"name": "Canada", "file": "canada.py", "status": "rebuilt", "facts": 0},
-    {"name": "England", "file": "england.py", "status": "rebuilt", "facts": 0},
-    {"name": "Lebanon & Israel", "file": "lebanon_israel.py", "status": "rebuilt", "facts": 0},
-    {"name": "South Africa", "file": "south_africa_enrichment.py", "status": "rebuilt", "facts": 0},
+DOMAIN_ORDER = ["wine_regions", "grape_varieties", "producers", "viticulture", "winemaking", "wine_business"]
+
+PROJECT_PHASES = [
+    {
+        "id": 1,
+        "name": "Data Collection",
+        "status": "complete",
+        "target": "15,000+ facts",
+        "actual": None,
+        "details": "35 scrapers across 22 countries. Wikipedia, Wikidata SPARQL, government registries, academic journals, official wine bodies.",
+    },
+    {
+        "id": 2,
+        "name": "Question Generation",
+        "status": "not_started",
+        "target": "7,000 raw \u2192 6,000 unique",
+        "actual": None,
+        "details": "Multi-model generation to avoid self-preference bias in evaluation.",
+        "sub_tasks": [
+            {"name": "Prompt engineering & templates", "status": "not_started"},
+            {"name": "Claude generation (30%)", "status": "not_started"},
+            {"name": "GPT-4 generation (30%)", "status": "not_started"},
+            {"name": "Gemini generation (20%)", "status": "not_started"},
+            {"name": "Llama generation (10%)", "status": "not_started"},
+            {"name": "Template-based generation (10%)", "status": "not_started"},
+            {"name": "Deduplication & normalization", "status": "not_started"},
+        ],
+    },
+    {
+        "id": 3,
+        "name": "AI Validation",
+        "status": "not_started",
+        "target": "5,500 validated",
+        "actual": None,
+        "details": "Multi-model validator (3+ models must agree). Automated difficulty estimator with calibrated scores. Bias detection pass.",
+    },
+    {
+        "id": 4,
+        "name": "Human Review & Control Set",
+        "status": "not_started",
+        "target": "5,000 + 300 human-authored",
+        "actual": None,
+        "details": "Expert panel (3-5 wine domain experts) reviews flagged questions. 300 human-authored control questions for bias analysis.",
+    },
+    {
+        "id": 5,
+        "name": "Evaluation & Analysis",
+        "status": "not_started",
+        "target": "Full LLM benchmark",
+        "actual": None,
+        "details": "Evaluate target LLMs on held-out subsets. Self-Preference Score (SPS) analysis. Category-level scoring across all 6 domains.",
+    },
+    {
+        "id": 6,
+        "name": "Publication & Release",
+        "status": "not_started",
+        "target": "NeurIPS 2026",
+        "actual": None,
+        "details": "Paper writing, ArXiv preprint, public dataset release on HuggingFace + GitHub.",
+        "deadline": "2026-05-15",
+    },
 ]
 
 
@@ -121,9 +144,45 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/api/project")
+@require_auth
+def api_project():
+    """Project plan overview with phases and key metrics."""
+    try:
+        rows = _pg_query("SELECT count(*) AS cnt FROM facts")
+        total_facts = rows[0]["cnt"]
+    except Exception:
+        total_facts = 0
+
+    try:
+        rows = _pg_query("SELECT count(*) AS cnt FROM questions")
+        total_questions = rows[0]["cnt"]
+    except Exception:
+        total_questions = 0
+
+    phases = copy.deepcopy(PROJECT_PHASES)
+    phases[0]["actual"] = f"{total_facts:,} facts"
+
+    deadline = datetime(2026, 5, 15, tzinfo=timezone.utc)
+    days_remaining = (deadline - datetime.now(timezone.utc)).days
+
+    return jsonify({
+        "phases": phases,
+        "metrics": {
+            "total_facts": total_facts,
+            "total_questions": total_questions,
+            "target_questions": 5000,
+            "days_until_deadline": max(days_remaining, 0),
+            "deadline": "2026-05-15",
+        },
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+
 @app.route("/api/facts")
 @require_auth
 def api_facts():
+    # Domain counts
     try:
         domain_rows = _pg_query("SELECT domain, count(*) AS cnt FROM facts GROUP BY domain")
         domain_counts = {r["domain"]: r["cnt"] for r in domain_rows}
@@ -132,7 +191,8 @@ def api_facts():
 
     domains = []
     total_count = 0
-    for name, target in DOMAIN_TARGETS.items():
+    for name in DOMAIN_ORDER:
+        target = DOMAIN_TARGETS[name]
         count = domain_counts.get(name, 0)
         total_count += count
         domains.append({
@@ -146,61 +206,71 @@ def api_facts():
 
     # Source count
     try:
-        source_rows = _pg_query("SELECT count(*) AS cnt FROM sources")
+        source_rows = _pg_query("SELECT count(*) AS cnt FROM sources WHERE id IN (SELECT DISTINCT source_id FROM facts)")
         source_count = source_rows[0]["cnt"]
     except Exception:
         source_count = 0
 
-    # Questions by status
+    # Country x Domain pivot from fact_count_summary
     try:
-        q_rows = _pg_query("SELECT status, count(*) AS cnt FROM questions GROUP BY status")
-        questions = {r["status"]: r["cnt"] for r in q_rows}
-        questions["total"] = sum(questions.values())
-    except Exception:
-        questions = {"total": 0}
-
-    # Recent facts
-    try:
-        recent = _pg_query(
-            "SELECT fact_text, domain, created_at FROM facts ORDER BY created_at DESC LIMIT 10"
+        pivot_rows = _pg_query(
+            "SELECT country, domain, SUM(fact_count) AS cnt "
+            "FROM fact_count_summary GROUP BY country, domain ORDER BY country, domain"
         )
-        recent_facts = [
-            {
-                "fact_text": r["fact_text"][:120],
-                "domain": r["domain"],
-                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
-            }
-            for r in recent
-        ]
+        countries = {}
+        for r in pivot_rows:
+            c = r["country"]
+            if c not in countries:
+                countries[c] = {}
+            countries[c][r["domain"]] = r["cnt"]
+
+        pivot = []
+        for country, dcounts in sorted(
+            countries.items(), key=lambda x: sum(x[1].values()), reverse=True
+        ):
+            row = {"country": country}
+            row_total = 0
+            for d in DOMAIN_ORDER:
+                val = dcounts.get(d, 0)
+                row[d] = val
+                row_total += val
+            row["total"] = row_total
+            pivot.append(row)
+
+        col_totals = {"country": "Total"}
+        grand_total = 0
+        for d in DOMAIN_ORDER:
+            col_sum = sum(r.get(d, 0) for r in pivot)
+            col_totals[d] = col_sum
+            grand_total += col_sum
+        col_totals["total"] = grand_total
     except Exception:
-        recent_facts = []
+        pivot = []
+        col_totals = {}
+
+    # Source type distribution
+    try:
+        source_dist = _pg_query(
+            "SELECT s.source_type, COUNT(f.id) AS cnt "
+            "FROM facts f JOIN sources s ON f.source_id = s.id "
+            "GROUP BY s.source_type ORDER BY cnt DESC"
+        )
+        source_distribution = [{"type": r["source_type"], "count": r["cnt"]} for r in source_dist]
+    except Exception:
+        source_distribution = []
 
     return jsonify({
         "domains": domains,
+        "domains_list": DOMAIN_ORDER,
         "total": {
             "count": total_count,
             "target": target_total,
             "pct": round(total_count / target_total * 100, 1) if target_total else 0,
         },
         "sources": {"count": source_count},
-        "questions": questions,
-        "recent_facts": recent_facts,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
-
-
-@app.route("/api/scrapers")
-@require_auth
-def api_scrapers():
-    completed = sum(1 for s in SCRAPERS if s["status"] in ("complete", "rebuilt"))
-    return jsonify({
-        "scrapers": SCRAPERS,
-        "phase": {
-            "current": "Data Collection (Phase 1)",
-            "completed_scrapers": completed,
-            "total_scrapers": len(SCRAPERS),
-            "pct": round(completed / len(SCRAPERS) * 100, 1),
-        },
+        "pivot": pivot,
+        "pivot_totals": col_totals,
+        "source_distribution": source_distribution,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -299,7 +369,7 @@ def api_health():
             "details": {"error": str(e)},
         })
 
-    # Docker container stats (optional)
+    # Docker container stats
     docker_stats = []
     try:
         result = subprocess.run(
