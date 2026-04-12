@@ -245,3 +245,64 @@ All 17 scrapers were rewritten following the same pattern:
 - Some off-topic SPARQL leakage remains (French Polynesia in France queries, etc.)
 - inter-rhone.com, brunellodimontalcino.it unreachable — Rhône/some Italian consortium data limited
 - Argentina, Chile, Lebanon have low counts (<150 facts each)
+
+---
+
+## 2026-04-12 — Phase 2: Question Generation Pipeline (Infrastructure + Strategies 1-2)
+
+### What was done
+Built the question generation pipeline — 7 shared infrastructure modules and 2 of 5 generation strategies:
+
+**Shared modules (src/generators/):**
+1. `_llm_client.py` — Unified OpenRouter client (5 LLMs via single API)
+2. `_prompts.py` — Prompt templates for all generation strategies (~400 lines)
+3. `_schemas.py` — Pydantic output validation with 3-tier JSON extraction
+4. `_id_generator.py` — WB-{DOMAIN}-{SEQ}-L{DIFF} question ID minting
+5. `_question_db.py` — Atomic insertion with provenance linkage
+6. `_fact_sampler.py` — Stratified fact sampling with source diversity
+7. `_dedup.py` — Embedding-based semantic deduplication via pgvector
+
+**Generation strategies:**
+8. `fact_to_question.py` — Strategy 1: LLM converts facts → questions (40%, 4,000 target)
+9. `template_generator.py` — Strategy 2: 45 deterministic templates (25%, 2,500 target)
+
+### Sources & inputs
+- 38,104 verified facts in PostgreSQL (from Phase 1)
+- OpenRouter API for unified LLM access
+- 5 generator models: Claude Opus 4.6, ChatGPT 5.4, Gemini 3.1, Llama 3.1 405B, Qwen 3.5
+- Existing DB schema: questions, generation_metadata, question_facts, question_sources tables
+
+### Methodology
+
+**LLM client design:** Single OpenRouter API gateway replaces per-provider SDKs. Uses `openai` library with custom `base_url`. Tenacity retry with exponential backoff (2-16s, max 4 attempts). Rate limited at 1 request/1.5s.
+
+**Prompt design (fact-to-question):** System prompt instructs LLM to act as wine education assessment designer. User prompt provides: verified fact + source name + target domain/difficulty/cognitive dimension/question type. LLM reformats fact into question — never invents facts. JSON output schema embedded in prompt.
+
+**Template-based generation:** 45 parameterized templates across 6 domains (15 wine_regions, 8 grape_varieties, 6 producers, 6 winemaking, 5 viticulture, 5 wine_business). Templates extract entity values from fact JSONB, source distractors from other facts of same entity type. Zero LLM involvement — purely deterministic.
+
+**Output validation:** Pydantic models validate JSON structure (option counts per question type, correct_answer matches option IDs, field lengths). Three-tier JSON extraction handles markdown fences, raw JSON, and regex brace extraction.
+
+**Provenance:** Every question atomically linked to source facts (question_facts), external sources (question_sources), and generation metadata (generator model, version, method, prompt hash, raw LLM response).
+
+### Quality controls
+- Pydantic validation rejects malformed LLM output before DB insertion
+- Semantic deduplication via pgvector (cosine similarity threshold 0.92)
+- Parse failure → single retry, then skip (never insert unvalidated questions)
+- Source diversity in fact sampling (max 5 facts per source_id per sample)
+
+### Quantitative results
+- Total new code: 2,779 lines across 13 files (9 new, 4 modified)
+- Template registry: 45 templates across 6 domains
+- All 9 files pass syntax check
+- Both CLIs verified: `--help`, `--test-run`, `--list`, `--validate`
+- Template test run: 10/30 questions generated (wine_regions and grape_varieties matched; other domains need richer entity data)
+
+### Decisions & trade-offs
+- **OpenRouter over per-provider SDKs:** Single API key, unified rate limiting, no SDK version conflicts. Slightly higher per-token cost but dramatically simpler implementation.
+- **5 LLM generators (even 20% split):** Equal distribution across Claude/ChatGPT/Gemini/Llama/Qwen for maximum bias diversity. Paper can analyze self-preference across all 5.
+- **Incremental build:** Strategies 1-2 built first (65% of target). Quality review before building remaining 3. Reduces risk of prompt-quality issues at scale.
+- **Synchronous generation:** Matches scraper patterns. ~6 hours per model for 2,100 questions at 1.5s/call. Acceptable for one-time pipeline.
+- **Template generator entity-dependent:** Templates only match facts with required entity types. Domains with sparse JSONB entities (winemaking, viticulture) will rely more on LLM strategies.
+
+### Issues encountered & resolutions
+- Template test run showed 0 matches for winemaking, viticulture, wine_business, producers. Root cause: facts in these domains have fewer structured entities in JSONB. Resolution: these domains will rely primarily on fact-to-question (LLM) strategy rather than templates. Template contribution will be weighted toward wine_regions and grape_varieties.

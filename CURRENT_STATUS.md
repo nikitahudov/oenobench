@@ -1,7 +1,7 @@
 # OenoBench — Current Status & Progress
 
 **Last updated:** April 12, 2026
-**Project phase:** Phase 1 — Data Collection complete (38,104 genuine facts)
+**Project phase:** Phase 2 — Question Generation in progress (pipeline built, strategies 1-2 of 5 complete)
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ---
@@ -11,7 +11,7 @@
 | Phase | Weeks | Status |
 |-------|-------|--------|
 | 1. Infrastructure & Data Collection | 1-6 | **Complete** — 38,104 facts from 35 genuine scrapers |
-| 2. Question Generation | 7-12 | Not started |
+| 2. Question Generation | 7-12 | **In progress** — pipeline built, 2/5 strategies implemented |
 | 3. AI Validation | 13-16 | Not started |
 | 4. Human Review & Control Set | 17-20 | Not started |
 | 5. Evaluation & Analysis | 21-24 | Not started |
@@ -162,12 +162,54 @@ All formerly hardcoded scrapers rebuilt with genuine Wikipedia + Wikidata + offi
 
 ---
 
+## Phase 2: Question Generation (In Progress)
+
+### Pipeline Infrastructure (Complete)
+Built 7 shared modules in `src/generators/`:
+- `_llm_client.py` — Unified OpenRouter client for 5 LLMs
+- `_prompts.py` — Prompt templates for all generation strategies
+- `_schemas.py` — Pydantic output validation with 3-tier JSON extraction
+- `_id_generator.py` — WB-{DOMAIN}-{SEQ}-L{DIFF} question ID minting
+- `_question_db.py` — Atomic insertion with provenance (question_facts + question_sources)
+- `_fact_sampler.py` — Stratified fact sampling with source diversity
+- `_dedup.py` — Embedding-based semantic deduplication via pgvector
+
+### Generation Models (via OpenRouter)
+| Generator | Model | Status |
+|-----------|-------|--------|
+| Claude | `anthropic/claude-opus-4-6` | Ready |
+| ChatGPT | `openai/chatgpt-5.4` | Ready |
+| Gemini | `google/gemini-3.1` | Ready |
+| Llama | `meta-llama/llama-3.1-405b-instruct` | Ready |
+| Qwen | `qwen/qwen-3.5` | Ready |
+| Template-only | N/A (deterministic) | Ready |
+
+### Generation Strategies
+| Strategy | File | % | Status |
+|----------|------|---|--------|
+| Fact-to-Question | `fact_to_question.py` | 40% (4,000) | **Built** |
+| Template-Based | `template_generator.py` | 25% (2,500) | **Built** — 45 templates |
+| Comparative | `comparative_generator.py` | 15% (1,500) | Not started |
+| Scenario Synthesis | `scenario_generator.py` | 10% (1,000) | Not started |
+| Distractor Mining | `distractor_miner.py` | 10% (1,000) | Not started |
+
+### Target: 10,000 Questions
+| Domain | Target | Available Facts |
+|--------|--------|----------------|
+| wine_regions | 3,500 (35%) | 18,943 |
+| winemaking | 2,000 (20%) | 1,367 |
+| viticulture | 1,500 (15%) | 3,635 |
+| grape_varieties | 1,200 (12%) | 5,959 |
+| wine_business | 1,000 (10%) | 1,985 |
+| producers | 800 (8%) | 6,215 |
+
+---
+
 ## Next Steps
 
-1. **Re-run all rebuilt scrapers** to populate DB with genuine facts (in progress)
-2. **Run --validate on all scrapers** and compile quality report
-3. **Full database analysis** — fact counts, domain distribution, coverage gaps
-4. Implement `verify.py` gap analysis tool
-5. Begin question generation pipeline design (Phase 2)
-6. Set up multi-model LLM API access for question generation
-7. Design evaluation framework and scoring pipeline
+1. **Set OPENROUTER_API_KEY** in `.env` and run `fact_to_question.py --test-run` with live LLM
+2. **User reviews** 20-50 sample questions for quality, iterates prompts
+3. **Build remaining 3 strategies** (comparative, scenario, distractor mining)
+4. **Build orchestrator.py** for full pipeline with quota management
+5. **Full generation run** — generate ~14,000 raw, dedup to 10,000
+6. Transition to Phase 3: AI Validation
