@@ -28,11 +28,11 @@ load_dotenv()
 # -- Model registry --------------------------------------------------------
 
 GENERATOR_MODELS = {
-    "claude": "anthropic/claude-opus-4-6",
-    "chatgpt": "openai/chatgpt-5.4",
-    "gemini": "google/gemini-3.1",
-    "llama": "meta-llama/llama-3.1-405b-instruct",
-    "qwen": "qwen/qwen-3.5",
+    "claude": "anthropic/claude-opus-4.6",
+    "chatgpt": "openai/gpt-5.4",
+    "gemini": "google/gemini-3.1-pro-preview",
+    "llama": "nousresearch/hermes-3-llama-3.1-405b",    # Llama 3.1 405B via NousResearch
+    "qwen": "qwen/qwen3.5-397b-a17b",                  # Qwen 3.5 largest (397B MoE)
 }
 
 DEFAULT_MODEL = "claude"
