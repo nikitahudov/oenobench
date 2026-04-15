@@ -6,6 +6,7 @@ parsing that handles common LLM output quirks (markdown fences,
 extra text around JSON, etc.).
 """
 
+import random
 import re
 from typing import Optional
 
@@ -180,5 +181,42 @@ def parse_llm_response(raw: str, question_type: str) -> Optional[GeneratedQuesti
     except ValueError as e:
         logger.warning(f"Type-specific validation failed for {question_type}: {e}")
         return None
+
+    # Shuffle option order to prevent correct-answer position bias.
+    # LLMs overwhelmingly place the correct answer in position A.
+    if question.options and len(question.options) >= 2:
+        question = _shuffle_options(question)
+
+    return question
+
+
+def _shuffle_options(question: GeneratedQuestion) -> GeneratedQuestion:
+    """Shuffle option order and remap correct_answer to the new position."""
+    options = list(question.options)
+    correct_ids = {a.strip() for a in question.correct_answer.split(",")}
+
+    # Track which options are correct by their current text
+    correct_texts = {o.text for o in options if o.id in correct_ids}
+
+    # Shuffle the option objects
+    random.shuffle(options)
+
+    # Reassign IDs (A, B, C, ...) in new order
+    labels = list("ABCDEF")
+    new_correct_ids = []
+    for i, opt in enumerate(options):
+        new_id = labels[i]
+        if opt.text in correct_texts:
+            new_correct_ids.append(new_id)
+        opt.id = new_id
+
+    # Update the question
+    question.options = options
+    question.correct_answer = ",".join(sorted(new_correct_ids))
+    if question.correct_answer_text is None and len(new_correct_ids) == 1:
+        for o in options:
+            if o.id == new_correct_ids[0]:
+                question.correct_answer_text = o.text
+                break
 
     return question
