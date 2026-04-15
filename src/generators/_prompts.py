@@ -157,11 +157,17 @@ fascinating", "discover the excellence", "a must-visit destination"), DO NOT \
 generate a question. Instead, output: {{"skip": true, "reason": "Marketing content"}}
 - Only generate questions from facts that contain specific, verifiable information
 
-QUESTION STYLE:
+QUESTION STYLE — INFERENCE OVER RECALL:
 - Ask directly about the underlying knowledge, not about "what research shows" \
-or "what studies indicate". For example, instead of "Which statement about X is \
-supported by research?", ask "What effect does X have on Y?"
+or "what studies indicate"
 - The question should test wine knowledge, not reading comprehension of the fact
+- When possible, present observable evidence (tasting notes, vineyard conditions, \
+production data) and ask the test-taker to REASON BACKWARD to the underlying \
+knowledge, rather than asking about the fact directly
+- Example: instead of "What is the minimum aging for Barolo?", present a scenario \
+where a wine's characteristics must be matched to the correct appellation
+- Distractors should swap or reverse key attributes so that someone who confuses \
+similar entities picks the wrong answer
 
 OUTPUT FORMAT (JSON):
 {json_schema}
@@ -206,12 +212,23 @@ WHY THESE ARE COMPARABLE: {comparison_context}
 The question should exploit this specific relationship to test the ability \
 to distinguish between these similar entities.
 
+QUESTION DESIGN — INFERENCE OVER RECALL:
+- Do NOT simply ask "Which entity has attribute X?" — that is pure recall
+- Instead, present observable evidence or a practical situation where the \
+test-taker must APPLY knowledge of both entities to reach the answer
+- Example: instead of "Which DOCG requires longer aging?", present a scenario \
+where two wines are described and the taster must identify which is which \
+based on characteristics that follow from the facts
+- Distractors should reverse or swap the key distinguishing attributes between \
+the two entities — if the test-taker confuses the two, they pick the wrong answer
+- Keep the question concise — it should present evidence, not business padding
+
 QUALITY REQUIREMENTS:
 - The question MUST be about a meaningful, knowledge-testing difference \
 or similarity between the two entities — not trivial metadata differences
-- Frame as: "Both X and Y are [shared context]. Which one [distinguishing fact]?"
+- Both facts must be load-bearing — removing either fact should make the \
+question unanswerable
 - All options must reference real wine entities or attributes
-- Distractors should be plausible claims about these specific entities
 - The explanation must cite the specific facts that support the correct answer
 - Question difficulty should be intermediate to advanced (level 2-3)
 
@@ -275,9 +292,23 @@ SCENARIO TYPE GUIDANCE:
 - service: A restaurant or retail professional advising a customer
 - viticulture: A grower deciding on planting, canopy, or harvest decisions
 
+QUESTION DESIGN — INFERENCE OVER RECALL:
+- Present observable evidence (tasting notes, harvest data, vineyard conditions, \
+lab results, regulatory documents, production records) and ask the test-taker \
+to REASON BACKWARD to the underlying wine knowledge
+- The question should be unsolvable without synthesizing ALL provided facts
+- Do NOT simply ask about the facts directly ("Which region produces X?"). \
+Instead, present clues that require deduction ("Given these observations about \
+two wines from the same estate, which varieties are they?")
+- Keep the scenario concise and natural — it exists to present evidence, not \
+to add unnecessary business framing or padding
+- Distractors should reverse or swap key relationships to test genuine \
+understanding, not just recall
+
 QUALITY REQUIREMENTS:
 - The scenario must feel authentic and professionally relevant
-- Integrate at least 2 of the provided facts into the reasoning path
+- ALL provided facts must be load-bearing in the reasoning path — if a fact \
+can be removed without changing the answer, the question is too simple
 - All options must be plausible actions or conclusions
 - The explanation must trace the reasoning through the relevant facts
 - Target difficulty level 2-3 (intermediate to advanced)
@@ -323,6 +354,17 @@ related grape varieties, same-tier appellations). Each wrong option should \
 be something a student might genuinely confuse with the correct answer \
 because the entities are similar — not because the wrong answer is about \
 a completely different topic.
+
+QUESTION DESIGN — INFERENCE OVER RECALL:
+- Do NOT simply ask "What is true about [target entity]?" — that is pure recall
+- Instead, present observable evidence or a situation where the test-taker must \
+APPLY knowledge to identify the correct entity or attribute
+- Example: instead of "At the foot of which mountain range does Stellenbosch lie?", \
+present a vineyard visit scenario with geological observations and ask which \
+region matches those conditions
+- The wrong options should use real details from the distractor facts in a way \
+that a student who confuses similar entities would find plausible
+- Keep the question concise — present evidence, not padding
 
 Create a question where:
 - The correct answer is based on the TARGET FACT
