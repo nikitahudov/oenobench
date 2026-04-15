@@ -306,3 +306,73 @@ Built the question generation pipeline — 7 shared infrastructure modules and 2
 
 ### Issues encountered & resolutions
 - Template test run showed 0 matches for winemaking, viticulture, wine_business, producers. Root cause: facts in these domains have fewer structured entities in JSONB. Resolution: these domains will rely primarily on fact-to-question (LLM) strategy rather than templates. Template contribution will be weighted toward wine_regions and grape_varieties.
+
+---
+
+## 2026-04-15 — Phase 2: Question Generation Quality Improvements
+
+### What was done
+Major quality overhaul of the 3 LLM-based strategies (comparative, scenario, distractor) based on domain expert review of test batches. Six changes across 5 files (4 commits).
+
+### Methodology
+
+**1. Entity affinity scoring (`_fact_sampler.py`)**
+- New `_entity_affinity_score()` function scores 0-1 similarity between fact pairs using entity JSONB metadata (shared country +0.3, shared region +0.3, comparable entity types +0.2)
+- Comparative: SQL join changed from `a.subdomain = b.subdomain` to `a.country = b.country` (with subdomain fallback). Candidate pairs ranked by affinity, threshold 0.2
+- Scenario: Cluster cohesion changed from entity *type* overlap to entity *name* overlap. Keyword matching uses content-keyword extraction with wine-generic stopword removal, threshold raised from 3→4
+- Distractor: Priority 1 redefined as same-country + same-entity-type. Fallback candidates ranked by affinity score. Minimum lowered from 3→2
+
+**2. Fact richness filter (`_fact_sampler.py`)**
+- New `_is_fact_rich()` rejects thin geographic facts ("X is a wine region in Y", "X covers N hectares") from strategies 3-5 via regex pattern matching
+- Short facts (<12 words) must contain wine-content signals (grape, barrel, AOC, tannin, etc.) to qualify
+- Applied in `sample_fact_pairs()`, `sample_fact_clusters()`, `sample_confusable_facts()`
+
+**3. Blend-as-variety rejection (`_fact_sampler.py`)**
+- New `_BLEND_AS_VARIETY` regex rejects facts treating blend categories as grape varieties
+- Applied globally in `_is_fact_specific()` (affects all strategies)
+
+**4. Inference-over-recall prompt design (`_prompts.py`)**
+- All 4 prompt templates updated with "INFERENCE OVER RECALL" instruction block
+- Key instruction: present observable evidence → ask test-taker to reason backward to knowledge
+- Inspired by Gemini's Barbera/Nebbiolo question (domain expert rated it "brilliant")
+- Distractors must reverse/swap key relationships, not just state different facts
+
+**5. Gemini/Qwen max_tokens fix (`_llm_client.py`)**
+- Per-model `_MODEL_MAX_TOKENS` overrides: Gemini and Qwen get 6000 tokens (default 2000)
+- Root cause: verbose JSON responses truncated mid-string, ~90% parse failure rate for Gemini
+
+**6. Answer option shuffling (`_schemas.py`)**
+- `_shuffle_options()` randomizes option order and remaps correct_answer IDs after every LLM parse
+- Eliminates position A bias (LLMs overwhelmingly place correct answer first)
+- Verified ~25% per-position distribution over 100 trials
+
+### Quality controls
+- ~393 blend-as-variety facts filtered from all strategies
+- ~6,000+ thin geographic facts filtered from strategies 3-5
+- LLM skip signals working correctly: Claude rejected incoherent scenario clusters (copyright disclaimers, personnel committee facts) and non-comparable pairs (different countries, trivial metadata)
+- Affinity scoring verified: Barolo vs Barbaresco = 0.5 (pass), Niagara vs Douro = 0.2 (borderline pass), no cross-country pairs observed in test runs
+
+### Quantitative results
+- Scenario: 3/3 generated in final test run (after richness filter), all substantive wine content
+- Comparative: works well on winemaking/grape_varieties/viticulture domains; wine_regions limited by high ratio of thin facts
+- Distractor: skip rate appropriate — rejects cross-category distractors (AVA establishment vs AOC alcohol requirements)
+- Gemini parse success rate: ~10% (before fix) → ~80%+ (after max_tokens increase)
+
+### Multi-model quality ranking (scenario strategy, expert-reviewed)
+1. **Gemini** — Best inference-style questions, concise framing, elegant distractor design
+2. **ChatGPT** — Strong synthesis, good fact integration, slightly more verbose
+3. **Claude** — Solid, reliable, occasionally over-engineered business framing
+4. **Qwen** — Functional but slow (65s), needed retry for JSON parsing
+5. **Llama** — Weakest: simpler question structure, doesn't fully synthesize facts
+
+### Decisions & trade-offs
+- Affinity threshold set to 0.2 (not 0.3): many facts lack explicit country entities, 0.3 was too strict for wine_regions domain
+- Over-fetch for comparative increased to count×20 to compensate for richness filtering
+- Minimum distractors lowered from 3→2: stricter matching produces fewer but better distractors, LLM supplements remaining options
+- Inference-over-recall applied to all strategies including fact-to-question (40% of questions): biggest impact on overall benchmark quality
+
+### Human review notes
+- Domain expert verified scenario strategy output: marked as **Verified**
+- Comparative and distractor marked as **Built**, verification pending (scheduled for 2026-04-16)
+- Expert identified blend-as-variety issue in Q3 of Iberian wine scenario — led to filter implementation
+- Expert ranked Gemini's Barbera/Nebbiolo question as exemplar for all future question design
