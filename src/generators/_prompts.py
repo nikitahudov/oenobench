@@ -184,7 +184,7 @@ Rules:
 
 COMPARATIVE_TEMPLATE = """\
 Create a comparative question using these facts about different but related \
-wine entities (same region, same category, or same type).
+wine entities.
 
 ENTITY A: {entity_a}
 FACT A: {fact_a}
@@ -194,10 +194,10 @@ FACT B: {fact_b}
 
 COMPARISON TYPE: {comparison_type}
 
-The two entities are comparable because they belong to the same category \
-(e.g., both are appellations in the same country, both are grape varieties \
-of the same color, both are producers in the same region). The question \
-should test the ability to distinguish between these similar entities.
+WHY THESE ARE COMPARABLE: {comparison_context}
+
+The question should exploit this specific relationship to test the ability \
+to distinguish between these similar entities.
 
 QUALITY REQUIREMENTS:
 - The question MUST be about a meaningful, knowledge-testing difference \
@@ -207,8 +207,11 @@ or similarity between the two entities — not trivial metadata differences
 - Distractors should be plausible claims about these specific entities
 - The explanation must cite the specific facts that support the correct answer
 - Question difficulty should be intermediate to advanced (level 2-3)
-- If the two facts don't contain a meaningful, testable comparison, output: \
-{{"skip": true, "reason": "Facts not meaningfully comparable"}}
+
+SKIP CONDITIONS — output {{"skip": true, "reason": "..."}} if:
+- The two facts don't contain a meaningful, testable comparison
+- The entities are from completely different countries with no shared context
+- The only possible question would test trivial metadata, not wine knowledge
 
 OUTPUT FORMAT (JSON):
 {json_schema}
@@ -245,6 +248,16 @@ SCENARIO TYPE: {scenario_type}
 Build a realistic wine scenario that requires applying knowledge from multiple \
 facts above. The test-taker should need to synthesize information to arrive at \
 the correct answer.
+
+COHERENCE CHECK — before generating, verify that ALL facts relate to a single \
+coherent decision context. The facts should address different aspects of the \
+SAME situation (e.g., a grape's characteristics + its regional regulations + \
+its typical vinification). If the facts are about unrelated topics that cannot \
+naturally arise in one scenario, output: \
+{{"skip": true, "reason": "Facts too unrelated for coherent scenario"}}. \
+For example, a fact about white wine residual sugar and a fact about red wine \
+volatile acidity do NOT belong in the same scenario unless the situation \
+specifically involves comparing both wines.
 
 SCENARIO TYPE GUIDANCE:
 - winemaking: A winemaker facing a decision about technique, timing, or materials
@@ -293,6 +306,13 @@ TARGET FACT (basis for the correct answer):
 DISTRACTOR FACTS (mine these for plausible wrong options):
 {distractor_facts}
 
+CONFUSABILITY NOTE: The distractor facts are about entities that are similar \
+to or commonly confused with the target entity (e.g., neighboring regions, \
+related grape varieties, same-tier appellations). Each wrong option should \
+be something a student might genuinely confuse with the correct answer \
+because the entities are similar — not because the wrong answer is about \
+a completely different topic.
+
 Create a question where:
 - The correct answer is based on the TARGET FACT
 - Each wrong option uses a real detail from one of the DISTRACTOR FACTS
@@ -301,9 +321,14 @@ especially tricky
 
 QUALITY REQUIREMENTS:
 - The question should be answerable only with knowledge of the target fact
-- Each distractor should be a true statement about a different entity
+- Each distractor should be a true statement about a different but similar entity
 - The explanation must clarify why each distractor is wrong for THIS question
 - Target difficulty level 3-4 (advanced to expert)
+
+SKIP CONDITIONS — output {{"skip": true, "reason": "..."}} if:
+- The distractor facts are about entities obviously different from the target \
+(different country, different wine color, clearly unrelated category)
+- The distractors would be trivially eliminable by anyone with basic wine knowledge
 
 OUTPUT FORMAT (JSON):
 {json_schema}

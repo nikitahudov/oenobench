@@ -70,7 +70,7 @@ def _sample_target_and_distractors(
         target, domain, count=5, exclude_ids=exclude_ids,
     )
 
-    if len(distractors) < 3:
+    if len(distractors) < 2:
         logger.debug(
             "Not enough distractor facts for subdomain={} (got {})",
             target["subdomain"], len(distractors),
@@ -88,8 +88,28 @@ def _format_distractor_facts(distractors: list[dict]) -> str:
     lines = []
     for i, fact in enumerate(distractors, 1):
         sub = fact.get("subdomain", "unknown")
-        lines.append(f"{i}. {fact['fact_text']}  [Subdomain: {sub}]")
+        # Include primary entity name so the LLM knows what each distractor is about
+        entity_name = _extract_primary_entity_name(fact)
+        lines.append(
+            f"{i}. {fact['fact_text']}  [Entity: {entity_name}, Subdomain: {sub}]"
+        )
     return "\n".join(lines)
+
+
+def _extract_primary_entity_name(fact: dict) -> str:
+    """Extract the primary entity name from a fact for display."""
+    entities = fact.get("entities")
+    if entities:
+        if isinstance(entities, str):
+            import orjson
+            try:
+                entities = orjson.loads(entities)
+            except Exception:
+                return "unknown"
+        for e in entities:
+            if e.get("type") in ("region", "grape", "appellation", "producer", "ava"):
+                return e.get("name", "unknown")
+    return fact.get("subdomain", "unknown")
 
 
 def _generate_one(

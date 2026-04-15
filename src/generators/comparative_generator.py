@@ -95,6 +95,9 @@ def _generate_one(
     entity_b = _extract_primary_entity(fact_b)
     comp_desc = COMPARISON_TYPES[comparison_type]
 
+    comparison_context = fact_a.get(
+        "_comparison_context", "same domain and entity type"
+    )
     prompt_rendered = build_prompt(
         COMPARATIVE_TEMPLATE,
         entity_a=entity_a,
@@ -102,6 +105,7 @@ def _generate_one(
         entity_b=entity_b,
         fact_b=fact_b["fact_text"],
         comparison_type=f"{comparison_type} — {comp_desc}",
+        comparison_context=comparison_context,
     )
     phash = prompt_hash(prompt_rendered)
 
