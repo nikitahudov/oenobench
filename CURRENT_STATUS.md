@@ -189,9 +189,9 @@ Built 7 shared modules in `src/generators/`:
 |----------|------|---|--------|
 | Fact-to-Question | `fact_to_question.py` | 40% (4,000) | **Built** |
 | Template-Based | `template_generator.py` | 25% (2,500) | **Built** — 45 templates |
-| Comparative | `comparative_generator.py` | 15% (1,500) | Not started |
-| Scenario Synthesis | `scenario_generator.py` | 10% (1,000) | Not started |
-| Distractor Mining | `distractor_miner.py` | 10% (1,000) | Not started |
+| Comparative | `comparative_generator.py` | 15% (1,500) | **Built** — entity affinity scoring, country-level filtering |
+| Scenario Synthesis | `scenario_generator.py` | 10% (1,000) | **Verified** — inference-over-recall prompts, cohesion checks |
+| Distractor Mining | `distractor_miner.py` | 10% (1,000) | **Built** — confusable entity matching, richness filtering |
 
 ### Target: 10,000 Questions
 | Domain | Target | Available Facts |
