@@ -111,7 +111,12 @@ distractors (real regions, real grapes, real producers) -- never invented names.
 answer without any external context. Never reference "the passage", "the text", \
 or "according to the source".
 4. Match the specified difficulty level and cognitive dimension exactly.
-5. Output valid JSON only. No text before or after the JSON object."""
+5. Output valid JSON only. No text before or after the JSON object.
+6. Blend categories (e.g., "Red Blend", "White Blend", "Bordeaux-style Red \
+Blend", "Portuguese Red") are NOT grape varieties. Never refer to them as \
+varieties. If a fact treats a blend category as a variety, rephrase the \
+question to use accurate terminology (e.g., "wine style", "blend category", \
+"wine type")."""
 
 FACT_TO_QUESTION_TEMPLATE = """\
 Create a {question_type} question from the following fact.
@@ -180,7 +185,9 @@ Rules:
 2. The correct answer must be derivable solely from the provided facts.
 3. Distractors must be plausible comparisons that are wrong given the facts.
 4. Never reference sources or use phrases like "according to" or "based on the text".
-5. Output valid JSON only. No text before or after the JSON object."""
+5. Output valid JSON only. No text before or after the JSON object.
+6. Blend categories (e.g., "Red Blend", "White Blend") are NOT grape varieties. \
+Never refer to them as varieties — use "wine style" or "blend category" instead."""
 
 COMPARATIVE_TEMPLATE = """\
 Create a comparative question using these facts about different but related \
@@ -235,7 +242,9 @@ business case, or service situation) that requires applying the provided facts.
 2. The correct answer must be derivable from the combination of provided facts.
 3. The scenario must be plausible and professionally relevant.
 4. Never reference sources. The scenario should read naturally.
-5. Output valid JSON only. No text before or after the JSON object."""
+5. Output valid JSON only. No text before or after the JSON object.
+6. Blend categories (e.g., "Red Blend", "White Blend") are NOT grape varieties. \
+Never refer to them as varieties — use "wine style" or "blend category" instead."""
 
 SCENARIO_TEMPLATE = """\
 Create a scenario-based question that synthesizes these facts.
@@ -295,7 +304,9 @@ from those facts to construct wrong-but-plausible options.
 3. This technique creates harder questions because distractors are factually \
 true about other entities, just wrong for this specific question.
 4. Never reference sources or say "according to...".
-5. Output valid JSON only. No text before or after the JSON object."""
+5. Output valid JSON only. No text before or after the JSON object.
+6. Blend categories (e.g., "Red Blend", "White Blend") are NOT grape varieties. \
+Never refer to them as varieties — use "wine style" or "blend category" instead."""
 
 DISTRACTOR_TEMPLATE = """\
 Create a multiple-choice question where distractors are mined from related facts.

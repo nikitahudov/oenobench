@@ -24,7 +24,7 @@ import click
 from loguru import logger
 
 from src.generators._dedup import batch_embed_and_store, check_duplicate
-from src.generators._fact_sampler import sample_confusable_facts, sample_facts
+from src.generators._fact_sampler import sample_confusable_facts, sample_facts, _is_fact_rich
 from src.generators._id_generator import mint_question_id
 from src.generators._llm_client import GENERATOR_MODELS, get_client
 from src.generators._prompts import (
@@ -59,11 +59,15 @@ def _sample_target_and_distractors(
 
     Returns (target_fact, distractor_facts) or None if insufficient facts.
     """
-    # Get a random target fact with entities
-    targets = sample_facts(domain, 1, min_confidence=0.7, exclude_ids=exclude_ids)
-    if not targets:
+    # Get a random target fact with entities — must have rich wine content
+    targets = sample_facts(domain, 5, min_confidence=0.7, exclude_ids=exclude_ids)
+    target = None
+    for t in targets:
+        if _is_fact_rich(t["fact_text"]):
+            target = t
+            break
+    if target is None:
         return None
-    target = targets[0]
 
     # Get confusable distractors (same subdomain or shared entity types)
     distractors = sample_confusable_facts(

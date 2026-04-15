@@ -26,6 +26,32 @@ _VAGUE_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+# Blend categories that are NOT grape varieties — facts treating these as
+# varieties produce misleading questions ("Which variety is grown in X?")
+_BLEND_CATEGORIES = re.compile(
+    r"\b("
+    r"Red Blend|White Blend|Rosé Blend|Sparkling Blend|"
+    r"Portuguese Red|Portuguese White|"
+    r"Rhône Red Blend|Rhône White Blend|"
+    r"Bordeaux-style Red Blend|"
+    r"Austrian Red Blend|Austrian [Ww]hite [Bb]lend|"
+    r"Champagne Blend"
+    r")\b",
+    re.IGNORECASE,
+)
+_BLEND_AS_VARIETY = re.compile(
+    r"\b("
+    # "X Blend is grown/produced in Y"
+    r"(Red|White|Rosé|Sparkling|Champagne|Austrian\s+\w+|Bordeaux-style\s+\w+|Rhône\s+\w+)\s+Blend"
+    r"|Portuguese (Red|White)"
+    r")\b.{0,30}\b(is grown|is commonly produced|is planted)\b"
+    # "most widely reviewed variety in X is Red Blend"
+    r"|(most widely reviewed|most planted|most common) variety .{0,40}\b("
+    r"Red Blend|White Blend|Rosé Blend|Portuguese Red|Portuguese White"
+    r")\b",
+    re.IGNORECASE,
+)
+
 # Minimum word count for a fact to be specific enough
 _MIN_SPECIFIC_WORDS = 8
 
@@ -33,12 +59,76 @@ _MIN_SPECIFIC_WORDS = 8
 def _is_fact_specific(fact_text: str) -> bool:
     """Check if a fact is specific enough for question generation.
 
-    Rejects vague, subjective, or marketing-style facts.
+    Rejects vague, subjective, or marketing-style facts, and facts
+    that misclassify blend categories as grape varieties.
     """
     if len(fact_text.split()) < _MIN_SPECIFIC_WORDS:
         return False
     if _VAGUE_PATTERNS.search(fact_text):
         return False
+    if _BLEND_AS_VARIETY.search(fact_text):
+        return False
+    return True
+
+
+# Patterns that indicate a fact is purely geographic with no wine-specific content.
+# These are fine for simple fact-to-question but useless for comparative/scenario/distractor.
+_THIN_GEO_PATTERNS = re.compile(
+    r"^("
+    # "X is a wine region in Y" / "X is a wine-producing region in Y"
+    r".{3,80} is a (wine[- ]producing |wine )(region|area|commune|zone|village|town) in .+|"
+    # "X is a wine-producing area within the Y region of Z"
+    r".{3,80} is a wine[- ]producing area within .+|"
+    # "X covers approximately N hectares"
+    r".{3,80} covers approximately [\d,.]+ hectares\.?|"
+    # "X is a classified cru village in Y"
+    r".{3,80} is a classified cru (village|commune) in .+|"
+    # "X wine region is located in Y"
+    r".{3,80} wine region is located in .+|"
+    # "X is an AOC/DOC/DOCG appellation in Y" (no additional detail)
+    r".{3,80} is an? (AOC|DOC|DOCG|AOP|IGT|IGP) appellation in .+"
+    r")$",
+    re.IGNORECASE,
+)
+
+# Signals that a fact contains substantive wine content beyond geography
+_WINE_CONTENT_SIGNALS = re.compile(
+    r"\b("
+    # Grape varieties / winemaking
+    r"grape|varietal|blend|ferment|aged?ing|barrel|oak|tank|vintage|harvest|"
+    r"vinification|maceration|malolactic|lees|riddling|dosage|"
+    # Classifications
+    r"DOC[G]?|AOC|AOP|AVA|IGT|IGP|VdP|Prädikat|Spätlese|Auslese|Kabinett|"
+    r"Grand Cru|Premier Cru|Cru Classé|Reserva|Riserva|"
+    # Tasting / sensory
+    r"tannin|acidity|residual sugar|alcohol|body|aroma|bouquet|palate|finish|"
+    # Viticulture
+    r"rootstock|canopy|trellising|pruning|yield|clone|phylloxera|terroir|"
+    r"limestone|clay|chalk|schist|slate|gravel|loam|"
+    # Regulations / winemaking terms
+    r"appellation|denomination|regulation|minimum.{1,20}(aging|alcohol|percent)|"
+    r"permitted|authorized|required|prohibited|"
+    # Numeric wine data (percentages, temperatures, years with context)
+    r"\d+\s*%|\d+\s*°[CF]|\d+\s*(months?|years?)\s*(aging|minimum|barrel)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _is_fact_rich(fact_text: str) -> bool:
+    """Check if a fact has substantive wine content for higher-order strategies.
+
+    Rejects thin geographic facts ("X is a wine region in Y") that lack any
+    wine-specific information. These facts are fine for simple fact-to-question
+    (Level 1) but produce weak comparative, scenario, and distractor questions.
+    """
+    # If it matches a thin geographic pattern, check for wine content signals
+    if _THIN_GEO_PATTERNS.match(fact_text):
+        return False
+    # Also reject very short facts even if they don't match patterns
+    if len(fact_text.split()) < 12:
+        # Short facts need wine content signals to qualify
+        return bool(_WINE_CONTENT_SIGNALS.search(fact_text))
     return True
 
 
@@ -324,7 +414,7 @@ def sample_fact_pairs(
         ORDER BY random()
         LIMIT %s
         """,
-        (domain, exclude, count * 6),
+        (domain, exclude, count * 20),
     )
 
     rows = cur.fetchall()
@@ -334,6 +424,8 @@ def sample_fact_pairs(
     for row in rows:
         a_text, b_text = row["a_text"], row["b_text"]
         if not _is_fact_specific(a_text) or not _is_fact_specific(b_text):
+            continue
+        if not _is_fact_rich(a_text) or not _is_fact_rich(b_text):
             continue
         map_a = _extract_entity_map(row["a_entities"])
         map_b = _extract_entity_map(row["b_entities"])
@@ -432,8 +524,11 @@ def sample_fact_clusters(
             (domain, sub, exclude, cluster_size * 6),
         )
         candidates = [dict(r) for r in cur.fetchall()]
-        # Filter vague facts
-        candidates = [c for c in candidates if _is_fact_specific(c["fact_text"])]
+        # Filter vague and thin geographic facts
+        candidates = [
+            c for c in candidates
+            if _is_fact_specific(c["fact_text"]) and _is_fact_rich(c["fact_text"])
+        ]
 
         if len(candidates) < cluster_size:
             continue
@@ -530,6 +625,8 @@ def sample_confusable_facts(
             for r in rows:
                 if not _is_fact_specific(r["fact_text"]):
                     continue
+                if not _is_fact_rich(r["fact_text"]):
+                    continue
                 r_names = _extract_entity_names(r["entities"])
                 if r_names and r_names != target_names:
                     confusable.append(r)
@@ -560,6 +657,8 @@ def sample_confusable_facts(
         for r in cur.fetchall():
             r = dict(r)
             if not _is_fact_specific(r["fact_text"]):
+                continue
+            if not _is_fact_rich(r["fact_text"]):
                 continue
             r_names = _extract_entity_names(r["entities"])
             if r_names and r_names != target_names:
