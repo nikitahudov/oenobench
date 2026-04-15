@@ -37,6 +37,14 @@ GENERATOR_MODELS = {
 
 DEFAULT_MODEL = "claude"
 
+# Per-model max_tokens overrides. Gemini and Qwen produce verbose JSON
+# responses that get truncated at the default 2000 tokens, causing parse
+# failures. These models need a higher ceiling.
+_MODEL_MAX_TOKENS = {
+    "gemini": 6000,
+    "qwen": 6000,
+}
+
 # -- Response dataclass -----------------------------------------------------
 
 
@@ -161,6 +169,12 @@ class LLMClient:
             LLMResponse with content, parsed JSON, token counts, and timing.
         """
         model_id = self._resolve_model(model or DEFAULT_MODEL)
+
+        # Apply per-model max_tokens override if caller used the default
+        if max_tokens == 2000:
+            short_name = model or DEFAULT_MODEL
+            max_tokens = _MODEL_MAX_TOKENS.get(short_name, max_tokens)
+
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
