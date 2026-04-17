@@ -243,6 +243,132 @@ OUTPUT FORMAT (JSON):
 Generate the comparative question now."""
 
 
+COMPARATIVE_TEMPLATE_SAME_VS_DIFFERENT = """\
+Create a comparative question using these facts about two entities that share \
+a common context but differ on a specific dimension.
+
+ENTITY A: {entity_a}
+FACT A: {fact_a}
+
+ENTITY B: {entity_b}
+FACT B: {fact_b}
+
+SHARED CONTEXT: {comparison_context}
+DISTINGUISHING DIMENSION: {dimension}
+
+The question should test the ability to distinguish between these two entities \
+based on how they DIFFER on the {dimension} dimension, despite their shared \
+context.
+
+QUESTION DESIGN — INFERENCE OVER RECALL:
+- Do NOT simply ask "Which entity has attribute X?" — that is pure recall
+- Instead, present observable evidence or a practical situation where the \
+test-taker must APPLY knowledge of both entities to reach the answer
+- Example: if two appellations differ on aging requirements, describe a wine's \
+characteristics and ask which appellation it likely comes from
+- Distractors should reverse or swap the key distinguishing attributes between \
+the two entities — if the test-taker confuses the two, they pick the wrong answer
+- Keep the question concise — evidence, not padding
+
+QUALITY REQUIREMENTS:
+- The question MUST highlight a meaningful difference on the {dimension} dimension
+- Both facts must be load-bearing — removing either should make the question \
+unanswerable
+- All options must reference real wine entities or attributes
+- The explanation must cite the specific facts that support the correct answer
+- Difficulty: intermediate to advanced (level 2-3)
+
+SKIP CONDITIONS — output {{"skip": true, "reason": "..."}} if:
+- The two facts don't contain a meaningful, testable difference on {dimension}
+- The distinguishing detail is trivially obvious or uninteresting
+- The only possible question would test trivial metadata, not wine knowledge
+
+OUTPUT FORMAT (JSON):
+{json_schema}
+
+Generate the comparative question now."""
+
+
+COMPARATIVE_TEMPLATE_WHICH_ONE = """\
+Create a "which one" identification question using these facts about \
+related wine entities.
+
+{facts_block}
+
+SHARED CONTEXT: {comparison_context}
+
+The question should describe characteristics or attributes that match \
+exactly ONE of the entities above, and the test-taker must identify \
+which entity is being described.
+
+QUESTION DESIGN — INFERENCE OVER RECALL:
+- Do NOT simply ask "Which entity has attribute X?" — that is pure recall
+- Instead, present a scenario, tasting note, or practical situation that \
+contains clues pointing to one specific entity
+- The description should require synthesizing multiple pieces of evidence, \
+not just matching a single keyword
+- Distractors: each wrong option should be a real entity that shares SOME \
+but not ALL of the described characteristics — a test-taker who knows only \
+partial information might pick the wrong one
+- Keep the question concise — present evidence, not background padding
+
+QUALITY REQUIREMENTS:
+- Exactly one entity must be the unambiguous correct answer given the facts
+- All entities should be plausible candidates before careful analysis
+- The explanation must identify which specific clues distinguish the correct \
+entity from each distractor
+- Difficulty: intermediate to advanced (level 2-3)
+
+SKIP CONDITIONS — output {{"skip": true, "reason": "..."}} if:
+- The facts don't allow distinguishing one entity from the others
+- The entities are too dissimilar to create a challenging identification task
+- The only possible question would test trivial metadata, not wine knowledge
+
+OUTPUT FORMAT (JSON):
+{json_schema}
+
+Generate the identification question now."""
+
+
+COMPARATIVE_TEMPLATE_MOST_LEAST = """\
+Create a superlative comparison question using these facts that contain \
+comparable numeric or ordinal values.
+
+{facts_block}
+
+SHARED CONTEXT: {comparison_context}
+NUMERIC DIMENSION: {dimension}
+
+The question should ask which entity has the highest, lowest, largest, \
+smallest, earliest, or latest value for a specific measurable attribute.
+
+QUESTION DESIGN — INFERENCE OVER RECALL:
+- Frame the question as a practical decision or observation, not a trivia lookup
+- Example: instead of "Which region has the largest area?", ask "A producer \
+seeking the largest possible growing area within [country] would find the \
+most hectares available in which of these appellations?"
+- Distractors should be the other entities in the comparison — real entities \
+with real but different numeric values
+- Include the actual numeric values in the explanation so the ranking is clear
+- Keep the question concise
+
+QUALITY REQUIREMENTS:
+- All entities must have comparable numeric measurements for the same attribute
+- The correct answer must be unambiguously derivable from the facts provided
+- The explanation must cite the specific numeric values from each fact
+- Difficulty: intermediate (level 2-3)
+
+SKIP CONDITIONS — output {{"skip": true, "reason": "..."}} if:
+- The numeric values aren't truly comparable (different units, different metrics)
+- The comparison is trivially obvious (one value is 100x larger)
+- Only one entity has a numeric value
+
+OUTPUT FORMAT (JSON):
+{json_schema}
+
+Generate the superlative comparison question now."""
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 3. Scenario-based questions (multi-fact synthesis)
 # ═══════════════════════════════════════════════════════════════════════════════

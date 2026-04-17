@@ -23,12 +23,15 @@ import click
 from loguru import logger
 
 from src.generators._dedup import batch_embed_and_store, check_duplicate
-from src.generators._fact_sampler import sample_fact_pairs
+from src.generators._fact_sampler import sample_fact_groups, sample_fact_pairs
 from src.generators._id_generator import mint_question_id
 from src.generators._llm_client import GENERATOR_MODELS, get_client
 from src.generators._prompts import (
     COMPARATIVE_SYSTEM,
     COMPARATIVE_TEMPLATE,
+    COMPARATIVE_TEMPLATE_MOST_LEAST,
+    COMPARATIVE_TEMPLATE_SAME_VS_DIFFERENT,
+    COMPARATIVE_TEMPLATE_WHICH_ONE,
     build_prompt,
     prompt_hash,
 )
@@ -60,8 +63,28 @@ COMPARISON_TYPES = {
     ),
 }
 
+# Template selection by comparison type
+TEMPLATE_MAP = {
+    "same_vs_different": COMPARATIVE_TEMPLATE_SAME_VS_DIFFERENT,
+    "which_one": COMPARATIVE_TEMPLATE_WHICH_ONE,
+    "most_least": COMPARATIVE_TEMPLATE_MOST_LEAST,
+}
+
 
 # ─── Core generation logic ────────────────────────────────────────────────────
+
+
+def _format_facts_block(facts: list[dict]) -> str:
+    """Format multiple facts with entity labels for multi-entity prompts."""
+    labels = "ABCDEFGH"
+    lines = []
+    for i, fact in enumerate(facts):
+        label = labels[i] if i < len(labels) else str(i + 1)
+        entity = fact.get("_matched_entity_name") or _extract_primary_entity(fact)
+        lines.append(f"ENTITY {label}: {entity}")
+        lines.append(f"FACT {label}: {fact['fact_text']}")
+        lines.append("")
+    return "\n".join(lines)
 
 
 def _extract_primary_entity(fact: dict) -> str:
@@ -81,36 +104,47 @@ def _extract_primary_entity(fact: dict) -> str:
 
 
 def _generate_one(
-    fact_a: dict,
-    fact_b: dict,
+    facts: list[dict],
     domain: str,
     comparison_type: str,
     generator: str,
 ) -> dict | None:
-    """Generate a single comparative question from a fact pair.
+    """Generate a single comparative question from a fact group (2-4 facts).
 
     Returns result dict or None on failure.
     """
-    entity_a = _extract_primary_entity(fact_a)
-    entity_b = _extract_primary_entity(fact_b)
-    comp_desc = COMPARISON_TYPES[comparison_type]
+    template = TEMPLATE_MAP.get(comparison_type, COMPARATIVE_TEMPLATE)
+    comparison_context = facts[0].get("_comparison_context", "same domain and entity type")
+    dimension = facts[0].get("_dimension", "unspecified")
 
-    comparison_context = fact_a.get(
-        "_comparison_context", "same domain and entity type"
-    )
-    prompt_rendered = build_prompt(
-        COMPARATIVE_TEMPLATE,
-        entity_a=entity_a,
-        fact_a=fact_a["fact_text"],
-        entity_b=entity_b,
-        fact_b=fact_b["fact_text"],
-        comparison_type=f"{comparison_type} — {comp_desc}",
-        comparison_context=comparison_context,
-    )
+    if len(facts) == 2 and comparison_type == "same_vs_different":
+        # Pair-specific template with entity_a/entity_b slots
+        entity_a = facts[0].get("_matched_entity_name") or _extract_primary_entity(facts[0])
+        entity_b = facts[1].get("_matched_entity_name") or _extract_primary_entity(facts[1])
+        prompt_rendered = build_prompt(
+            template,
+            entity_a=entity_a,
+            fact_a=facts[0]["fact_text"],
+            entity_b=entity_b,
+            fact_b=facts[1]["fact_text"],
+            comparison_context=comparison_context,
+            dimension=dimension,
+        )
+    else:
+        # Multi-entity or which_one/most_least: use facts_block format
+        facts_block = _format_facts_block(facts)
+        prompt_rendered = build_prompt(
+            template,
+            facts_block=facts_block,
+            comparison_context=comparison_context,
+            dimension=dimension,
+        )
+
     phash = prompt_hash(prompt_rendered)
 
     client = get_client()
     model_id = GENERATOR_MODELS[generator]
+    fact_ids = [str(f["id"]) for f in facts]
 
     for attempt in range(1 + MAX_RETRIES):
         t0 = time.time()
@@ -123,16 +157,16 @@ def _generate_one(
 
         if not response.success:
             logger.warning(
-                "LLM call failed | facts=({},{}) | attempt={} | error={}",
-                fact_a["id"], fact_b["id"], attempt + 1, response.error,
+                "LLM call failed | facts={} | attempt={} | error={}",
+                fact_ids, attempt + 1, response.error,
             )
             continue
 
         # Check if LLM signaled to skip
         if response.parsed and response.parsed.get("skip"):
             logger.info(
-                "LLM skipped pair | facts=({},{}) | reason={}",
-                fact_a["id"], fact_b["id"],
+                "LLM skipped group | facts={} | reason={}",
+                fact_ids,
                 response.parsed.get("reason", "unspecified"),
             )
             return None
@@ -148,8 +182,8 @@ def _generate_one(
             }
 
         logger.warning(
-            "Parse failed | facts=({},{}) | attempt={}",
-            fact_a["id"], fact_b["id"], attempt + 1,
+            "Parse failed | facts={} | attempt={}",
+            fact_ids, attempt + 1,
         )
 
     return None
@@ -176,15 +210,21 @@ def _generate_one(
 )
 @click.option(
     "--comparison-type",
-    type=click.Choice(["same_vs_different", "which_one", "most_least"]),
-    default="same_vs_different",
-    help="Comparison type",
+    type=click.Choice(["auto", "same_vs_different", "which_one", "most_least"]),
+    default="auto",
+    help="Comparison type (auto = select based on fact content)",
+)
+@click.option(
+    "--group-size",
+    type=click.IntRange(2, 4),
+    default=2,
+    help="Number of entities per question (2-4)",
 )
 @click.option("--dry-run", is_flag=True, help="Generate but don't insert into DB")
 @click.option("--test-run", is_flag=True, help="Generate 3 questions, print details")
 @click.option("--validate", is_flag=True, help="Quality checks on existing questions")
 @click.option("--all", "run_all", is_flag=True, help="Generate full quota (1500)")
-def main(domain, count, generator, comparison_type, dry_run, test_run, validate, run_all):
+def main(domain, count, generator, comparison_type, group_size, dry_run, test_run, validate, run_all):
     """Generate comparative benchmark questions from fact pairs via LLM."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger.add(LOG_DIR / f"comparative_{timestamp}.log", rotation="50 MB")
@@ -198,7 +238,7 @@ def main(domain, count, generator, comparison_type, dry_run, test_run, validate,
         sys.exit(1)
 
     if test_run:
-        _run_test(domain, generator, comparison_type)
+        _run_test(domain, generator, comparison_type, group_size)
         return
 
     target = count
@@ -206,7 +246,7 @@ def main(domain, count, generator, comparison_type, dry_run, test_run, validate,
         target = 1500
         logger.info(f"--all mode: targeting {target} comparative questions")
 
-    _run_generate(domain, target, generator, comparison_type, dry_run)
+    _run_generate(domain, target, generator, comparison_type, dry_run, group_size)
 
 
 # ─── Generate run ─────────────────────────────────────────────────────────────
@@ -218,12 +258,13 @@ def _run_generate(
     generator: str,
     comparison_type: str,
     dry_run: bool,
+    group_size: int = 2,
 ):
     """Main generation loop."""
     logger.info(
         "Starting comparative generation | domain={} | count={} | generator={} | "
-        "comparison_type={} | dry_run={}",
-        domain, count, generator, comparison_type, dry_run,
+        "comparison_type={} | group_size={} | dry_run={}",
+        domain, count, generator, comparison_type, group_size, dry_run,
     )
 
     used_fact_ids = get_used_fact_ids()
@@ -235,24 +276,40 @@ def _run_generate(
 
     while generated < count:
         batch_size = min(count - generated, 10)
-        pairs = sample_fact_pairs(domain, batch_size, exclude_ids=used_fact_ids | run_used_ids)
-        if not pairs:
-            logger.warning("No more fact pairs available for domain={}", domain)
-            break
 
-        for fact_a, fact_b in pairs:
+        if group_size == 2:
+            pairs = sample_fact_pairs(domain, batch_size, exclude_ids=used_fact_ids | run_used_ids)
+            if not pairs:
+                logger.warning("No more fact pairs available for domain={}", domain)
+                break
+            fact_groups = [[fa, fb] for fa, fb in pairs]
+        else:
+            groups = sample_fact_groups(domain, batch_size, group_size=group_size, exclude_ids=used_fact_ids | run_used_ids)
+            if not groups:
+                logger.warning("No more fact groups available for domain={}", domain)
+                break
+            fact_groups = groups
+
+        for facts in fact_groups:
             if generated >= count:
                 break
 
-            run_used_ids.add(str(fact_a["id"]))
-            run_used_ids.add(str(fact_b["id"]))
+            for f in facts:
+                run_used_ids.add(str(f["id"]))
 
-            result = _generate_one(fact_a, fact_b, domain, comparison_type, generator)
+            # Determine effective comparison type
+            if comparison_type == "auto":
+                effective_type = facts[0].get("_auto_comparison_type", "same_vs_different")
+            else:
+                effective_type = comparison_type
+
+            result = _generate_one(facts, domain, effective_type, generator)
             if result is None:
                 skipped_parse += 1
+                fact_ids = [str(f["id"]) for f in facts]
                 logger.info(
-                    "SKIP (parse/skip) | facts=({},{}) | generator={}",
-                    fact_a["id"], fact_b["id"], generator,
+                    "SKIP (parse/skip) | facts={} | generator={}",
+                    fact_ids, generator,
                 )
                 continue
 
@@ -262,17 +319,19 @@ def _run_generate(
             is_dup, dup_id = check_duplicate(parsed.question_text)
             if is_dup:
                 skipped_dup += 1
+                fact_ids = [str(f["id"]) for f in facts]
                 logger.info(
-                    "SKIP (duplicate) | question matches existing {} | facts=({},{})",
-                    dup_id, fact_a["id"], fact_b["id"],
+                    "SKIP (duplicate) | question matches existing {} | facts={}",
+                    dup_id, fact_ids,
                 )
                 continue
 
             if dry_run:
                 generated += 1
+                fact_ids = [str(f["id"]) for f in facts]
                 logger.info(
-                    "DRY-RUN | #{} | facts=({},{}) | Q: {}",
-                    generated, fact_a["id"], fact_b["id"],
+                    "DRY-RUN | #{} | facts={} | Q: {}",
+                    generated, fact_ids,
                     parsed.question_text[:80],
                 )
                 continue
@@ -289,7 +348,7 @@ def _run_generate(
             question_data = {
                 "question_id": qid,
                 "domain": domain,
-                "subdomain": fact_a.get("subdomain"),
+                "subdomain": facts[0].get("subdomain"),
                 "question_type": "multiple_choice",
                 "difficulty": difficulty,
                 "cognitive_dim": "analysis",
@@ -298,14 +357,14 @@ def _run_generate(
                 "correct_answer": parsed.correct_answer,
                 "correct_answer_text": parsed.correct_answer_text,
                 "explanation": parsed.explanation,
-                "tags": parsed.tags + [f"comparative:{comparison_type}"],
+                "tags": parsed.tags + [f"comparative:{effective_type}"],
             }
 
             generation_meta = {
                 "generator": generator,
                 "generator_version": result["response"].model,
                 "generation_method": "comparative",
-                "template_id": "COMPARATIVE_TEMPLATE",
+                "template_id": f"COMPARATIVE_TEMPLATE_{effective_type.upper()}",
                 "llm_creativity": "medium",
                 "prompt_hash": result["prompt_hash_val"],
                 "raw_response": {
@@ -316,23 +375,26 @@ def _run_generate(
                 },
             }
 
+            fact_ids = [str(f["id"]) for f in facts]
+            source_ids = list({str(f["source_id"]) for f in facts})
+
             q_uuid = insert_question(
                 question_data, generation_meta,
-                fact_ids=[str(fact_a["id"]), str(fact_b["id"])],
-                source_ids=list({str(fact_a["source_id"]), str(fact_b["source_id"])}),
+                fact_ids=fact_ids,
+                source_ids=source_ids,
             )
             if q_uuid:
                 generated += 1
                 inserted_uuids.append(q_uuid)
                 logger.info(
-                    "OK | #{} | {} | facts=({},{}) | Q: {}",
-                    generated, qid, fact_a["id"], fact_b["id"],
+                    "OK | #{} | {} | facts={} | Q: {}",
+                    generated, qid, fact_ids,
                     parsed.question_text[:80],
                 )
             else:
                 logger.error(
-                    "DB insert failed for facts=({},{})",
-                    fact_a["id"], fact_b["id"],
+                    "DB insert failed for facts={}",
+                    fact_ids,
                 )
 
     # Batch-embed inserted questions for future dedup
@@ -354,24 +416,44 @@ def _run_generate(
 # ─── Test run ─────────────────────────────────────────────────────────────────
 
 
-def _run_test(domain: str, generator: str, comparison_type: str):
+def _run_test(domain: str, generator: str, comparison_type: str, group_size: int = 2):
     """Generate 3 questions and print details without DB insertion."""
-    click.echo(f"\n=== Comparative Test Run: {domain} / {generator} / {comparison_type} ===\n")
+    click.echo(f"\n=== Comparative Test Run: {domain} / {generator} / {comparison_type} / group_size={group_size} ===\n")
 
     used = get_used_fact_ids()
-    pairs = sample_fact_pairs(domain, 3, exclude_ids=used)
-    if not pairs:
-        click.echo("No fact pairs available for this domain.")
-        return
 
-    for i, (fact_a, fact_b) in enumerate(pairs[:3], 1):
+    if group_size == 2:
+        pairs = sample_fact_pairs(domain, 3, exclude_ids=used)
+        if not pairs:
+            click.echo("No fact pairs available for this domain.")
+            return
+        fact_groups = [[fa, fb] for fa, fb in pairs]
+    else:
+        groups = sample_fact_groups(domain, 3, group_size=group_size, exclude_ids=used)
+        if not groups:
+            click.echo("No fact groups available for this domain.")
+            return
+        fact_groups = groups
+
+    for i, facts in enumerate(fact_groups[:3], 1):
         click.echo(f"--- Question {i}/3 ---")
-        click.echo(f"Fact A [{fact_a.get('subdomain')}]: {fact_a['fact_text']}")
-        click.echo(f"Fact B [{fact_b.get('subdomain')}]: {fact_b['fact_text']}")
-        click.echo(f"Generator: {generator} ({GENERATOR_MODELS[generator]})")
-        click.echo(f"Comparison: {comparison_type}")
+        for j, f in enumerate(facts):
+            label = chr(65 + j)  # A, B, C, D
+            entity = f.get("_matched_entity_name") or _extract_primary_entity(f)
+            click.echo(f"Fact {label} [{f.get('subdomain')}] ({entity}): {f['fact_text']}")
 
-        result = _generate_one(fact_a, fact_b, domain, comparison_type, generator)
+        if comparison_type == "auto":
+            effective_type = facts[0].get("_auto_comparison_type", "same_vs_different")
+        else:
+            effective_type = comparison_type
+
+        dim = facts[0].get("_dimension", "unspecified")
+        ctx = facts[0].get("_comparison_context", "none")
+        click.echo(f"Generator: {generator} ({GENERATOR_MODELS[generator]})")
+        click.echo(f"Comparison: {effective_type} | Dimension: {dim}")
+        click.echo(f"Context: {ctx}")
+
+        result = _generate_one(facts, domain, effective_type, generator)
         if result is None:
             click.echo("  FAILED: could not parse LLM response or LLM skipped\n")
             continue
@@ -466,7 +548,7 @@ def _run_validate():
         LEFT JOIN question_facts qf ON qf.question_id = q.id
         WHERE gm.generation_method = 'comparative'
         GROUP BY q.question_id
-        HAVING count(qf.fact_id) != 2
+        HAVING count(qf.fact_id) NOT BETWEEN 2 AND 4
         """
     )
     bad_links = cur.fetchall()

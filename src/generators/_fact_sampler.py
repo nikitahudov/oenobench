@@ -132,6 +132,107 @@ def _is_fact_rich(fact_text: str) -> bool:
     return True
 
 
+# ─── Dimension classification for comparative pairing ────────────────────────
+
+_DIMENSION_PATTERNS = [
+    ("aging_requirements", re.compile(
+        r"(minimum|required|must|obligatory).{0,30}(aging|aged|matured|months|years|elevage)", re.I)),
+    ("permitted_varieties", re.compile(
+        r"(permit|permitted|permits|authorized|allowed|approved|principal|dominant).{0,20}(variet|grape|cultivar|cépage)", re.I)),
+    ("soil_geology", re.compile(
+        r"\b(soil|limestone|clay|chalk|schist|slate|gravel|loam|volcanic|alluvial|marl|granite|sandstone|terroir|calcareous|flint|silex|galestro|tufa)\b", re.I)),
+    ("climate", re.compile(
+        r"\b(climate|temperature|rainfall|precipitation|continental|maritime|Mediterranean|altitude|elevation|frost|diurnal|growing season|degree.days)\b", re.I)),
+    ("area_size", re.compile(
+        r"\d[\d,.]*\s*(hectares|ha|acres|km²|km2|square)", re.I)),
+    ("production_volume", re.compile(
+        r"\d[\d,.]*\s*(hectoliters|hl|bottles|cases|tons|tonnes|liters|litres)", re.I)),
+    ("alcohol_level", re.compile(
+        r"\d+\.?\d*\s*%?\s*(alcohol|ABV|vol|minimum alcohol)", re.I)),
+    ("classification", re.compile(
+        r"\b(DOCG|DOC|AOC|AOP|IGT|IGP|Grand Cru|Premier Cru|Cru Classé|Cru Bourgeois|classified|classification|Prädikat|Spätlese|Auslese|Kabinett|Grosses Gewächs|Erste Lage)\b", re.I)),
+    ("history_founding", re.compile(
+        r"(founded|established|first planted|dating back|origins|history|traces.{0,10}back).{0,30}(\d{3,4}|century)", re.I)),
+    ("winemaking_technique", re.compile(
+        r"\b(ferment|maceration|barrel.{0,5}(aged|aging)|oak|stainless.steel|lees|malolactic|riddling|dosage|vinification|carbonic|pressing|destemm|whole.cluster|cold.soak|bâtonnage)\b", re.I)),
+    ("tasting_profile", re.compile(
+        r"\b(aroma|bouquet|palate|finish|tannin|acidity|body|flavor|nose|fruit|mineral|spice|floral|herbaceous|earthy|structure)\b", re.I)),
+    ("yield_regulation", re.compile(
+        r"(yield|hectoliter.{0,10}hectare|hl/ha|maximum.{0,15}yield|rendement)", re.I)),
+    ("grape_characteristics", re.compile(
+        r"(early.{0,5}ripening|late.{0,5}ripening|thick.{0,5}skin|thin.{0,5}skin|vigor|bud.break|veraison|phenolic|berry.size|cluster.size)", re.I)),
+    ("economic_market", re.compile(
+        r"\b(price|market|export|import|revenue|sales|consumer|demand|value|trade|auction|en primeur)\b", re.I)),
+    ("blend_composition", re.compile(
+        r"(\d+\s*%\s*(minimum|maximum|at least|up to).{0,20}(blend|composition|assemblage|cuvée)|\d+\s*%\s+\w+\s+(grape|variety))", re.I)),
+]
+
+
+def _classify_dimension(fact_text: str) -> str | None:
+    """Classify a fact into a semantic dimension for comparative pairing.
+
+    Returns the first matching dimension label, or None if unclassifiable.
+    Dimensions represent the attribute/aspect a fact discusses, enabling
+    pairing of facts that talk about the SAME thing for different entities.
+    """
+    for dim_name, pattern in _DIMENSION_PATTERNS:
+        if pattern.search(fact_text):
+            return dim_name
+    return None
+
+
+_NUMERIC_RE = re.compile(
+    r'([\d,]+\.?\d*)\s*(hectares|ha|years|months|%|hectoliters|hl|bottles|°[CF]|km|acres|liters|litres)',
+    re.I,
+)
+
+
+def _extract_numeric_values(fact_text: str) -> list[tuple[float, str]]:
+    """Extract (value, unit) tuples from a fact for most_least comparison."""
+    results = []
+    for match in _NUMERIC_RE.finditer(fact_text):
+        try:
+            val = float(match.group(1).replace(",", ""))
+            unit = match.group(2).lower()
+            if unit == "ha":
+                unit = "hectares"
+            if unit == "hl":
+                unit = "hectoliters"
+            results.append((val, unit))
+        except ValueError:
+            continue
+    return results
+
+
+def _auto_comparison_type(
+    dim_a: str | None,
+    dim_b: str | None,
+    text_a: str,
+    text_b: str,
+) -> str:
+    """Auto-select comparison type based on fact content.
+
+    - Both numeric dimensions + same unit -> most_least
+    - Same dimension -> same_vs_different
+    - Different/unknown dimensions -> which_one
+    """
+    _NUMERIC_DIMS = {"area_size", "production_volume", "alcohol_level", "yield_regulation"}
+
+    if dim_a in _NUMERIC_DIMS and dim_b in _NUMERIC_DIMS and dim_a == dim_b:
+        nums_a = _extract_numeric_values(text_a)
+        nums_b = _extract_numeric_values(text_b)
+        if nums_a and nums_b:
+            units_a = {u for _, u in nums_a}
+            units_b = {u for _, u in nums_b}
+            if units_a & units_b:
+                return "most_least"
+
+    if dim_a is not None and dim_a == dim_b:
+        return "same_vs_different"
+
+    return "which_one"
+
+
 # ─── Domain question targets (for quota tracking) ───────────────────────────
 
 DOMAIN_TARGETS = {
@@ -419,19 +520,44 @@ def sample_fact_pairs(
 
     rows = cur.fetchall()
 
-    # Score all candidates by entity affinity, then pick the best pairs
-    scored: list[tuple[float, str, dict]] = []
+    # Score all candidates by entity affinity + dimension match
+    scored: list[tuple[float, str, dict, str | None, str]] = []
     for row in rows:
         a_text, b_text = row["a_text"], row["b_text"]
         if not _is_fact_specific(a_text) or not _is_fact_specific(b_text):
             continue
         if not _is_fact_rich(a_text) or not _is_fact_rich(b_text):
             continue
+        # Stricter minimum for comparative: short facts are too thin
+        if len(a_text.split()) < 18 or len(b_text.split()) < 18:
+            if not (_WINE_CONTENT_SIGNALS.search(a_text) and _WINE_CONTENT_SIGNALS.search(b_text)):
+                continue
+
         map_a = _extract_entity_map(row["a_entities"])
         map_b = _extract_entity_map(row["b_entities"])
         affinity, reason = _entity_affinity_score(map_a, map_b)
-        if affinity >= 0.2:
-            scored.append((affinity, reason, row))
+        if affinity < 0.2:
+            continue
+
+        # Dimension classification and scoring
+        dim_a = _classify_dimension(a_text)
+        dim_b = _classify_dimension(b_text)
+
+        if dim_a is not None and dim_a == dim_b:
+            affinity += 0.4
+            reason += f"; same dimension ({dim_a})"
+        elif dim_a is not None and dim_b is not None and dim_a != dim_b:
+            affinity -= 0.2
+            reason += f"; dimension mismatch ({dim_a} vs {dim_b})"
+        elif dim_a is None and dim_b is None:
+            # Both unclassified — require keyword overlap as fallback
+            kw_overlap = len(_content_keywords(a_text) & _content_keywords(b_text))
+            if kw_overlap < 3:
+                continue
+            reason += f"; keyword overlap ({kw_overlap})"
+
+        auto_type = _auto_comparison_type(dim_a, dim_b, a_text, b_text)
+        scored.append((affinity, reason, row, dim_a, auto_type))
 
     # Sort by affinity descending — best pairs first
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -439,7 +565,7 @@ def sample_fact_pairs(
     pairs: list[tuple[dict, dict]] = []
     seen_ids: set[str] = set()
 
-    for affinity, reason, row in scored:
+    for affinity, reason, row, dim, auto_type in scored:
         if len(pairs) >= count:
             break
         a_id, b_id = str(row["a_id"]), str(row["b_id"])
@@ -454,6 +580,9 @@ def sample_fact_pairs(
             "source_name": row["a_source_name"], "source_url": row["a_source_url"],
             "confidence": row["a_confidence"], "tags": row["a_tags"],
             "_comparison_context": reason,
+            "_dimension": dim,
+            "_auto_comparison_type": auto_type,
+            "_matched_entity_name": row["a_entity"],
         }
         fact_b = {
             "id": row["b_id"], "fact_text": row["b_text"],
@@ -461,6 +590,8 @@ def sample_fact_pairs(
             "entities": row["b_entities"], "source_id": row["b_source_id"],
             "source_name": row["b_source_name"], "source_url": row["b_source_url"],
             "confidence": row["b_confidence"], "tags": row["b_tags"],
+            "_dimension": dim,
+            "_matched_entity_name": row["b_entity"],
         }
         pairs.append((fact_a, fact_b))
         seen_ids.update({a_id, b_id})
@@ -469,6 +600,117 @@ def sample_fact_pairs(
         f"Sampled {len(pairs)} entity-matched fact pairs for domain={domain}"
     )
     return pairs
+
+
+def sample_fact_groups(
+    domain: str,
+    count: int,
+    group_size: int = 3,
+    exclude_ids: set[str] | None = None,
+) -> list[list[dict]]:
+    """Sample groups of 3-4 dimension-matched facts for multi-entity comparisons.
+
+    Groups facts by (country, entity_type, dimension) to ensure all facts
+    in a group discuss the same attribute about different but comparable entities.
+    """
+    conn = get_pg()
+    cur = conn.cursor()
+    exclude = list(exclude_ids) if exclude_ids else []
+
+    cur.execute(
+        """
+        WITH entity_facts AS (
+            SELECT f.id, f.fact_text, f.domain, f.subdomain,
+                   f.entities, f.source_id, s.name AS source_name,
+                   s.url AS source_url, f.confidence, f.tags,
+                   e->>'type' AS etype, e->>'name' AS ename,
+                   (SELECT e2->>'name' FROM jsonb_array_elements(f.entities) e2
+                    WHERE e2->>'type' = 'country' LIMIT 1) AS country
+            FROM facts f
+            JOIN sources s ON s.id = f.source_id,
+            jsonb_array_elements(f.entities) e
+            WHERE f.domain = %s
+              AND f.confidence >= 0.7
+              AND f.subdomain IS NOT NULL
+              AND length(f.fact_text) > 40
+              AND e->>'type' IN ('region', 'grape', 'appellation', 'producer')
+              AND NOT (f.id = ANY(%s::uuid[]))
+        )
+        SELECT id, fact_text, domain, subdomain, entities, source_id,
+               source_name, source_url, confidence, tags, etype, ename, country
+        FROM entity_facts
+        ORDER BY random()
+        LIMIT %s
+        """,
+        (domain, exclude, count * 100),
+    )
+    rows = cur.fetchall()
+
+    # Filter, classify, and bucket by (country, etype, dimension)
+    classified: dict[tuple, list[dict]] = {}
+    seen_ids: set[str] = set()
+
+    for row in rows:
+        fid = str(row["id"])
+        if fid in seen_ids:
+            continue
+        text = row["fact_text"]
+        if not _is_fact_specific(text) or not _is_fact_rich(text):
+            continue
+        if len(text.split()) < 18 and not _WINE_CONTENT_SIGNALS.search(text):
+            continue
+
+        dim = _classify_dimension(text)
+        if dim is None:
+            continue  # Multi-entity groups require classified dimensions
+
+        # Use explicit country entity, fall back to subdomain for grouping
+        country = row["country"] or row.get("subdomain")
+        if not country:
+            continue  # Skip facts with no geographic context
+        key = (country, row["etype"], dim)
+        classified.setdefault(key, []).append(dict(row) | {"_dimension": dim})
+        seen_ids.add(fid)
+
+    # Build groups: pick facts with distinct entity names within each bucket
+    groups: list[list[dict]] = []
+    for key, facts in classified.items():
+        if len(facts) < group_size:
+            continue
+        selected: list[dict] = []
+        used_names: set[str] = set()
+        for f in facts:
+            ename = f["ename"].lower()
+            if ename not in used_names:
+                selected.append(f)
+                used_names.add(ename)
+                if len(selected) >= group_size:
+                    break
+        if len(selected) >= group_size:
+            auto_type = _auto_comparison_type(
+                selected[0]["_dimension"], selected[1]["_dimension"],
+                selected[0]["fact_text"], selected[1]["fact_text"],
+            )
+            if auto_type != "most_least":
+                auto_type = "which_one"
+
+            country, etype, dim = key
+            context = f"same country ({country}); same {etype} type; same dimension ({dim})"
+            for f in selected:
+                f["_comparison_context"] = context
+                f["_auto_comparison_type"] = auto_type
+                f["_matched_entity_name"] = f["ename"]
+            groups.append(selected)
+
+    groups.sort(
+        key=lambda g: sum(len(f["fact_text"]) for f in g),
+        reverse=True,
+    )
+
+    logger.debug(
+        f"Sampled {min(len(groups), count)} fact groups (size={group_size}) for domain={domain}"
+    )
+    return groups[:count]
 
 
 def sample_fact_clusters(
