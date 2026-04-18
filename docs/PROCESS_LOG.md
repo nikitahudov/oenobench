@@ -376,3 +376,48 @@ Major quality overhaul of the 3 LLM-based strategies (comparative, scenario, dis
 - Comparative and distractor marked as **Built**, verification pending (scheduled for 2026-04-16)
 - Expert identified blend-as-variety issue in Q3 of Iberian wine scenario — led to filter implementation
 - Expert ranked Gemini's Barbera/Nebbiolo question as exemplar for all future question design
+
+## 2026-04-17 — Phase 2: Comparative Strategy — Dimension-Aware Pairing
+
+### What was done
+Added dimension-aware pairing and type-specific prompts to the comparative strategy. Facts are classified into semantic dimensions (aging_requirements, soil_geology, climate, etc.) and paired by matching dimension. Three type-specific templates (same_vs_different, which_one, most_least) auto-selected based on fact content.
+
+## 2026-04-18 — Phase 2: Distractor Strategy — Dimension-Aware Sampling & Type-Specific Templates
+
+### What was done
+Applied the dimension-aware pattern from comparative to the distractor mining strategy. Three changes across 3 files.
+
+### Methodology
+
+**1. Dimension-aware distractor sampling (`_fact_sampler.py`)**
+- `sample_confusable_facts()` now classifies target and candidate distractors using existing `_classify_dimension()`
+- Candidates scored with +0.5 bonus for dimension match, -0.2 penalty for dimension mismatch
+- All candidates sorted by score: dimension-matched distractors ranked first
+- Each returned fact enriched with `_dimension` and `_confusability_context` metadata
+- Over-fetch increased from count×5 to count×8 in Priority 1 to compensate for dimension scoring
+
+**2. Auto distractor type selection (`_fact_sampler.py`)**
+- New `_auto_distractor_type(target_dim, distractor_dims)` function
+- `numeric`: target has numeric dimension (area_size, production_volume, alcohol_level, yield_regulation) AND majority of distractors share it
+- `attribute_swap`: target dimension matches majority of distractors (non-numeric)
+- `entity_id`: mixed/unclassified dimensions (fallback)
+
+**3. Type-specific distractor templates (`_prompts.py`)**
+- `DISTRACTOR_TEMPLATE_ATTRIBUTE_SWAP`: all facts share same dimension. Question swaps attribute values between confusable entities
+- `DISTRACTOR_TEMPLATE_ENTITY_ID`: mixed dimensions. Present clues, ask which entity matches. Fallback template
+- `DISTRACTOR_TEMPLATE_NUMERIC`: numeric dimensions. Use real numeric values from similar entities as distractors
+- Generic `DISTRACTOR_TEMPLATE` updated to accept `{confusability_context}` placeholder
+- All templates include inference-over-recall instructions and skip conditions
+
+**4. Template selection in generator (`distractor_miner.py`)**
+- `DISTRACTOR_TEMPLATE_MAP` mirrors comparative's pattern
+- `_sample_target_and_distractors()` returns 3-tuple: (target, distractors, dtype)
+- `_generate_one()` selects template by type, passes `dimension` and `confusability_context`
+- Distractor type tracked in tags (`distractor:attribute_swap`, etc.) and `template_id`
+- Enhanced `--test-run` output: shows dimension, confusability context, auto-selected type
+- Enhanced `--validate`: reports distractor type distribution (from tags)
+
+### Decisions & trade-offs
+- Dimension-unmatched distractors NOT filtered out, only ranked lower — some questions work with mixed dimensions
+- Generic template kept as fallback for edge cases where no type-specific template matches
+- `_auto_distractor_type` uses simple majority rule: if ≥50% of distractors match target dimension, use typed template

@@ -808,10 +808,15 @@ def sample_confusable_facts(
     count: int = 4,
     exclude_ids: set[str] | None = None,
 ) -> list[dict]:
-    """Sample facts about confusable entities for distractor mining.
+    """Sample dimension-aware confusable facts for distractor mining.
 
     Finds facts from the SAME subdomain or with overlapping entity types,
     so distractors are plausible alternatives — not obviously unrelated.
+    Dimension-matched distractors (same attribute as target) are ranked first.
+
+    Each returned fact dict is enriched with:
+      _dimension: str | None  — classified semantic dimension
+      _confusability_context: str — why this distractor is confusable with target
     """
     conn = get_pg()
     cur = conn.cursor()
@@ -821,17 +826,18 @@ def sample_confusable_facts(
 
     target_map = _extract_entity_map(target_fact["entities"])
     target_names = _extract_entity_names(target_fact["entities"])
+    target_dim = _classify_dimension(target_fact["fact_text"])
+
     # Find the target's country for same-country filtering
     target_country = None
     for c in target_map.get("country", set()):
         target_country = c
         break
 
-    confusable: list[dict] = []
+    # Collect all viable candidates with dimension + affinity metadata
+    candidates: list[tuple[float, dict]] = []
 
     # Priority 1: same country + same entity type, different entity name
-    # This produces genuinely confusable distractors (neighboring regions,
-    # related grapes within the same country)
     if target_country and target_types:
         primary_type = next(
             (t for t in ("region", "grape", "appellation", "producer", "ava")
@@ -861,23 +867,34 @@ def sample_confusable_facts(
                 ORDER BY random()
                 LIMIT %s
                 """,
-                (domain, exclude, target_country, primary_type, count * 5),
+                (domain, exclude, target_country, primary_type, count * 8),
             )
-            rows = [dict(r) for r in cur.fetchall()]
-            for r in rows:
+            for r in cur.fetchall():
+                r = dict(r)
                 if not _is_fact_specific(r["fact_text"]):
                     continue
                 if not _is_fact_rich(r["fact_text"]):
                     continue
                 r_names = _extract_entity_names(r["entities"])
-                if r_names and r_names != target_names:
-                    confusable.append(r)
-                    if len(confusable) >= count:
-                        break
+                if not r_names or r_names == target_names:
+                    continue
+
+                r_dim = _classify_dimension(r["fact_text"])
+                # Score: base 1.0 for Priority 1, +0.5 for dimension match
+                score = 1.0
+                ctx_parts = [f"same country ({target_country})", f"same {primary_type} type"]
+                if target_dim and r_dim == target_dim:
+                    score += 0.5
+                    ctx_parts.append(f"same dimension ({target_dim})")
+                elif target_dim and r_dim and r_dim != target_dim:
+                    score -= 0.2
+                r["_dimension"] = r_dim
+                r["_confusability_context"] = "; ".join(ctx_parts)
+                candidates.append((score, r))
 
     # Priority 2: same subdomain, different entities (fallback)
-    if len(confusable) < count and target_sub:
-        already = {str(c["id"]) for c in confusable}
+    if target_sub:
+        already = {str(c["id"]) for _, c in candidates}
         cur.execute(
             """
             SELECT f.id, f.fact_text, f.domain, f.subdomain,
@@ -895,7 +912,6 @@ def sample_confusable_facts(
             """,
             (domain, target_sub, exclude + list(already), count * 5),
         )
-        candidates = []
         for r in cur.fetchall():
             r = dict(r)
             if not _is_fact_specific(r["fact_text"]):
@@ -903,26 +919,60 @@ def sample_confusable_facts(
             if not _is_fact_rich(r["fact_text"]):
                 continue
             r_names = _extract_entity_names(r["entities"])
-            if r_names and r_names != target_names:
-                candidates.append(r)
+            if not r_names or r_names == target_names:
+                continue
+            if str(r["id"]) in already:
+                continue
 
-        # Rank by affinity to get the most confusable distractors
-        if candidates:
-            scored = []
-            for c in candidates:
-                c_map = _extract_entity_map(c["entities"])
-                affinity, _ = _entity_affinity_score(target_map, c_map)
-                scored.append((affinity, c))
-            scored.sort(key=lambda x: x[0], reverse=True)
-            for _, c in scored:
-                confusable.append(c)
-                if len(confusable) >= count:
-                    break
+            r_map = _extract_entity_map(r["entities"])
+            affinity, reason = _entity_affinity_score(target_map, r_map)
+            r_dim = _classify_dimension(r["fact_text"])
+
+            # Score: base from affinity, +0.5 for dimension match
+            score = affinity
+            ctx_parts = [reason] if reason != "no shared context" else [f"same subdomain ({target_sub})"]
+            if target_dim and r_dim == target_dim:
+                score += 0.5
+                ctx_parts.append(f"same dimension ({target_dim})")
+            r["_dimension"] = r_dim
+            r["_confusability_context"] = "; ".join(ctx_parts)
+            candidates.append((score, r))
+
+    # Sort by score descending — dimension-matched distractors first
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    confusable = [c for _, c in candidates[:count]]
 
     logger.debug(
-        f"Sampled {len(confusable)} confusable facts for target={target_fact['id']}"
+        f"Sampled {len(confusable)} confusable facts for target={target_fact['id']} "
+        f"(target_dim={target_dim})"
     )
     return confusable
+
+
+_NUMERIC_DISTRACTOR_DIMS = {"area_size", "production_volume", "alcohol_level", "yield_regulation"}
+
+
+def _auto_distractor_type(
+    target_dim: str | None,
+    distractor_dims: list[str | None],
+) -> str:
+    """Auto-select distractor question type based on dimension alignment.
+
+    - numeric: target has a numeric dimension and majority of distractors share it
+    - attribute_swap: target dimension matches majority of distractors
+    - entity_id: mixed or unclassified dimensions (fallback)
+    """
+    if not target_dim or not distractor_dims:
+        return "entity_id"
+
+    matched = sum(1 for d in distractor_dims if d == target_dim)
+    majority = matched >= len(distractor_dims) / 2
+
+    if target_dim in _NUMERIC_DISTRACTOR_DIMS and majority:
+        return "numeric"
+    if majority:
+        return "attribute_swap"
+    return "entity_id"
 
 
 def get_domain_stats() -> dict:

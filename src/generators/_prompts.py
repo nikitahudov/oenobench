@@ -474,12 +474,7 @@ TARGET FACT (basis for the correct answer):
 DISTRACTOR FACTS (mine these for plausible wrong options):
 {distractor_facts}
 
-CONFUSABILITY NOTE: The distractor facts are about entities that are similar \
-to or commonly confused with the target entity (e.g., neighboring regions, \
-related grape varieties, same-tier appellations). Each wrong option should \
-be something a student might genuinely confuse with the correct answer \
-because the entities are similar — not because the wrong answer is about \
-a completely different topic.
+CONFUSABILITY NOTE: {confusability_context}
 
 QUESTION DESIGN — INFERENCE OVER RECALL:
 - Do NOT simply ask "What is true about [target entity]?" — that is pure recall
@@ -513,6 +508,139 @@ OUTPUT FORMAT (JSON):
 {json_schema}
 
 Generate the distractor-mined question now."""
+
+
+DISTRACTOR_TEMPLATE_ATTRIBUTE_SWAP = """\
+Create a question where all entities share the same attribute type but differ \
+in their specific values — the test-taker must know which value belongs to which entity.
+
+TARGET FACT (basis for the correct answer):
+{fact_text}
+
+DISTRACTOR FACTS (same attribute, different entities):
+{distractor_facts}
+
+SHARED CONTEXT: {confusability_context}
+ATTRIBUTE DIMENSION: {dimension}
+
+All facts above discuss the {dimension} dimension for similar entities. The \
+wrong options should SWAP attribute values between entities — a test-taker \
+who confuses these similar entities will pick the wrong one's value.
+
+QUESTION DESIGN — INFERENCE OVER RECALL:
+- Present observable evidence or a practical situation where the test-taker \
+must identify which entity matches specific {dimension} characteristics
+- Example: if facts discuss aging requirements for similar appellations, \
+describe a wine's maturity characteristics and ask which appellation's \
+requirements it satisfies
+- Wrong options use REAL {dimension} values from the distractor entities — \
+they are factually correct about a different entity, just wrong for the question
+- Keep the question concise — evidence, not padding
+
+QUALITY REQUIREMENTS:
+- The question MUST test knowledge of the {dimension} dimension specifically
+- Each distractor must use a real attribute value from a different entity
+- The explanation must specify which entity each distractor's value belongs to
+- Target difficulty level 3-4 (advanced to expert)
+
+SKIP CONDITIONS — output {{"skip": true, "reason": "..."}} if:
+- The attribute values are identical across entities (no distinguishing detail)
+- The entities are too dissimilar for the attribute swap to be confusing
+- The dimension is trivially obvious (e.g., entirely different categories)
+
+OUTPUT FORMAT (JSON):
+{json_schema}
+
+Generate the attribute-swap question now."""
+
+
+DISTRACTOR_TEMPLATE_ENTITY_ID = """\
+Create an entity identification question: present clues from the target \
+fact and ask which entity they describe.
+
+TARGET FACT (basis for the correct answer):
+{fact_text}
+
+DISTRACTOR FACTS (similar entities, different characteristics):
+{distractor_facts}
+
+SHARED CONTEXT: {confusability_context}
+
+The distractors are about entities similar to the target but with different \
+distinguishing details. The test-taker must identify the correct entity \
+from multiple clues.
+
+QUESTION DESIGN — INFERENCE OVER RECALL:
+- Present a description, scenario, or set of observations derived from the \
+target fact — do NOT name the target entity in the question
+- The test-taker must reason from the clues to identify the correct entity
+- Wrong options are real, similar entities that share SOME but not ALL of \
+the described characteristics
+- A test-taker who knows only partial information about these entities \
+should find multiple options plausible
+- Keep the question concise — present evidence, not padding
+
+QUALITY REQUIREMENTS:
+- The clues must be specific enough for an unambiguous correct answer
+- Each distractor entity must be a real entity that shares some overlap \
+with the target but differs on the key distinguishing detail
+- The explanation must identify which clue(s) distinguish the correct \
+entity from each distractor
+- Target difficulty level 3-4 (advanced to expert)
+
+SKIP CONDITIONS — output {{"skip": true, "reason": "..."}} if:
+- The target fact doesn't contain enough distinguishing detail for clues
+- The distractor entities are too dissimilar to create genuine confusion
+- The only possible question would test trivial metadata, not wine knowledge
+
+OUTPUT FORMAT (JSON):
+{json_schema}
+
+Generate the entity identification question now."""
+
+
+DISTRACTOR_TEMPLATE_NUMERIC = """\
+Create a question involving numeric values where distractors use real numbers \
+from similar entities.
+
+TARGET FACT (basis for the correct answer):
+{fact_text}
+
+DISTRACTOR FACTS (similar entities with comparable numeric values):
+{distractor_facts}
+
+SHARED CONTEXT: {confusability_context}
+NUMERIC DIMENSION: {dimension}
+
+All facts discuss measurable {dimension} values for similar entities. The \
+wrong options use REAL numeric values from the distractor entities.
+
+QUESTION DESIGN — INFERENCE OVER RECALL:
+- Frame as a practical decision or observation involving the numeric values, \
+not a trivia lookup
+- Example: instead of "How many hectares does X cover?", ask "A producer \
+evaluating vineyard options in [country] encounters these available areas — \
+which corresponds to [specific entity]?"
+- Wrong options must use the ACTUAL numeric values from distractor entities
+- Distractors are plausible because the values are in a similar range for \
+comparable entities
+- Keep the question concise
+
+QUALITY REQUIREMENTS:
+- The numeric values must be genuinely comparable (same units, same type)
+- Include specific numeric values in the options where relevant
+- The explanation must cite the actual numeric values for all entities
+- Target difficulty level 3-4 (advanced to expert)
+
+SKIP CONDITIONS — output {{"skip": true, "reason": "..."}} if:
+- The numeric values aren't truly comparable (different units or metrics)
+- One value is so different it's trivially obvious (100x larger)
+- Only the target has a numeric value (no numeric distractors possible)
+
+OUTPUT FORMAT (JSON):
+{json_schema}
+
+Generate the numeric distractor question now."""
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

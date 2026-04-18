@@ -24,12 +24,21 @@ import click
 from loguru import logger
 
 from src.generators._dedup import batch_embed_and_store, check_duplicate
-from src.generators._fact_sampler import sample_confusable_facts, sample_facts, _is_fact_rich
+from src.generators._fact_sampler import (
+    _auto_distractor_type,
+    _classify_dimension,
+    sample_confusable_facts,
+    sample_facts,
+    _is_fact_rich,
+)
 from src.generators._id_generator import mint_question_id
 from src.generators._llm_client import GENERATOR_MODELS, get_client
 from src.generators._prompts import (
     DISTRACTOR_SYSTEM,
     DISTRACTOR_TEMPLATE,
+    DISTRACTOR_TEMPLATE_ATTRIBUTE_SWAP,
+    DISTRACTOR_TEMPLATE_ENTITY_ID,
+    DISTRACTOR_TEMPLATE_NUMERIC,
     build_prompt,
     prompt_hash,
 )
@@ -44,6 +53,13 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_RETRIES = 1
 
+# Template selection by distractor type
+DISTRACTOR_TEMPLATE_MAP = {
+    "attribute_swap": DISTRACTOR_TEMPLATE_ATTRIBUTE_SWAP,
+    "entity_id": DISTRACTOR_TEMPLATE_ENTITY_ID,
+    "numeric": DISTRACTOR_TEMPLATE_NUMERIC,
+}
+
 
 # ─── Distractor sampling ─────────────────────────────────────────────────────
 
@@ -51,13 +67,14 @@ MAX_RETRIES = 1
 def _sample_target_and_distractors(
     domain: str,
     exclude_ids: set[str],
-) -> tuple[dict, list[dict]] | None:
+) -> tuple[dict, list[dict], str] | None:
     """Sample 1 target fact and confusable distractor facts.
 
     Distractors are from the SAME subdomain or share entity types with the
     target, so wrong answers are plausible — not obviously about unrelated entities.
+    Dimension-matched distractors are preferred.
 
-    Returns (target_fact, distractor_facts) or None if insufficient facts.
+    Returns (target_fact, distractor_facts, distractor_type) or None.
     """
     # Get a random target fact with entities — must have rich wine content
     targets = sample_facts(domain, 5, min_confidence=0.7, exclude_ids=exclude_ids)
@@ -69,7 +86,11 @@ def _sample_target_and_distractors(
     if target is None:
         return None
 
-    # Get confusable distractors (same subdomain or shared entity types)
+    # Classify target dimension
+    target_dim = _classify_dimension(target["fact_text"])
+    target["_dimension"] = target_dim
+
+    # Get confusable distractors (dimension-aware, same subdomain or shared entity types)
     distractors = sample_confusable_facts(
         target, domain, count=5, exclude_ids=exclude_ids,
     )
@@ -81,7 +102,11 @@ def _sample_target_and_distractors(
         )
         return None
 
-    return target, distractors
+    # Auto-select distractor type based on dimension alignment
+    distractor_dims = [d.get("_dimension") for d in distractors]
+    dtype = _auto_distractor_type(target_dim, distractor_dims)
+
+    return target, distractors, dtype
 
 
 # ─── Core generation logic ────────────────────────────────────────────────────
@@ -121,17 +146,29 @@ def _generate_one(
     distractors: list[dict],
     domain: str,
     generator: str,
+    distractor_type: str = "entity_id",
 ) -> dict | None:
     """Generate a single distractor-mined question.
 
     Returns result dict or None on failure.
     """
     distractor_block = _format_distractor_facts(distractors)
+    template = DISTRACTOR_TEMPLATE_MAP.get(distractor_type, DISTRACTOR_TEMPLATE)
+
+    # Build structured confusability context from distractor metadata
+    target_dim = target.get("_dimension")
+    contexts = [d.get("_confusability_context", "") for d in distractors if d.get("_confusability_context")]
+    if contexts:
+        confusability_context = contexts[0]
+    else:
+        confusability_context = "similar entities from the same domain"
 
     prompt_rendered = build_prompt(
-        DISTRACTOR_TEMPLATE,
+        template,
         fact_text=target["fact_text"],
         distractor_facts=distractor_block,
+        dimension=target_dim or "unspecified",
+        confusability_context=confusability_context,
     )
     phash = prompt_hash(prompt_rendered)
 
@@ -258,24 +295,24 @@ def _run_generate(
     while generated < count and attempts < max_attempts:
         attempts += 1
 
-        result_pair = _sample_target_and_distractors(
+        result_tuple = _sample_target_and_distractors(
             domain, exclude_ids=used_fact_ids | run_used_ids,
         )
-        if result_pair is None:
+        if result_tuple is None:
             skipped_sample += 1
             if skipped_sample > 20:
                 logger.warning("Too many sampling failures, stopping")
                 break
             continue
 
-        target_fact, distractor_facts = result_pair
+        target_fact, distractor_facts, dtype = result_tuple
         all_fact_ids = {str(target_fact["id"])} | {str(f["id"]) for f in distractor_facts}
         run_used_ids.update(all_fact_ids)
 
         # Difficulty 3-4 for distractor-mined questions
         difficulty = str(random.choice([3, 4]))
 
-        result = _generate_one(target_fact, distractor_facts, domain, generator)
+        result = _generate_one(target_fact, distractor_facts, domain, generator, dtype)
         if result is None:
             skipped_parse += 1
             logger.info(
@@ -324,14 +361,14 @@ def _run_generate(
             "correct_answer": parsed.correct_answer,
             "correct_answer_text": parsed.correct_answer_text,
             "explanation": parsed.explanation,
-            "tags": parsed.tags,
+            "tags": parsed.tags + [f"distractor:{dtype}"],
         }
 
         generation_meta = {
             "generator": generator,
             "generator_version": result["response"].model,
             "generation_method": "distractor_mining",
-            "template_id": "DISTRACTOR_TEMPLATE",
+            "template_id": f"DISTRACTOR_TEMPLATE_{dtype.upper()}",
             "llm_creativity": "medium",
             "prompt_hash": result["prompt_hash_val"],
             "raw_response": {
@@ -393,24 +430,29 @@ def _run_test(domain: str, generator: str):
     tested = 0
 
     for i in range(1, 4):
-        pair = _sample_target_and_distractors(domain, exclude_ids=used)
-        if pair is None:
+        result_tuple = _sample_target_and_distractors(domain, exclude_ids=used)
+        if result_tuple is None:
             click.echo(f"--- Question {i}/3 ---")
             click.echo("  Could not sample target + distractors\n")
             continue
 
-        target_fact, distractor_facts = pair
+        target_fact, distractor_facts, dtype = result_tuple
         used.add(str(target_fact["id"]))
 
         click.echo(f"--- Question {i}/3 ---")
         click.echo(f"Target fact:  {target_fact['fact_text'][:100]}")
         click.echo(f"  Subdomain:  {target_fact.get('subdomain')}")
-        click.echo(f"Distractors:  {len(distractor_facts)} facts from other subdomains")
+        click.echo(f"  Dimension:  {target_fact.get('_dimension', 'unclassified')}")
+        click.echo(f"Distractors:  {len(distractor_facts)} facts | type: {dtype}")
         for j, df in enumerate(distractor_facts, 1):
-            click.echo(f"  D{j} [{df.get('subdomain')}]: {df['fact_text'][:80]}")
+            dim = df.get("_dimension", "?")
+            ctx = df.get("_confusability_context", "")
+            click.echo(f"  D{j} [{df.get('subdomain')}] (dim={dim}): {df['fact_text'][:80]}")
+            if ctx and j == 1:
+                click.echo(f"     Context: {ctx}")
         click.echo(f"Generator:    {generator} ({GENERATOR_MODELS[generator]})")
 
-        result = _generate_one(target_fact, distractor_facts, domain, generator)
+        result = _generate_one(target_fact, distractor_facts, domain, generator, dtype)
         if result is None:
             click.echo("  FAILED: could not parse LLM response\n")
             continue
@@ -460,6 +502,28 @@ def _run_validate():
     click.echo("By domain:")
     for r in rows:
         click.echo(f"  {r['domain']:20s} {r['cnt']}")
+
+    # By distractor type (from tags)
+    cur.execute(
+        """
+        SELECT
+            CASE
+                WHEN 'distractor:attribute_swap' = ANY(q.tags) THEN 'attribute_swap'
+                WHEN 'distractor:entity_id' = ANY(q.tags) THEN 'entity_id'
+                WHEN 'distractor:numeric' = ANY(q.tags) THEN 'numeric'
+                ELSE 'unknown'
+            END AS dtype,
+            count(*) AS cnt
+        FROM questions q
+        JOIN generation_metadata gm ON gm.question_id = q.id
+        WHERE gm.generation_method = 'distractor_mining'
+        GROUP BY dtype ORDER BY dtype
+        """
+    )
+    rows = cur.fetchall()
+    click.echo("\nBy distractor type:")
+    for r in rows:
+        click.echo(f"  {r['dtype']:25s} {r['cnt']}")
 
     # By difficulty (should be 3-4)
     cur.execute(
