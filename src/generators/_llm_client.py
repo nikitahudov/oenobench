@@ -32,7 +32,7 @@ GENERATOR_MODELS = {
     "chatgpt": "openai/gpt-5.4",
     "gemini": "google/gemini-3.1-pro-preview",
     "llama": "nousresearch/hermes-3-llama-3.1-405b",    # Llama 3.1 405B via NousResearch
-    "qwen": "qwen/qwen3.5-397b-a17b",                  # Qwen 3.5 largest (397B MoE)
+    "qwen": "qwen/qwen3-235b-a22b-2507",                 # Qwen 3 235B MoE (non-thinking)
 }
 
 DEFAULT_MODEL = "claude"
