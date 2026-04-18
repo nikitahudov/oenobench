@@ -132,6 +132,46 @@ def _is_fact_rich(fact_text: str) -> bool:
     return True
 
 
+# ─── Wine category classification for distractor filtering ─────────────────
+
+_WINE_CATEGORY_PATTERNS = [
+    ("sparkling", re.compile(
+        r"\b(sparkling|spumante|mousseux|sekt|cava|champagne|crémant|franciacorta|"
+        r"trentodoc|prosecco|méthode\s+(traditionnelle|champenoise|classique)|"
+        r"charmat|tank\s+method|riddling|dosage|disgorgement|tirage|"
+        r"brut|extra\s+brut|pas\s+dosé|demi-sec)\b", re.I)),
+    ("fortified", re.compile(
+        r"\b(fortified|port\b|porto\b|sherry|jerez|madeira|marsala|"
+        r"vin\s+doux\s+naturel|VDN|banyuls|maury|rivesaltes|muscat\s+de\s+|"
+        r"brandy\s+spirit|grape\s+spirit|aguardente|mutage)\b", re.I)),
+    ("rosé", re.compile(
+        r"\b(rosé|rosato|rosado|blush|vin\s+gris|saignée)\b", re.I)),
+    ("white", re.compile(
+        r"\b(white\s+wine|white\s+grape|bianco|blanc\b|weisswein|weißwein|"
+        r"chardonnay|sauvignon\s+blanc|riesling|pinot\s+grigio|pinot\s+gris|"
+        r"gewürztraminer|viognier|grüner\s+veltliner|albariño|garganega|"
+        r"vermentino|trebbiano|cortese|arneis|moscato)\b", re.I)),
+    ("red", re.compile(
+        r"\b(red\s+wine|red\s+grape|rosso|rouge\b|rotwein|"
+        r"cabernet\s+sauvignon|merlot|pinot\s+noir|syrah|shiraz|"
+        r"nebbiolo|sangiovese|tempranillo|grenache|garnacha|mourvèdre|"
+        r"malbec|barbera|touriga|aglianico|montepulciano\s+grape|"
+        r"primitivo|zinfandel|carménère)\b", re.I)),
+]
+
+
+def _classify_wine_category(fact_text: str) -> str | None:
+    """Classify a fact's wine category (sparkling, red, white, rosé, fortified).
+
+    Returns the first matching category, or None if no category is detectable.
+    Used to ensure distractor facts are about the same type of wine as the target.
+    """
+    for cat_name, pattern in _WINE_CATEGORY_PATTERNS:
+        if pattern.search(fact_text):
+            return cat_name
+    return None
+
+
 # ─── Dimension classification for comparative pairing ────────────────────────
 
 _DIMENSION_PATTERNS = [
@@ -827,6 +867,7 @@ def sample_confusable_facts(
     target_map = _extract_entity_map(target_fact["entities"])
     target_names = _extract_entity_names(target_fact["entities"])
     target_dim = _classify_dimension(target_fact["fact_text"])
+    target_cat = _classify_wine_category(target_fact["fact_text"])
 
     # Find the target's country for same-country filtering
     target_country = None
@@ -880,6 +921,7 @@ def sample_confusable_facts(
                     continue
 
                 r_dim = _classify_dimension(r["fact_text"])
+                r_cat = _classify_wine_category(r["fact_text"])
                 # Score: base 1.0 for Priority 1, +0.5 for dimension match
                 score = 1.0
                 ctx_parts = [f"same country ({target_country})", f"same {primary_type} type"]
@@ -888,6 +930,13 @@ def sample_confusable_facts(
                     ctx_parts.append(f"same dimension ({target_dim})")
                 elif target_dim and r_dim and r_dim != target_dim:
                     score -= 0.2
+                # Wine category match/mismatch
+                if target_cat and r_cat:
+                    if r_cat == target_cat:
+                        score += 0.3
+                        ctx_parts.append(f"same wine category ({target_cat})")
+                    else:
+                        score -= 0.4  # strong penalty — different categories are trivially eliminable
                 r["_dimension"] = r_dim
                 r["_confusability_context"] = "; ".join(ctx_parts)
                 candidates.append((score, r))
@@ -927,6 +976,7 @@ def sample_confusable_facts(
             r_map = _extract_entity_map(r["entities"])
             affinity, reason = _entity_affinity_score(target_map, r_map)
             r_dim = _classify_dimension(r["fact_text"])
+            r_cat = _classify_wine_category(r["fact_text"])
 
             # Score: base from affinity, +0.5 for dimension match
             score = affinity
@@ -934,6 +984,13 @@ def sample_confusable_facts(
             if target_dim and r_dim == target_dim:
                 score += 0.5
                 ctx_parts.append(f"same dimension ({target_dim})")
+            # Wine category match/mismatch
+            if target_cat and r_cat:
+                if r_cat == target_cat:
+                    score += 0.3
+                    ctx_parts.append(f"same wine category ({target_cat})")
+                else:
+                    score -= 0.4
             r["_dimension"] = r_dim
             r["_confusability_context"] = "; ".join(ctx_parts)
             candidates.append((score, r))
