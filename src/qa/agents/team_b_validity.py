@@ -125,10 +125,13 @@ def run_team_b(
             continue
 
         # ─── B1 — open-book / fact support / cross-judge agreement ────────────
+        # Judges are NOT shown the claimed key. We compute "majority_matches_key"
+        # by comparing their independent majority choice to the DB key.
         ob_choices = [v.chosen for v in result.open_book]
         ob_majority, ob_count = _majority(ob_choices)
         majority_matches_key = bool(ob_majority and ob_majority == claimed_key)
-        fact_supports = [v.fact_supports_key for v in result.open_book if v.fact_supports_key is not None]
+        fact_supports = [v.fact_supports_choice for v in result.open_book
+                         if v.fact_supports_choice is not None]
         fact_supports_count = sum(1 for v in fact_supports if v)
         disagreement = len(set(ob_choices)) > 1
         b1_severity = SEVERITY_PASS
@@ -150,7 +153,8 @@ def run_team_b(
                 "claimed_key": claimed_key,
                 "open_book_choices": [
                     {"judge": v.judge, "chosen": v.chosen, "confidence": v.confidence,
-                     "fact_supports_key": v.fact_supports_key, "rationale": v.rationale}
+                     "fact_supports_choice": v.fact_supports_choice,
+                     "rationale": v.rationale}
                     for v in result.open_book
                 ],
                 "majority_choice": ob_majority,

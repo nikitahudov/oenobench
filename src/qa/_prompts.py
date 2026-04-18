@@ -9,16 +9,17 @@ from __future__ import annotations
 # ─── Shared system prompt for Team B judges ──────────────────────────────────
 
 JUDGE_SYSTEM = """You are a wine assessment expert acting as an independent judge for a benchmark.
-You will be given a multiple-choice question and asked to:
-  1) Pick the best answer from the options.
+You will be shown a multiple-choice question and asked to:
+  1) Pick the single best answer from the options.
   2) Rate your confidence 0.0–1.0.
-  3) Decide whether the supplied source fact (if shown) supports the keyed answer.
+  3) Say whether the supplied source fact (if any) supports the answer you chose.
 
 Reason carefully. Use ONLY the information given to you in this prompt and standard wine knowledge.
-Output STRICT JSON matching the requested schema. No prose outside the JSON object."""
+Output STRICT JSON matching the requested schema. No prose outside the JSON object.
+Do not be told what the "official" answer is — decide for yourself."""
 
 
-# ─── B1 — open-book judging (with source) ────────────────────────────────────
+# ─── B1 — open-book judging (with source, claimed key intentionally hidden) ──
 
 OPEN_BOOK_TEMPLATE = """## Question
 {question_text}
@@ -30,17 +31,15 @@ OPEN_BOOK_TEMPLATE = """## Question
 {source_text}
 
 ## Your task
-Decide which option is the correct answer based on the source fact above.
-Then judge whether the source fact actually supports the answer that the
-benchmark says is correct (the "claimed key").
-
-Claimed key (do NOT reveal in your reasoning): {claimed_key}
+Based only on the source fact above (supplemented by standard wine knowledge if and
+only if the fact is silent on a detail), pick the single best option.
+Then say whether the source fact actually supports your chosen answer.
 
 Return JSON:
 {{
   "chosen": "A" | "B" | "C" | "D",
   "confidence": 0.0,
-  "fact_supports_key": true | false,
+  "fact_supports_choice": true | false,
   "rationale": "one short sentence"
 }}"""
 

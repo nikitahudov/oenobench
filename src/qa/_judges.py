@@ -33,7 +33,7 @@ class JudgeVerdict:
     judge: str
     chosen: str | None
     confidence: float
-    fact_supports_key: bool | None
+    fact_supports_choice: bool | None
     rationale: str
     raw: str
     cost_usd: float = 0.0
@@ -87,7 +87,7 @@ def _parse_verdict(model_short: str, response, expects_fact_check: bool) -> Judg
             judge=model_short,
             chosen=None,
             confidence=0.0,
-            fact_supports_key=None,
+            fact_supports_choice=None,
             rationale="",
             raw=response.error or "",
             error=response.error,
@@ -96,13 +96,14 @@ def _parse_verdict(model_short: str, response, expects_fact_check: bool) -> Judg
     chosen = parsed.get("chosen")
     if isinstance(chosen, str):
         chosen = chosen.strip().upper()[:1] if chosen else None
+    fsc = parsed.get("fact_supports_choice")
+    if fsc is None:
+        fsc = parsed.get("fact_supports_key")  # legacy field, tolerate
     return JudgeVerdict(
         judge=model_short,
         chosen=chosen,
         confidence=float(parsed.get("confidence", 0.0) or 0.0),
-        fact_supports_key=(
-            bool(parsed.get("fact_supports_key")) if expects_fact_check else None
-        ),
+        fact_supports_choice=(bool(fsc) if expects_fact_check else None),
         rationale=str(parsed.get("rationale", ""))[:300],
         raw=response.content[:2000],
         cost_usd=_estimate_cost(model_short, response.input_tokens, response.output_tokens),
@@ -135,20 +136,21 @@ def judge_open_and_closed(
     question_text: str,
     options: list[dict],
     source_text: str,
-    claimed_key: str,
+    claimed_key: str = "",
     judges: Iterable[str] = JUDGE_PANEL,
 ) -> JudgeBatchResult:
     """Run B1 (open-book) and B2 (closed-book) on the same question.
 
     Each judge is asked twice — once with the source fact, once without —
     so we get six calls per question across the three-judge panel.
+    The claimed_key is NOT shown to judges; it's used post-hoc to score
+    whether the judge majority matches the keyed answer.
     """
     options_block = render_options(options)
     open_prompt = OPEN_BOOK_TEMPLATE.format(
         question_text=question_text,
         options_block=options_block,
         source_text=source_text or "(no source fact recorded)",
-        claimed_key=claimed_key or "(unknown)",
     )
     closed_prompt = CLOSED_BOOK_TEMPLATE.format(
         question_text=question_text,
