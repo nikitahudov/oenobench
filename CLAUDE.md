@@ -146,14 +146,37 @@ All significant work on this project must be documented in `docs/PROCESS_LOG.md`
 │   │       └── js/dashboard.js   # Auto-refresh polling logic
 │   ├── evaluation/
 │   │   └── __init__.py           # Placeholder — future evaluation pipeline
-│   ├── generators/
-│   │   └── __init__.py           # Placeholder — future question generation
+│   ├── generators/               # Phase 2 — question generation (5 strategies + orchestrator)
+│   │   ├── _dedup.py, _fact_sampler.py, _id_generator.py, _llm_client.py,
+│   │   ├── _prompts.py, _question_db.py, _schemas.py,
+│   │   ├── template_generator.py, fact_to_question.py,
+│   │   ├── comparative_generator.py, scenario_generator.py,
+│   │   ├── distractor_miner.py, orchestrator.py
+│   ├── qa/                       # Phase 2c — multi-agent quality audit
+│   │   ├── __init__.py
+│   │   ├── orchestrator.py       # CLI: build-corpus, run-team-{a,b,c,d}, run, build-reports
+│   │   ├── _corpus.py            # Stratified 600-Q pilot builder + gold-sheet import/export
+│   │   ├── _findings.py          # audit_runs + audit_findings DAO with idempotency
+│   │   ├── _judges.py            # Tri-judge panel (Claude Opus 4.7, ChatGPT 5.4, Gemini 3.1 Pro)
+│   │   ├── _prompts.py           # B1/B2/D1 judge prompts
+│   │   ├── _scoring.py           # χ², Mann–Whitney U, LCS, Cohen's κ, tiny logreg, POS features
+│   │   ├── agents/
+│   │   │   ├── team_a_static.py      # A1 LexicalHygiene, A2 BiasStats, A3 FactEcho, A4 TemplateFingerprint
+│   │   │   ├── team_b_validity.py    # B1 TriJudgeAnswer, B2 ClosedBookSolvability
+│   │   │   ├── team_c_probes.py      # C2 CategoryLeak (C1/C3/C4 deferred)
+│   │   │   └── team_d_population.py  # D1 SelfPreference, D3 SkewAudit (stats slice)
+│   │   └── reports/
+│   │       ├── build_audit_report.py    # Renders docs/QUALITY_AUDIT_REPORT.md
+│   │       └── build_improvement_plan.py # Renders docs/GENERATION_IMPROVEMENT_PLAN.md
 │   ├── processors/
 │   │   └── __init__.py           # Placeholder — future data processing
 │   └── validators/
 │       └── __init__.py           # Placeholder — future validation pipeline
 ├── tests/
-│   └── __init__.py
+│   ├── __init__.py
+│   └── qa/                       # pytest fixtures + tests for src/qa/
+│       ├── fixtures/sample_questions.py
+│       ├── test_scoring.py, test_team_a.py, test_team_c.py, test_findings.py
 └── data/                         # Not in git (see .gitignore)
     ├── raw/                      # Downloaded datasets
     ├── processed/                # Processed outputs

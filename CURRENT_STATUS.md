@@ -1,7 +1,7 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** April 12, 2026
-**Project phase:** Phase 2 — Question Generation in progress (pipeline built, strategies 1-2 of 5 complete)
+**Last updated:** April 18, 2026
+**Project phase:** Phase 2c — Quality Audit Framework built; corpus generation pending
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ---
@@ -11,11 +11,43 @@
 | Phase | Weeks | Status |
 |-------|-------|--------|
 | 1. Infrastructure & Data Collection | 1-6 | **Complete** — 38,104 facts from 35 genuine scrapers |
-| 2. Question Generation | 7-12 | **In progress** — pipeline built, 2/5 strategies implemented |
+| 2. Question Generation Pipeline | 7-10 | **Complete** — all 5 strategies built and iteratively tuned |
+| 2c. Quality Audit Framework | 11 | **Built** — 9-agent multi-team audit, 26 tests green, schema applied |
+| 2d. Audit run + regeneration | 12 | **Pending** — build pilot corpus, run audit, fix defects, full 10k run |
 | 3. AI Validation | 13-16 | Not started |
 | 4. Human Review & Control Set | 17-20 | Not started |
 | 5. Evaluation & Analysis | 21-24 | Not started |
 | 6. Publication & Release | 25-30 | Not started |
+
+---
+
+## Phase 2c: Quality Audit (Built — April 18, 2026)
+
+After iterative generation-quality tuning through April 12–18 (blend-as-variety filter, thin-geo rejection, inference-over-recall prompting, dimension-aware pairing, option shuffling, Gemini/Qwen token fix), we built a dedicated multi-agent audit framework that gates the full 10k generation run. Key decision: do not burn LLM budget on a 10k run until the pilot passes a structured audit.
+
+### Architecture — 4 teams, 9 agents
+
+- **Team A** (no LLM, static analysis): A1 LexicalHygiene, A2 BiasStats (position/length), A3 FactEcho (LCS vs source), A4 TemplateFingerprint (POS-bigram logreg).
+- **Team B** (tri-judge panel — Claude Opus 4.7, ChatGPT 5.4, Gemini 3.1 Pro): B1 TriJudgeAnswer, B2 ClosedBookSolvability.
+- **Team C** (deterministic, MVA slice): C2 CategoryLeak; C1/C3/C4 deferred with escalation triggers.
+- **Team D**: D1 SelfPreference (5×5 evaluator×author), D3 SkewAudit (stats-only, cultural slice deferred).
+
+### Infrastructure
+- **New module**: `src/qa/` with orchestrator CLI, shared foundation, 4 team agent files, 2 report renderers.
+- **New DB objects**: `audit_runs`, `audit_findings`, `audit_gold_labels` tables, `v_question_audit_summary`, `v_strategy_audit_rollup` views, `audit_severity` enum (applied via `config/postgres/002_audit_schema.sql`).
+- **Reproducibility**: `config_hash = sha256(agents+versions | models | seed | thresholds)` stored on every run; findings idempotent on `(run_id, q_id, agent_id, version)`.
+- **Test suite**: 26 pytest tests green across `_scoring`, `_findings`, Team A (4 agents), Team C.
+
+### Estimated cost
+~$130–175 end-to-end: corpus build $45–60 + Team B (3 judges × 600 Qs × 2 variants) $70–90 + D1 $15–25.
+
+### Next steps (in order)
+1. `python -m src.qa.orchestrator build-corpus --per-strategy 120` → 600 Qs tagged `audit_pilot_v1`.
+2. `python -m src.qa.orchestrator export-gold --size 60` → human grades 60 Qs against 8 rubrics.
+3. `python -m src.qa.orchestrator run --teams A,B,C,D` → full audit.
+4. `python -m src.qa.orchestrator build-reports --run-id <uuid>` → `docs/QUALITY_AUDIT_REPORT.md` + `docs/GENERATION_IMPROVEMENT_PLAN.md`.
+5. Fix defects against the Regeneration Go/No-Go checklist in the plan.
+6. Re-run audit until all Go/No-Go boxes hold → start full 10k generation run.
 
 ---
 

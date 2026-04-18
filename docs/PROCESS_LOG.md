@@ -421,3 +421,81 @@ Applied the dimension-aware pattern from comparative to the distractor mining st
 - Dimension-unmatched distractors NOT filtered out, only ranked lower — some questions work with mixed dimensions
 - Generic template kept as fallback for edge cases where no type-specific template matches
 - `_auto_distractor_type` uses simple majority rule: if ≥50% of distractors match target dimension, use typed template
+
+## 2026-04-18 — Phase 2c: Quality Audit — Multi-Agent Team Architecture
+
+### What was done
+Built a multi-agent quality-audit framework (`src/qa/`) that gates the full-scale 10k question-generation run. After five strategies were tuned iteratively through April 12–18 (blend-as-variety, thin-geo, inference-over-recall, dimension-aware pairing, option shuffling, Gemini/Qwen token fix), each fix found issues the previous passes missed. The next round of iterative tuning would burn LLM budget blindly, so we instead built a final, critical, multi-agent audit against a stratified 600-question pilot corpus. Output: a reproducible audit report and a prioritised improvement plan that drives regeneration Go/No-Go.
+
+### Sources & inputs
+- Existing fact base: 38,104 verified facts
+- Existing generator modules: `src/generators/{template_generator, fact_to_question, comparative_generator, scenario_generator, distractor_miner}.py`
+- Existing quality filters reused: `_classify_wine_category`, `_classify_dimension`, `_VAGUE_PATTERNS`, `_BLEND_AS_VARIETY`, `_THIN_GEO_PATTERNS` from `_fact_sampler.py`
+- Existing LLM infra reused: `_llm_client.py` (OpenRouter, retry, rate limit, JSON extraction)
+- Existing views reused: `v_self_preference`
+
+### Methodology
+
+**Architecture: 4 teams, 9 agents, 2 modes (per-question vs population-level)**
+
+Team A — Static integrity (no LLM, ~1 min for 600 Qs):
+- A1 `LexicalHygiene` — extended vague/marketing/blend regex over stem, options, explanation
+- A2 `BiasStats` — χ² on correct-answer position uniformity; Mann–Whitney U on correct-vs-distractor length
+- A3 `FactEcho` — token LCS ratio + longest common n-gram vs source fact
+- A4 `TemplateFingerprint` — tiny POS-bigram logistic regression distinguishing template from LLM questions; AUC and per-question template-likeness scoring
+
+Team B — Answer validity (tri-judge panel: Claude Opus 4.7, ChatGPT 5.4, Gemini 3.1 Pro; Llama/Qwen excluded to keep them as generator-bias subjects):
+- B1 `TriJudgeAnswer` — each judge picks answer with source, also verifies fact→key support; majority vote vs claimed key
+- B2 `ClosedBookSolvability` — same judges answer without source; flags questions solvable from world knowledge
+
+Team C — Adversarial probes (MVA: deterministic slice only):
+- C2 `CategoryLeak` — wine-category classifier on correct + distractors; fail if stem mentions a category and any distractor has a different one
+
+Team D — Population-level bias:
+- D1 `SelfPreference` — 5×5 evaluator×author matrix; each generator model answers a balanced per-author sample; own-vs-other accuracy delta
+- D3 `SkewAudit` (stats-only) — χ² of question-linked country distribution vs fact-base distribution; per-strategy subdomain Herfindahl
+
+**Deferred agents** (explicit, with escalation triggers in the report):
+- C1 DistractorDifficulty (LLM per-distractor plausibility)
+- B3 ParaphraseStability, B4 Ambiguity (LLM)
+- C3 SourceSwap, C4 DimensionCognitiveAudit (LLM)
+- D2 DedupCalibration (threshold P/R sweep)
+- D3 cultural-framing slice (LLM label)
+
+**Pipeline**
+```
+Stage 0 build-corpus    → 600 Qs tagged `audit_pilot_v1`
+Stage 1 Team A (static) → ~1 min, no cost
+Stage 2 Team C + D3     → seconds, no cost
+Stage 3 Team B + D1     → LLM stage, est. $90–$115 total
+Stage 4 aggregate       → per-agent × per-strategy × per-generator roll-ups
+Stage 5 build-reports   → docs/QUALITY_AUDIT_REPORT.md + docs/GENERATION_IMPROVEMENT_PLAN.md
+```
+
+### Quality controls & reproducibility contract
+- `audit_runs.config_hash = sha256(sorted(agent_id+version) | sorted(model_ids) | seed | thresholds_json)`
+- Every finding idempotent on `(run_id, question_id, agent_id, agent_version)` — re-runs are cache hits unless an agent's version bumps
+- Every LLM judge call stores prompt hash, model snapshot, latency, full raw content in `payload`
+- Gold-standard calibration set: 60 questions (12/strategy), reviewer fills 8 rubrics (answer_correct, distractors_plausible, not_ambiguous, source_faithful, needs_source, no_vague_language, difficulty_match, cognitive_match); Cohen's κ per rubric reported
+
+### Quantitative results
+Pipeline ready to run; no audit data yet (questions table currently empty — awaits full generation run gated on this audit's go/no-go).
+- Target corpus: 600 questions (120 per strategy; LLM strategies split 120 across 5 generators × 6 domains ≈ 4/cell)
+- Estimated cost: corpus build $45–60 + Team B $70–90 + D1 $15–25 = **$130–175 end-to-end**
+- Test suite: 26 unit tests green across `_scoring`, `_findings`, Team A (4 agents), Team C
+
+### Decisions & trade-offs
+- **MVA over Thorough**: user chose 5-LLM-agent minimum viable audit (~$80 LLM spend) but asked for "as many weaknesses as possible". Reconciliation: include all 4 static/analytics agents (A1–A4, C2, D3) for free on top of the MVA LLM core (B1, B2, D1). Result: 9 agents instead of 5, same budget.
+- **Judge panel excludes Llama/Qwen**: they are subjects of the bias audit (D1), not arbiters. Three-way panel (Claude/ChatGPT/Gemini) keeps per-question cost at 6 calls (B1+B2 share scaffold) while preserving disagreement signal.
+- **LLM-level adversarial probes deferred (C1, C3, B3, B4, C4)**: each has an explicit escalation trigger in the report (e.g., "if A4 AUC ≥ 0.9, run C1 + B4 on flagged subset") so follow-up cost is contingent, not upfront.
+- **Tiny logistic regression in `_scoring.py` instead of sklearn**: OenoBench avoids adding an sklearn dependency just for the A4 classifier; a hand-rolled L2 logreg on ~600 examples × ~300 features trains in <1 s.
+- **Corpus builder subprocess-per-cell**: instead of importing each generator's internals, we shell out to the battle-tested CLIs with controlled `--count`/`--domain`/`--generator` flags and tag newly-created rows post-hoc. Adds ~1 s/call process overhead but avoids coupling.
+
+### Issues encountered & resolutions
+- None so far — test suite green on first run; schema applied cleanly; CLI loads and enforces the "no questions tagged → error" guard.
+
+### Human review notes
+- Plan approved by user (see `/home/winebench/.claude/plans/glittery-conjuring-spindle.md`)
+- User explicitly chose MVA (5 LLM agents) over Comprehensive (12 agents) to keep cost under $200
+- User agreed to hand-grade 60 questions across 8 rubrics once corpus is built
+- Gold CSV export/import round-trip implemented (no review done yet)
