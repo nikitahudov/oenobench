@@ -28,7 +28,7 @@ load_dotenv()
 # -- Model registry --------------------------------------------------------
 
 GENERATOR_MODELS = {
-    "claude": "anthropic/claude-opus-4.6",
+    "claude": "anthropic/claude-opus-4.7",
     "chatgpt": "openai/gpt-5.4",
     "gemini": "google/gemini-3.1-pro-preview",
     "llama": "nousresearch/hermes-3-llama-3.1-405b",    # Llama 3.1 405B via NousResearch
