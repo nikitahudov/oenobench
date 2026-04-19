@@ -107,7 +107,13 @@ def _generate_one(
             )
             return None
 
-        parsed = parse_llm_response(response.content, question_type)
+        parsed = parse_llm_response(
+            response.content,
+            question_type,
+            source_fact_texts=[fact["fact_text"]],
+            verify_with_independent_solver=True,
+            generator=generator,
+        )
         if parsed is not None:
             return {
                 "parsed": parsed,

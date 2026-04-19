@@ -108,7 +108,13 @@ def _generate_one(
             )
             return None
 
-        parsed = parse_llm_response(response.content, "scenario_based")
+        parsed = parse_llm_response(
+            response.content,
+            "scenario_based",
+            source_fact_texts=[f["fact_text"] for f in cluster],
+            verify_with_independent_solver=True,
+            generator=generator,
+        )
         if parsed is not None:
             return {
                 "parsed": parsed,

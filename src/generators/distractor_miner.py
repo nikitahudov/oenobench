@@ -199,7 +199,18 @@ def _generate_one(
             )
             return None
 
-        parsed = parse_llm_response(response.content, "multiple_choice")
+        # Source-fact list for the paraphrase guard: target fact is the
+        # primary source (its content drives the correct answer); distractor
+        # facts are also linked to the question and must not be copied verbatim
+        # into options.
+        all_source_facts = [target["fact_text"]] + [d["fact_text"] for d in distractors]
+        parsed = parse_llm_response(
+            response.content,
+            "multiple_choice",
+            source_fact_texts=all_source_facts,
+            verify_with_independent_solver=True,
+            generator=generator,
+        )
         if parsed is not None:
             return {
                 "parsed": parsed,

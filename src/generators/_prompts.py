@@ -121,6 +121,10 @@ question to use accurate terminology (e.g., "wine style", "blend category", \
 FACT_TO_QUESTION_TEMPLATE = """\
 Create a {question_type} question from the following fact.
 
+PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
+than 5 consecutive words verbatim from the source fact into the question or any \
+option. Synonyms, restructured clauses, and inversions are required.
+
 FACT: {fact_text}
 SOURCE: {source_name}
 DOMAIN: {domain}
@@ -199,6 +203,10 @@ COMPARATIVE_TEMPLATE = """\
 Create a comparative question using these facts about different but related \
 wine entities.
 
+PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
+than 5 consecutive words verbatim from the source fact into the question or any \
+option. Synonyms, restructured clauses, and inversions are required.
+
 ENTITY A: {entity_a}
 FACT A: {fact_a}
 
@@ -247,6 +255,10 @@ COMPARATIVE_TEMPLATE_SAME_VS_DIFFERENT = """\
 Create a comparative question using these facts about two entities that share \
 a common context but differ on a specific dimension.
 
+PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
+than 5 consecutive words verbatim from the source fact into the question or any \
+option. Synonyms, restructured clauses, and inversions are required.
+
 ENTITY A: {entity_a}
 FACT A: {fact_a}
 
@@ -293,6 +305,10 @@ COMPARATIVE_TEMPLATE_WHICH_ONE = """\
 Create a "which one" identification question using these facts about \
 related wine entities.
 
+PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
+than 5 consecutive words verbatim from the source fact into the question or any \
+option. Synonyms, restructured clauses, and inversions are required.
+
 {facts_block}
 
 SHARED CONTEXT: {comparison_context}
@@ -333,6 +349,10 @@ Generate the identification question now."""
 COMPARATIVE_TEMPLATE_MOST_LEAST = """\
 Create a superlative comparison question using these facts that contain \
 comparable numeric or ordinal values.
+
+PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
+than 5 consecutive words verbatim from the source fact into the question or any \
+option. Synonyms, restructured clauses, and inversions are required.
 
 {facts_block}
 
@@ -391,6 +411,10 @@ Never refer to them as varieties — use "wine style" or "blend category" instea
 
 SCENARIO_TEMPLATE = """\
 Create a scenario-based question that synthesizes these facts.
+
+PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
+than 5 consecutive words verbatim from the source fact into the question or any \
+option. Synonyms, restructured clauses, and inversions are required.
 
 FACTS:
 {facts}
@@ -468,6 +492,10 @@ Never refer to them as varieties — use "wine style" or "blend category" instea
 DISTRACTOR_TEMPLATE = """\
 Create a multiple-choice question where distractors are mined from related facts.
 
+PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
+than 5 consecutive words verbatim from the source fact into the question or any \
+option. Synonyms, restructured clauses, and inversions are required.
+
 TARGET FACT (basis for the correct answer):
 {fact_text}
 
@@ -514,6 +542,10 @@ DISTRACTOR_TEMPLATE_ATTRIBUTE_SWAP = """\
 Create a question where all entities share the same attribute type but differ \
 in their specific values — the test-taker must know which value belongs to which entity.
 
+PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
+than 5 consecutive words verbatim from the source fact into the question or any \
+option. Synonyms, restructured clauses, and inversions are required.
+
 TARGET FACT (basis for the correct answer):
 {fact_text}
 
@@ -557,6 +589,10 @@ Generate the attribute-swap question now."""
 DISTRACTOR_TEMPLATE_ENTITY_ID = """\
 Create an entity identification question: present clues from the target \
 fact and ask which entity they describe.
+
+PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
+than 5 consecutive words verbatim from the source fact into the question or any \
+option. Synonyms, restructured clauses, and inversions are required.
 
 TARGET FACT (basis for the correct answer):
 {fact_text}
@@ -602,6 +638,10 @@ Generate the entity identification question now."""
 DISTRACTOR_TEMPLATE_NUMERIC = """\
 Create a question involving numeric values where distractors use real numbers \
 from similar entities.
+
+PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
+than 5 consecutive words verbatim from the source fact into the question or any \
+option. Synonyms, restructured clauses, and inversions are required.
 
 TARGET FACT (basis for the correct answer):
 {fact_text}
