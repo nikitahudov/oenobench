@@ -5,7 +5,7 @@
 - Corpus size: 472
 - Config hash: `a4b016003b3be5b6...`
 - Started: 2026-04-19 01:28:16.558664+00:00
-- Completed: (in progress)
+- Completed: 2026-04-19 04:57:41.290580+00:00
 - LLM calls: 3207
 - Cost: $8.49
 
@@ -166,7 +166,9 @@
 
 ## 6 · Gold calibration
 
-_No human gold labels imported. Run `import-gold` after offline review._
+- Human-reviewed items: **60**
+- answer_correct κ(human, judge majority) = **-0.053**  (n=60)
+- ⚠ κ below 0.6 — downweight B1 signal when interpreting strategy rollups.
 
 ## 7 · Limitations & deferred checks
 
@@ -196,4 +198,4 @@ SELECT agent_id, severity, count(*) FROM audit_findings WHERE run_id = 'e8eba8bb
 SELECT * FROM v_question_audit_summary WHERE id IN (SELECT question_id FROM audit_findings WHERE run_id = 'e8eba8bb-cb49-42cd-9e32-c741c987043e');
 ```
 
-_Generated 2026-04-19T04:55:19.229723_
+_Generated 2026-04-19T10:33:54.141735_
