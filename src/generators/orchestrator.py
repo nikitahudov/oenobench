@@ -40,21 +40,28 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 OVERALL_TARGET = 10_000
 
+# v2.1 allocation (post-gold-calibration). See docs/GENERATION_IMPROVEMENT_PLAN.md
+# §0. Template share cut from 25% → 10% per the gold review's distractor /
+# difficulty / source-faithful findings; the freed slots flow to the three
+# verifiable LLMs (Claude/ChatGPT/Gemini @ 24% each) with a small bump for
+# Llama/Qwen (whose output is gated by the new independent verifier).
 STRATEGY_TARGETS = {
-    "fact_to_question": 4000,
-    "template": 2500,
+    "fact_to_question": 4500,
+    "template": 1000,
     "comparative": 1500,
-    "scenario_synthesis": 1000,
-    "distractor_mining": 1000,
+    "scenario_synthesis": 1500,
+    "distractor_mining": 1500,
 }
 
-# LLM-based strategies share 7,500 questions evenly across 5 generators
+# LLM-based strategies share 9,000 questions across 5 generators (template
+# strategy contributes the remaining 1,000 deterministically). No model may
+# exceed 35% of the corpus; current cap is 24%.
 GENERATOR_TARGETS = {
-    "claude": 1500,
-    "chatgpt": 1500,
-    "gemini": 1500,
-    "llama": 1500,
-    "qwen": 1500,
+    "claude": 2400,
+    "chatgpt": 2400,
+    "gemini": 2400,
+    "qwen": 1100,
+    "llama": 700,
 }
 
 # Maps strategy name to the module invoked via `python -m src.generators.<module>`
