@@ -13,48 +13,57 @@ The whole list is ranked by impact-per-effort. Implement defects 0–3 in one it
 
 ---
 
-## 0 · Reweighted generator allocation (NEW)
+## 0 · Reweighted generator allocation (REVISED v2.1)
 
-The original plan distributed LLM questions equally across the five generators (1,500 each = 20%). The gold review shows quality is **not** uniform:
+The original plan distributed LLM questions equally across the five generators. The gold review shows quality is **not** uniform — and a deeper template-strategy audit (see new §6) reveals templates have systemic structural defects despite their 100% answer-correctness.
 
-| Generator | Gold-review answer_correct | Action |
-|---|---:|---|
-| **Claude Opus 4.7** | 100% | scale up |
-| **ChatGPT 5.4** | 100% | scale up |
-| **Gemini 3.1 Pro** | 100% | scale up |
-| **Qwen 3 235B** | 71% | scale down + verify |
-| **Llama 3.1 405B** | 60% | scale down + verify |
-| Template (deterministic) | 100% | hold (cap unchanged) |
+| Generator | Gold-review answer_correct | Other major issues | Action |
+|---|---:|---|---|
+| **Claude Opus 4.7** | 100% | none material | scale up |
+| **ChatGPT 5.4** | 100% | none material | scale up |
+| **Gemini 3.1 Pro** | 100% | none material | scale up |
+| **Qwen 3 235B** | 71% | wrong-key generation | scale down + verify |
+| **Llama 3.1 405B** | 60% | wrong-key generation | scale down + verify |
+| Template (deterministic) | 100% | distractor 33%, difficulty 42%, source-faithful 50%, A4 AUC 0.96 — see §6 | **scale down sharply** |
 
-### Proposed final-corpus allocation
+### Proposed final-corpus allocation (v2.1)
 
-| Generator | Old % | **New %** | Old count | **New count** | Notes |
-|---|---:|---:|---:|---:|---|
-| Template | 25.0 | **25.0** | 2,500 | **2,500** | Keep — 100% answer_correct, but distractors weak (33%) — see fix #6 |
-| Claude | 15.0 | **20.0** | 1,500 | **2,000** | Scale up |
-| ChatGPT | 15.0 | **20.0** | 1,500 | **2,000** | Scale up |
-| Gemini | 10.0 | **20.0** | 1,000 | **2,000** | Scale up — judged best by domain expert in process log |
-| Qwen | 17.5 | **9.0** | 1,750 | **900** | Scale down + post-LLM verify |
-| Llama | 17.5 | **6.0** | 1,750 | **600** | Scale down + post-LLM verify |
-| **TOTAL** | 100.0 | **100.0** | 10,000 | **10,000** | Cap: max 25% any model (well under the 35% ceiling) |
+| Generator | v1 % | v2 % | **v2.1 %** | v1 count | v2 count | **v2.1 count** | Notes |
+|---|---:|---:|---:|---:|---:|---:|---|
+| Template | 25.0 | 25.0 | **10.0** | 2,500 | 2,500 | **1,000** | Cut from 25% to 10% per gold review — see §6 overhaul |
+| Claude | 15.0 | 20.0 | **24.0** | 1,500 | 2,000 | **2,400** | Absorb template share |
+| ChatGPT | 15.0 | 20.0 | **24.0** | 1,500 | 2,000 | **2,400** | Absorb template share |
+| Gemini | 10.0 | 20.0 | **24.0** | 1,000 | 2,000 | **2,400** | Absorb template share — best-rated by domain expert |
+| Qwen | 17.5 | 9.0 | **11.0** | 1,750 | 900 | **1,100** | Slight bump; still gated by verifier |
+| Llama | 17.5 | 6.0 | **7.0** | 1,750 | 600 | **700** | Slight bump; still gated by verifier |
+| **TOTAL** | 100.0 | 100.0 | **100.0** | 10,000 | 10,000 | **10,000** | Max 24% any model (under the 35% ceiling) |
 
 Rationale:
-- The three high-quality LLMs each go to 20% (well under the 35% cap), giving 60% of questions to verifiably-correct generators while keeping diversity.
-- Llama and Qwen retain meaningful representation (15% combined = 1,500 questions) so we keep generator-family diversity in the dataset, but their output is gated by an independent verifier (see fix #1).
-- The template strategy stays at 25% — it produces correct answers 100% of the time and gives us deterministic, zero-cost questions.
-- Allocation will be encoded in `src/generators/orchestrator.py:GENERATOR_TARGETS`.
+- The three high-quality LLMs each go to 24% (just under the 25% mark, well under the 35% cap), giving 72% of questions to verifiably-correct generators.
+- Template share drops from 2,500 → 1,000. Templates retained as a deterministic floor for L1-recall coverage of well-defined entities (regions, grapes, producers); the §6 overhaul fixes the structural defects so the remaining 1,000 are actually defensible.
+- Llama and Qwen get a small bump (combined 18% → 1,800 questions) absorbing some of the template cut, since their output goes through the verifier and surviving questions match the quality of the other LLMs.
+- All allocations encoded in `src/generators/orchestrator.py:GENERATOR_TARGETS` and `STRATEGY_TARGETS["template"]`.
 
 ### Implementation
 ```python
 # src/generators/orchestrator.py
-GENERATOR_TARGETS = {
-    "claude":  2000,
-    "chatgpt": 2000,
-    "gemini":  2000,
-    "qwen":     900,
-    "llama":    600,
+STRATEGY_TARGETS = {
+    "fact_to_question":   4500,   # +500 vs v1
+    "template":           1000,   # -1500 vs v1
+    "comparative":        1500,
+    "scenario_synthesis": 1500,   # +500 vs v1
+    "distractor_mining":  1500,   # +500 vs v1
 }
-# template stays at STRATEGY_TARGETS["template"] = 2500
+
+# Per-LLM targets (LLM strategies share 9,000 questions across 5 models)
+GENERATOR_TARGETS = {
+    "claude":  2400,
+    "chatgpt": 2400,
+    "gemini":  2400,
+    "qwen":    1100,
+    "llama":    700,
+}
+# Sum = 9,000 = template (1,000) total to 10,000.
 ```
 
 ---
@@ -160,15 +169,97 @@ Per the report's own gating criterion (κ < 0.6 → downweight), every signal mu
 
 ---
 
-## 6 · Template distractor plausibility (NEW — gold review)
+## 6 · Template strategy overhaul (REWRITTEN — gold review surfaced systemic defects)
 
-**Defect:** templates score 100% on answer correctness but only **33%** on distractor plausibility. Wrong options are sampled by entity-type matching (e.g. another "country" string) without semantic similarity, so they're trivially eliminable.
+The 12 template questions in the gold review revealed the strategy has the **same class of structural problems the LLM strategies had before April 12–18 fine-tuning**, but they're harder to fix because templates lack the LLM's flexibility.
 
-**Fix (M, 1–2 days) in `src/generators/template_generator.py`:**
-- For each template's distractor type, fetch entity candidates from the same type, then rank by embedding similarity to the correct entity (use existing pgvector index).
-- Take the 3 nearest neighbours that are not the correct answer; reject if no near-neighbours exist (skip the template instance).
+### 6.1 Defect inventory (per the 12-Q gold sample)
 
-**Verification:** human spot-check of 30 template questions; distractor plausibility ≥ 75%.
+| Rubric | Pass | Notes |
+|---|---:|---|
+| answer_correct | 100% | The keyed answer is always factually right |
+| **distractors_plausible** | **33%** | Distractors are random same-type entities — often wildly off (e.g. "Sundarban Honey" as a wine sub-region; "Wine of Origin" as a producer location) |
+| not_ambiguous | 92% | OK |
+| **source_faithful** | **50%** | Many questions don't actually require the source fact — they're solvable from world knowledge alone (template fills slots from JSONB entities, source text is unused) |
+| needs_source | 83% | Marginal — half the questions are world-knowledge solvable |
+| no_vague_language | 83% | OK |
+| **difficulty_match** | **42%** | Most labelled L2/L3 are actually L1 (recall-only); two L1/L2 are actually L3 (source fact doesn't contain the answer, requires knowledge transfer) |
+| cognitive_match | 100% | OK |
+
+Plus from the audit:
+- A4 TemplateFingerprint AUC = **0.96** (templates are statistically distinguishable from LLM questions by surface features alone).
+- A3 FactEcho fail on some templates (the question stem contains the fact's entity values verbatim).
+
+### 6.2 Root cause analysis
+
+The template strategy is **fact-agnostic by design**. It samples a fact, extracts JSONB entities (e.g. `{country: "Germany", region: "Rheingau"}`), then fills `"Which country is the {region} wine region located in?"`. The fact's text content is never used. Consequences:
+
+1. **Distractors come from a flat entity-type pool.** "Same type as the correct answer" is too coarse — it lets any country be a distractor for "Germany", including continents away or non-wine countries.
+2. **Questions are world-knowledge solvable** because the template asks about a fact most LLMs already know (Rheingau is in Germany).
+3. **Difficulty labelling is decoupled from question difficulty** — the template-id has a fixed difficulty (T-REG-COUNTRY-01 → L1) regardless of how obscure the entity is. "Which country is California in?" gets L1; "Which country is Neusiedlersee in?" also gets L1 even though it's harder.
+4. **Phrasing is rigid** — 45 templates, each with one canonical sentence, makes the strategy easy to fingerprint.
+5. **No use of fact content** means templates can't generate inference-based or analysis-level questions; they're stuck at recall.
+
+### 6.3 Fix bundle (multi-PR, ~3 days)
+
+These changes can land in parallel; together they salvage the strategy at a reduced share.
+
+**6.3a — Embedding-similarity distractor sampling (M, 1 day)**
+
+In `src/generators/template_generator.py`, replace the random same-type distractor sampler with a pgvector nearest-neighbour search:
+- For each template's distractor slot, embed the correct entity name + a short context phrase ("Rheingau wine region in Germany").
+- Query pgvector for top-K (K=8) nearest entities of the same type, then pick 3 from positions 2-5 (skip the closest, which might be aliases; skip the farthest, which is too far).
+- Reject the template instance if fewer than 3 viable neighbours exist for that entity.
+
+**6.3b — Source-fact-anchored question generation (M, 1 day)**
+
+Stop generating questions whose answer is solvable without the source fact. Two changes:
+
+1. Restrict template strategy to facts whose JSONB entities include details NOT in the entity name itself (e.g. `{region: "Rheingau", soil: "slate"}`). A `"Which soil type is found in Rheingau?"` question requires the fact; `"Which country is Rheingau in?"` does not.
+2. Rotate template pool to favour relationship-based templates (`region → soil`, `region → climate`, `grape → typical_aging`, `producer → flagship_wine`) over identity-based templates (`region → country`).
+
+Update `src/generators/template_generator.py:TEMPLATES`:
+- Mark each template as `requires_fact_specific=True/False`.
+- When `True`, only fire if the fact's JSONB has the relevant non-name entity.
+- Drop or down-weight `requires_fact_specific=False` templates (most of T-REG-COUNTRY-*, T-PRD-COUNTRY-*).
+
+**6.3c — Per-instance difficulty re-rating (S, <1 day)**
+
+Replace the template-id-fixed difficulty with a heuristic:
+- L1: target entity has ≥ 100 mentions in the fact base (well-known).
+- L2: 20-99 mentions.
+- L3: 5-19 mentions.
+- L4: < 5 mentions.
+
+Combined with §7 (post-LLM difficulty re-classifier) for the cross-strategy check.
+
+**6.3d — Phrasing diversification (M, 1 day)**
+
+Each of the 45 templates gets 4-6 paraphrased variants. Variants rotate:
+- Opening (`Which`, `What`, `In which`, `Identify the`, `Name the`, `The {entity_type} of {entity} is …`).
+- Word order (subject-first vs object-first).
+- Punctuation (with/without trailing definite article).
+
+Random selection per generation. Should drop A4 detectability AUC well below 0.85.
+
+**6.3e — LLM paraphrase post-pass (optional M, 1 day)**
+
+For an extra anti-detectability layer: pass each generated template question through a single Gemini call with prompt "Rephrase this question naturally without changing its meaning or answer; keep the options exactly as given. Output JSON `{question_text}`." Costs ~1k template-Qs × $0.001 = $1. This converts templates from "deterministic" to "LLM-rephrased deterministic" — preserves correctness while breaking the fingerprint.
+
+### 6.4 Verification gate
+
+After the bundle lands and template count drops to 1,000:
+- distractor_plausibility ≥ 75% on a fresh 30-Q template human spot-check
+- source_faithful ≥ 80% on the same sample
+- difficulty_match ≥ 80% on the same sample
+- A4 held-out AUC < 0.80 (vs current 0.96)
+- A3 fact-echo fail rate < 2% on templates
+
+### 6.5 Decision log
+
+- **Why keep templates at all?** Two reasons: (1) they're the only deterministic path to controllable difficulty/domain coverage; (2) for the L1 recall floor, a sound template-generated question is strictly cheaper and faster than an LLM call.
+- **Why not drop to 0%?** With the §6.3 fixes the residual 10% is defensible. Going to 0 would require pushing more questions through Llama/Qwen, both of which have their own quality tax (the verifier).
+- **Why not 5% or 15%?** 10% gives ~1,000 questions, enough to provide a difficulty-controlled L1 floor without the strategy dominating any domain. 5% leaves too few for stable per-domain coverage; 15% over-weights a strategy with structural ceilings.
 
 ---
 
@@ -188,11 +279,9 @@ Per the report's own gating criterion (κ < 0.6 → downweight), every signal mu
 
 **Defect:** templates are statistically distinguishable from LLM questions by surface features (POS-bigram logreg AUC 0.96).
 
-**Fix (M, 1–2 days) in `src/generators/template_generator.py`:**
-- Diversify template phrasings: rotate opening verbs (Which / What / Identify the / Name the / In which …), randomise clause order where possible, vary punctuation.
-- For each of the 45 templates, add 3 paraphrase variants and randomly select one per generation.
+**Fix:** subsumed by §6.3d (phrasing diversification) + optional §6.3e (LLM paraphrase post-pass). No separate work item.
 
-**Verification:** A4 held-out AUC < 0.85 in audit run #2.
+**Verification:** A4 held-out AUC < 0.80 in audit run #2 (gate moved tighter to reflect §6.3e is on the table).
 
 ---
 
@@ -263,20 +352,25 @@ If any gate fails twice in a row, escalate to the deferred LLM agents (C1, B3, B
 
 | # | Fix | Priority | Effort | Files |
 |---|---|---|---|---|
-| 0 | Reweighted generator allocation | **P0** | S | `src/generators/orchestrator.py:GENERATOR_TARGETS` |
+| 0 | Reweighted generator allocation v2.1 (incl. template cut to 10%) | **P0** | S | `src/generators/orchestrator.py` (STRATEGY_TARGETS, GENERATOR_TARGETS) |
 | 1 | Post-LLM verifier for Llama/Qwen | **P0** | M | `src/generators/_schemas.py`, new `_verify.py` |
 | 2 | A3 paraphrase prompt + LCS rejector | **P0** | S | `src/generators/_prompts.py`, `_schemas.py` |
 | 3 | D3 per-country quota | **P0** | M | `src/generators/_fact_sampler.py` |
 | 4 | Multi-fact source-faithful gold export | P1 | S | `src/qa/_corpus.py` |
 | 5 | LLM-judge re-calibration (B2 panel + thresholds) | P1 | S | `src/qa/_judges.py`, `src/qa/agents/team_b_validity.py` |
-| 6 | Template distractor embedding similarity | P1 | M | `src/generators/template_generator.py` |
+| 6a | Template — embedding-similarity distractors | **P0** | M | `src/generators/template_generator.py` |
+| 6b | Template — source-fact-anchored generation (filter, template selection) | **P0** | M | `src/generators/template_generator.py`, `_fact_sampler.py` |
+| 6c | Template — per-instance difficulty re-rating heuristic | P1 | S | `src/generators/template_generator.py` |
+| 6d | Template — phrasing diversification (4-6 paraphrases per template) | P1 | M | `src/generators/template_generator.py` |
+| 6e | Template — optional LLM paraphrase post-pass (Gemini, ~$1) | P2 | M | new `src/generators/_template_paraphrase.py` |
 | 7 | Difficulty re-classifier (promote C4) | P1 | M | `src/qa/agents/team_c_probes.py` |
-| 8 | Template phrasing diversification | P2 | M | `src/generators/template_generator.py` |
 | 9 | A1 extended vague regex | P2 | S | `src/generators/_fact_sampler.py` |
 | 10 | C2 in all distractor sampling | P2 | S | `src/generators/_fact_sampler.py` |
 | 11 | A2 verify shuffle + length-normaliser | P2 | S | `src/generators/_schemas.py` |
-| 12 | (no extra work — handled by allocation) | — | — | — |
+| 8, 12 | subsumed (see §8 and §12) | — | — | — |
 
-**Estimated total effort:** P0 fixes ~3 days; P1 fixes ~3 days; P2 fixes ~2 days. Total **~8 days** before audit run #2.
+**Estimated total effort (sequential):** P0 fixes ~5 days (was 3, +2 for template overhaul); P1 fixes ~3 days; P2 fixes ~2 days. Total **~10 days** before audit run #2.
 
-**Estimated cost of audit run #2 + final 10k:** ~$10 (audit) + ~$80 (10k generation with verification step) = **~$90**.
+**Estimated total effort (parallelised via the agent-team architecture in `docs/IMPLEMENTATION_AGENT_ARCHITECTURE.md`):** ~3 days wall-clock with 4 parallel teams.
+
+**Estimated cost of audit run #2 + final 10k:** ~$10 (audit) + ~$80 (10k generation with verification step) + ~$1 (template paraphrase pass) = **~$91**.
