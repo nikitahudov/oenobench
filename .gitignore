@@ -31,3 +31,6 @@ dist/
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Claude Code session-local config + worktrees
+.claude/
