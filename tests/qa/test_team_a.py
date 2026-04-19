@@ -75,10 +75,11 @@ def test_a2_passes_balanced_corpus():
         q["correct_answer"] = "ABCD"[i % 4]
         balanced.append(q)
     findings = run_a2_bias_stats(RUN_ID, balanced)
-    # Corpus-level finding should not be fail
-    corpus = [f for f in findings if (f["payload"].get("cell") == "CORPUS")]
-    assert corpus
-    assert corpus[0]["severity"] in {"pass", "warn"}
+    # Single bundled finding now; corpus stats nested in payload['corpus']
+    assert len(findings) == 1
+    bundle = findings[0]
+    assert bundle["payload"]["corpus"]["cell"] == "CORPUS"
+    assert bundle["severity"] in {"pass", "warn"}
 
 
 # ─── A3 ─────────────────────────────────────────────────────────────────────

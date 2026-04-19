@@ -242,6 +242,15 @@ def feature_vector(text: str) -> dict[str, float]:
 # ─── Tiny logistic regression (no sklearn dependency) ─────────────────────────
 
 
+def _sigmoid(z: float) -> float:
+    """Numerically stable sigmoid, clamped to avoid math.exp overflow."""
+    if z > 35:
+        return 1.0
+    if z < -35:
+        return 0.0
+    return 1.0 / (1.0 + math.exp(-z))
+
+
 def fit_logreg(
     feats: list[dict[str, float]],
     labels: list[int],
@@ -265,7 +274,7 @@ def fit_logreg(
         grad_b = 0.0
         for f, y in zip(feats, labels):
             z = b + sum(w[k] * v for k, v in f.items() if k in w)
-            p = 1.0 / (1.0 + math.exp(-z))
+            p = _sigmoid(z)
             err = p - y
             for k, v in f.items():
                 if k in grad_w:
@@ -279,7 +288,7 @@ def fit_logreg(
 
 def predict_proba(weights: dict[str, float], bias: float, f: dict[str, float]) -> float:
     z = bias + sum(weights.get(k, 0.0) * v for k, v in f.items())
-    return 1.0 / (1.0 + math.exp(-z))
+    return _sigmoid(z)
 
 
 def auc(y_true: Sequence[int], y_score: Sequence[float]) -> float:

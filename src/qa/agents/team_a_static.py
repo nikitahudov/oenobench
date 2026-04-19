@@ -218,32 +218,31 @@ def run_a2_bias_stats(run_id: str, questions: list[dict]) -> list[dict]:
             "severity": severity,
         }
 
-    # Per-cell
+    # Bundle per-cell + corpus into a single finding (one row per agent for
+    # population-level signals — the audit_findings unique constraint allows
+    # only one population-level row per (run, agent, version)).
+    cell_payloads = []
+    worst_severity = SEVERITY_PASS
+    severity_rank = {SEVERITY_PASS: 0, SEVERITY_WARN: 1, SEVERITY_FAIL: 2, "error": 2}
     for (method, generator), items in sorted(cells.items()):
         cell_name = f"{method}/{generator}"
         cell = _one_cell(cell_name, items)
-        findings.append({
-            "run_id": run_id,
-            "question_id": None,
-            "agent_id": A2_ID,
-            "agent_version": A2_VERSION,
-            "severity": cell["severity"],
-            "score": round(min(cell["position_p"], cell["length_p"]), 4),
-            "payload": cell,
-        })
-
-    # Whole corpus
+        cell_payloads.append(cell)
+        if severity_rank.get(cell["severity"], 0) > severity_rank.get(worst_severity, 0):
+            worst_severity = cell["severity"]
     whole = _one_cell("CORPUS", questions)
+    if severity_rank.get(whole["severity"], 0) > severity_rank.get(worst_severity, 0):
+        worst_severity = whole["severity"]
     findings.append({
         "run_id": run_id,
         "question_id": None,
         "agent_id": A2_ID,
         "agent_version": A2_VERSION,
-        "severity": whole["severity"],
+        "severity": worst_severity,
         "score": round(min(whole["position_p"], whole["length_p"]), 4),
-        "payload": whole,
+        "payload": {"corpus": whole, "cells": cell_payloads},
     })
-    logger.info("A2: wrote {} cells (+corpus) bias stats", len(cells))
+    logger.info("A2: wrote bundled finding for {} cells (+corpus)", len(cells))
     return findings
 
 

@@ -69,15 +69,28 @@ def run_team_b(
     *,
     judges: tuple[str, ...] = JUDGE_PANEL,
     skip_existing_checker=None,
+    write_finding_fn=None,
 ) -> list[dict]:
     """Run B1 + B2 on every question. Returns findings for both agents.
 
     `skip_existing_checker` is an optional callable(q_uuid, agent_id) -> bool
     that returns True when the finding already exists (so we skip the LLM
     call entirely). The orchestrator passes one that queries audit_findings.
+
+    `write_finding_fn` is an optional callable(finding_dict) that writes the
+    finding to the DB immediately. Used for incremental writes so the audit
+    can be monitored / resumed mid-run instead of batching at completion.
+    When supplied, the returned list is empty (everything is already persisted).
     """
     findings: list[dict] = []
     total = len(questions)
+
+    def _emit(f: dict) -> None:
+        if write_finding_fn:
+            write_finding_fn(f)
+        else:
+            findings.append(f)
+
     for idx, q in enumerate(questions, 1):
         qid = q["uuid"]
         if skip_existing_checker and skip_existing_checker(qid, B1_ID) and skip_existing_checker(qid, B2_ID):
@@ -85,7 +98,7 @@ def run_team_b(
 
         options = _coerce_options(q)
         if not options:
-            findings.append({
+            _emit({
                 "run_id": run_id,
                 "question_id": qid,
                 "agent_id": B1_ID,
@@ -111,7 +124,7 @@ def run_team_b(
             )
         except Exception as exc:  # pragma: no cover — defensive
             logger.error("Team B call failed for {}: {}", qid, exc)
-            findings.append({
+            _emit({
                 "run_id": run_id,
                 "question_id": qid,
                 "agent_id": B1_ID,
@@ -142,7 +155,7 @@ def run_team_b(
         elif disagreement:
             b1_severity = SEVERITY_WARN
 
-        findings.append({
+        _emit({
             "run_id": run_id,
             "question_id": qid,
             "agent_id": B1_ID,
@@ -188,7 +201,7 @@ def run_team_b(
         else:
             b2_severity = SEVERITY_PASS
 
-        findings.append({
+        _emit({
             "run_id": run_id,
             "question_id": qid,
             "agent_id": B2_ID,
@@ -211,8 +224,11 @@ def run_team_b(
             "cost_usd": sum(v.cost_usd for v in result.closed_book),
         })
 
-        if idx % 25 == 0:
+        if idx % 10 == 0:
             logger.info("Team B progress: {}/{}", idx, total)
 
-    logger.info("Team B complete: {} findings", len(findings))
+    if write_finding_fn:
+        logger.info("Team B complete: incremental writes finished")
+    else:
+        logger.info("Team B complete: {} findings", len(findings))
     return findings

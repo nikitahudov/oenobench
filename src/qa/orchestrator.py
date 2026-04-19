@@ -194,7 +194,20 @@ def _run_team(team_letter: str, tag: str, seed: int, extras: dict | None = None)
     if team_letter == "A":
         findings = run_team_a(run_id, questions)
     elif team_letter == "B":
-        findings = run_team_b(run_id, questions, skip_existing_checker=skip)
+        # Team B writes incrementally so the run can be monitored / resumed.
+        from src.qa._findings import write_finding as _write_finding
+
+        inline_count = 0
+        def _inline(f: dict) -> None:
+            nonlocal inline_count
+            try:
+                _write_finding(**f)
+                inline_count += 1
+            except Exception as exc:
+                logger.error("inline write failed: {}", exc)
+        run_team_b(run_id, questions, skip_existing_checker=skip, write_finding_fn=_inline)
+        click.echo(f"Team B: wrote {inline_count} findings inline (run_id={run_id})")
+        return run_id
     elif team_letter == "C":
         findings = run_team_c(run_id, questions)
     elif team_letter == "D":

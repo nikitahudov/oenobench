@@ -118,9 +118,12 @@ def run_d1_self_preference(
         if verdict.chosen == claimed_key:
             bucket["correct"] += 1
 
-    # Compute per-model own-vs-other
+    # Compute per-model own-vs-other (bundled into ONE finding per agent —
+    # audit_findings unique constraint allows only one population-level row).
     summary_rows = []
-    findings: list[dict] = []
+    worst_severity = SEVERITY_PASS
+    sev_rank = {SEVERITY_PASS: 0, SEVERITY_WARN: 1, SEVERITY_FAIL: 2, "error": 2}
+    max_delta = 0.0
     for evaluator in models:
         per_author = {}
         for author in models:
@@ -132,48 +135,40 @@ def run_d1_self_preference(
         others_scores = [v["acc"] for a, v in per_author.items() if a != evaluator and v["acc"] is not None]
         others_mean = sum(others_scores) / len(others_scores) if others_scores else None
         delta = (own - others_mean) if (own is not None and others_mean is not None) else None
+        sev = SEVERITY_PASS
+        if delta is not None and delta >= 0.15:
+            sev = SEVERITY_FAIL
+        elif delta is not None and delta >= 0.07:
+            sev = SEVERITY_WARN
+        if sev_rank.get(sev, 0) > sev_rank.get(worst_severity, 0):
+            worst_severity = sev
+        if delta is not None and abs(delta) > max_delta:
+            max_delta = abs(delta)
         summary_rows.append({
             "evaluator": evaluator,
             "per_author_accuracy": per_author,
             "own_accuracy": own,
             "others_mean_accuracy": others_mean,
             "self_pref_delta": round(delta, 4) if delta is not None else None,
-        })
-        # Severity: a model scoring > 10pp better on its own authoring
-        # exceeds typical chance variance at n≈20 (2σ ≈ 10pp).
-        sev = SEVERITY_PASS
-        if delta is not None and delta >= 0.15:
-            sev = SEVERITY_FAIL
-        elif delta is not None and delta >= 0.07:
-            sev = SEVERITY_WARN
-        findings.append({
-            "run_id": run_id,
-            "question_id": None,
-            "agent_id": D1_ID,
-            "agent_version": D1_VERSION,
             "severity": sev,
-            "score": round(delta, 4) if delta is not None else None,
-            "payload": summary_rows[-1],
-            "llm_calls": sum(b["total"] for (ev, _), b in acc_matrix.items() if ev == evaluator),
-            "cost_usd": round(sum(b["cost"] for (ev, _), b in acc_matrix.items() if ev == evaluator), 4),
         })
 
-    findings.insert(0, {
+    findings: list[dict] = [{
         "run_id": run_id,
         "question_id": None,
         "agent_id": D1_ID,
         "agent_version": D1_VERSION,
-        "severity": SEVERITY_PASS,
-        "score": None,
+        "severity": worst_severity,
+        "score": round(max_delta, 4),
         "payload": {
-            "note": "aggregate summary — per-evaluator rows follow",
             "n_calls": total_calls,
             "total_cost_usd": round(total_cost, 4),
             "matrix": {f"{ev}->{au}": b for (ev, au), b in acc_matrix.items()},
+            "per_evaluator": summary_rows,
         },
         "llm_calls": total_calls,
         "cost_usd": round(total_cost, 4),
-    })
+    }]
     return findings
 
 
