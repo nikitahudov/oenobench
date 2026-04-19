@@ -6,6 +6,9 @@ confidence filtering, and support for comparative / cluster queries.
 """
 
 import re
+import threading
+from collections import defaultdict
+from functools import lru_cache
 
 from loguru import logger
 
@@ -13,16 +16,42 @@ from src.utils.db import get_pg
 
 # ─── Fact quality filters ─────────────────────────────────────────────────────
 
-# Patterns that indicate vague, subjective, or marketing-style facts
+# Patterns that indicate vague, subjective, or marketing-style facts.
+#
+# The first block lists original marketing/superlative phrasings.  The second
+# block (added 2026-04-19, plan §9) extends the regex with phrasings the
+# domain expert flagged on the gold sheet that the original patterns missed —
+# ambiguous demonstratives, hedging language, "best matches" matchers,
+# external-document references, and quoted "Other" used as a slot label.
 _VAGUE_PATTERNS = re.compile(
-    r"\b("
-    r"highly regarded|world-famous|renowned|prestigious|legendary|iconic|"
+    r"("
+    # ── Original marketing / superlative phrasings ──
+    r"\b(?:highly regarded|world-famous|renowned|prestigious|legendary|iconic|"
     r"intriguing|fascinating|exceptional|extraordinary|outstanding|"
     r"best known|most famous|widely celebrated|greatly admired|"
     r"discover the|visit our|come and|join us|book now|must-visit|"
-    r"one of the (best|finest|greatest|most important)|"
-    r"is famous for its|is known for its quality"
-    r")\b",
+    r"one of the (?:best|finest|greatest|most important)|"
+    r"is famous for its|is known for its quality)\b"
+    # ── Gold-sheet review additions (no_vague_language flagged rows) ──
+    # Ambiguous demonstrative referents — "these wines", "these Bordeaux
+    # wines", "this wine" with no in-stem antecedent.
+    r"|\bthese\s+(?:wines?|bordeaux\s+wines?|grapes?|producers?|appellations?|regions?)\b"
+    r"|\bthis\s+wine\b"
+    # Soft hedging that signals the stem doesn't actually use the source fact
+    # (e.g. "Which country is considered the origin of Malbec?" — solvable
+    # from common knowledge, no source needed).
+    r"|\b(?:is|are)\s+considered\s+(?:the|to\s+be)\b"
+    r"|\b(?:is|are)\s+said\s+to\b"
+    # "best matches this scenario" / "best matches the description" — vague
+    # matching language that obscures what the question actually asks.
+    r"|\bbest\s+matches\s+(?:this\s+scenario|the\s+description|this\s+description)\b"
+    # External-document references the test-taker can't see.
+    r"|\b(?:procedures|guidelines|methods|techniques|protocol|protocols)\s+discussed\s+in\b"
+    r"|\bas\s+discussed\s+in\b"
+    # Vague catch-all slot labels like 'Other' used as a region / category /
+    # appellation in scenario stems.
+    r"|['\"]Other['\"]\s+(?:region|area|category|appellation|zone)"
+    r")",
     re.IGNORECASE,
 )
 
@@ -285,17 +314,165 @@ DOMAIN_TARGETS = {
 }
 
 
+# ─── Per-country quota (D3 SkewAudit fix, plan §3) ──────────────────────────
+#
+# Strategy: maintain a session-level per-country usage counter; when sampling
+# returns a fact, increment the counter for the fact's country. At sampling
+# time, weight candidates by `min(1.0, target_share / max(used_share, eps))`
+# so over-quota countries get drawn less. Hard cap: never return a fact whose
+# country has already reached `1.5 × target_share × total_returned`.
+#
+# The fact-base distribution is computed lazily once per process; the usage
+# counter resets on module import.
+
+_COUNTRY_QUOTA_HARD_CAP_RATIO = 1.5  # plan §3 — never exceed 1.5× base share
+_QUOTA_LOCK = threading.Lock()
+_COUNTRY_USAGE: dict[str, int] = defaultdict(int)
+_TOTAL_RETURNED: int = 0
+
+
+def _extract_country_from_entities(entities) -> str | None:
+    """Return the first ``type='country'`` name from a JSONB entities field.
+
+    Mirrors ``src.qa.agents.team_d_population._extract_country_from_entities``
+    so the quota uses the same canonical country labels D3 audits against.
+    """
+    if not entities:
+        return None
+    parsed = _parse_entities(entities)
+    if not isinstance(parsed, list):
+        return None
+    for ent in parsed:
+        if not isinstance(ent, dict):
+            continue
+        etype = (ent.get("type") or "").lower()
+        name = ent.get("name") or ent.get("value")
+        if etype == "country" and name:
+            return name
+    return None
+
+
+@lru_cache(maxsize=1)
+def _country_base_distribution() -> dict[str, float]:
+    """Compute the fact-base country share once per process.
+
+    Returns ``{country_name: share}`` where shares sum to 1.0 over facts that
+    have an extractable country entity. Facts without a country entity are
+    excluded from both numerator and denominator.
+    """
+    counts: dict[str, int] = defaultdict(int)
+    try:
+        conn = get_pg()
+        cur = conn.cursor()
+        cur.execute("SELECT entities FROM facts WHERE entities IS NOT NULL")
+        for row in cur.fetchall():
+            country = _extract_country_from_entities(row["entities"])
+            if country:
+                counts[country] += 1
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning(f"Country distribution query failed ({exc}); quota disabled")
+        return {}
+
+    total = sum(counts.values())
+    if total == 0:
+        return {}
+    return {c: n / total for c, n in counts.items()}
+
+
+def reset_country_usage() -> None:
+    """Reset the per-country usage counter (for tests + new generation runs)."""
+    global _TOTAL_RETURNED
+    with _QUOTA_LOCK:
+        _COUNTRY_USAGE.clear()
+        _TOTAL_RETURNED = 0
+
+
+def get_country_usage() -> tuple[dict[str, int], int]:
+    """Return a snapshot ``(usage_counter_copy, total_returned)`` for tests."""
+    with _QUOTA_LOCK:
+        return dict(_COUNTRY_USAGE), _TOTAL_RETURNED
+
+
+def _record_country_use(country: str | None) -> None:
+    """Increment usage counters for a returned fact's country.
+
+    Facts without an extractable country are still counted toward the total
+    (so the hard cap denominator reflects all returned facts), but they don't
+    increment any per-country bucket.
+    """
+    global _TOTAL_RETURNED
+    with _QUOTA_LOCK:
+        _TOTAL_RETURNED += 1
+        if country:
+            _COUNTRY_USAGE[country] += 1
+
+
+_QUOTA_GRACE_N = 10  # cap is not enforced until at least N facts have been returned
+
+
+def _country_quota_score(country: str | None) -> float:
+    """Multiplicative weight in [0, 1] for a candidate fact's country.
+
+    - Returns 1.0 if the country is unknown or the base distribution couldn't
+      be computed (no down-weighting if we have no signal).
+    - Returns 0.0 if the country has already reached its 1.5× hard cap, i.e.
+      ``used >= 1.5 × target_share × total_returned`` AND
+      ``total_returned >= _QUOTA_GRACE_N``. The grace period prevents the
+      cap tautologically firing at small-N (the very first sample would
+      otherwise always be 100% of the total and trip the cap).
+    - Otherwise returns ``min(1.0, target_share / max(used_share, eps))`` so
+      countries at or below target share keep a weight of 1.0 and over-quota
+      countries are progressively penalised.
+    """
+    if not country:
+        return 1.0
+    base = _country_base_distribution()
+    if not base:
+        return 1.0
+    target_share = base.get(country)
+    if target_share is None:
+        # Country not present in the fact base — neutral weight.
+        return 1.0
+
+    with _QUOTA_LOCK:
+        used = _COUNTRY_USAGE.get(country, 0)
+        total = _TOTAL_RETURNED
+
+    # Hard cap: country has already reached 1.5× its target share. Apply only
+    # once we've accumulated enough samples that the cap is meaningful — at
+    # tiny totals (e.g. the first few samples) every category trivially
+    # exceeds 1.5× by virtue of being 100% of the total.
+    if total >= _QUOTA_GRACE_N:
+        cap_count = _COUNTRY_QUOTA_HARD_CAP_RATIO * target_share * total
+        if used >= cap_count:
+            return 0.0
+
+    if total == 0:
+        return 1.0
+    used_share = used / total
+    eps = 1e-6
+    weight = min(1.0, target_share / max(used_share, eps))
+    return weight
+
+
 def sample_facts(
     domain: str,
     count: int,
     min_confidence: float = 0.7,
     exclude_ids: set[str] | None = None,
     prefer_diverse_sources: bool = True,
+    wine_category: str | None = None,
 ) -> list[dict]:
     """Sample facts from PostgreSQL for question generation.
 
     Returns list of dicts with keys: id, fact_text, domain, subdomain,
     entities, source_id, source_name, source_url, confidence, tags.
+
+    Args:
+        wine_category: optional wine category filter ("red", "white",
+            "sparkling", "rosé", "fortified"). When set, only facts whose
+            ``_classify_wine_category`` matches are returned. Default ``None``
+            preserves the legacy behaviour (no category filtering).
     """
     conn = get_pg()
     cur = conn.cursor()
@@ -335,23 +512,62 @@ def sample_facts(
             LIMIT %s
         """
 
-    # Over-fetch to account for quality filtering
-    cur.execute(query, (domain, min_confidence, exclude, count * 3))
+    # Over-fetch generously to give the country quota + category filter room
+    # to skip over-quota or wrong-category candidates without starving.
+    over_fetch = max(count * 6, 30)
+    cur.execute(query, (domain, min_confidence, exclude, over_fetch))
     rows = cur.fetchall()
 
-    # Filter out vague/marketing facts
-    results = []
-    filtered = 0
+    # Pre-filter by quality + (optional) wine-category, then weight remaining
+    # candidates by the country quota.  A hard cap of 0.0 on the quota score
+    # means the candidate is over its 1.5× base share and must be skipped.
+    candidates: list[tuple[float, dict]] = []
+    quality_filtered = 0
+    category_filtered = 0
     for r in rows:
-        if _is_fact_specific(r["fact_text"]):
-            results.append(dict(r))
-            if len(results) >= count:
-                break
-        else:
-            filtered += 1
+        if not _is_fact_specific(r["fact_text"]):
+            quality_filtered += 1
+            continue
+        if wine_category is not None:
+            cat = _classify_wine_category(r["fact_text"])
+            if cat != wine_category:
+                category_filtered += 1
+                continue
+        candidates.append((1.0, dict(r)))
 
-    if filtered:
-        logger.debug(f"Filtered {filtered} vague/marketing facts")
+    # Apply per-country quota weighting + hard cap, then deterministic order
+    # by score (highest first) — within the same score the SQL random() order
+    # is preserved so we still get diversity across runs.
+    weighted: list[tuple[float, dict]] = []
+    capped = 0
+    for _, fact in candidates:
+        country = _extract_country_from_entities(fact.get("entities"))
+        weight = _country_quota_score(country)
+        if weight <= 0.0:
+            capped += 1
+            continue
+        weighted.append((weight, fact))
+    weighted.sort(key=lambda kv: kv[0], reverse=True)
+
+    results: list[dict] = []
+    for _, fact in weighted:
+        if len(results) >= count:
+            break
+        country = _extract_country_from_entities(fact.get("entities"))
+        # Re-check the cap with the now-incremented totals so a streak of
+        # same-country candidates can't slip past the gate.
+        if _country_quota_score(country) <= 0.0:
+            capped += 1
+            continue
+        _record_country_use(country)
+        results.append(fact)
+
+    if quality_filtered:
+        logger.debug(f"Filtered {quality_filtered} vague/marketing facts")
+    if category_filtered:
+        logger.debug(f"Filtered {category_filtered} facts not matching wine_category={wine_category}")
+    if capped:
+        logger.debug(f"Skipped {capped} facts capped by country quota")
     logger.debug(f"Sampled {len(results)} facts for domain={domain}")
     return results
 
@@ -573,6 +789,15 @@ def sample_fact_pairs(
             if not (_WINE_CONTENT_SIGNALS.search(a_text) and _WINE_CONTENT_SIGNALS.search(b_text)):
                 continue
 
+        # Plan §10 — wine-category leak guard. If both facts have a detectable
+        # wine category and they DIFFER, reject the pair so we never compare
+        # a sparkling fact against a red fact (or similar). Pairs where one
+        # or both facts are category-unclassifiable are allowed through.
+        cat_a = _classify_wine_category(a_text)
+        cat_b = _classify_wine_category(b_text)
+        if cat_a and cat_b and cat_a != cat_b:
+            continue
+
         map_a = _extract_entity_map(row["a_entities"])
         map_b = _extract_entity_map(row["b_entities"])
         affinity, reason = _entity_affinity_score(map_a, map_b)
@@ -633,6 +858,11 @@ def sample_fact_pairs(
             "_dimension": dim,
             "_matched_entity_name": row["b_entity"],
         }
+        # Record country usage for both facts in the pair so the per-country
+        # quota in sample_facts/sample_confusable_facts stays in sync across
+        # strategies sharing the same generation run.
+        _record_country_use(_extract_country_from_entities(fact_a.get("entities")))
+        _record_country_use(_extract_country_from_entities(fact_b.get("entities")))
         pairs.append((fact_a, fact_b))
         seen_ids.update({a_id, b_id})
 
@@ -763,6 +993,13 @@ def sample_fact_clusters(
 
     Facts in each cluster come from the same subdomain and share entity
     types or keywords, ensuring they can form a coherent scenario.
+
+    Plan §10 (universal C2): all facts in a cluster must share the same
+    detectable wine category (red / white / sparkling / rosé / fortified)
+    — clusters that mix categories are rejected so scenario stems never end
+    up combining "Pinot Noir red" facts with "Champagne sparkling" facts.
+    Facts with no detectable category are allowed (the seed fact's category
+    governs).
     """
     conn = get_pg()
     cur = conn.cursor()
@@ -821,12 +1058,19 @@ def sample_fact_clusters(
         cluster = [candidates[0]]
         cluster_names = _extract_entity_names(candidates[0]["entities"])
         cluster_keywords = _content_keywords(candidates[0]["fact_text"])
+        cluster_category = _classify_wine_category(candidates[0]["fact_text"])
 
         for c in candidates[1:]:
             if len(cluster) >= cluster_size:
                 break
             c_names = _extract_entity_names(c["entities"])
             c_keywords = _content_keywords(c["fact_text"])
+            c_category = _classify_wine_category(c["fact_text"])
+            # Plan §10 — wine-category cohesion. If both the cluster and this
+            # candidate have a detectable category and they DIFFER, skip the
+            # candidate. Unclassifiable candidates (None) are allowed.
+            if cluster_category and c_category and cluster_category != c_category:
+                continue
             # Require shared entity NAMES or strong meaningful keyword overlap
             name_overlap = bool(cluster_names & c_names)
             keyword_overlap = len(cluster_keywords & c_keywords) >= 4
@@ -834,9 +1078,25 @@ def sample_fact_clusters(
                 cluster.append(c)
                 cluster_names |= c_names
                 cluster_keywords |= c_keywords
+                # Lock in the cluster's category once any classified fact lands
+                # so subsequent additions are filtered against it.
+                if cluster_category is None and c_category is not None:
+                    cluster_category = c_category
 
         if len(cluster) >= cluster_size:
-            clusters.append(cluster[:cluster_size])
+            cluster = cluster[:cluster_size]
+            # Final cohesion check — defensive belt-and-braces: if the picked
+            # cluster ended up mixing categories (shouldn't happen given the
+            # per-step filter above, but guard against future refactors), drop
+            # the cluster.
+            cats_in_cluster = {
+                _classify_wine_category(f["fact_text"]) for f in cluster
+            } - {None}
+            if len(cats_in_cluster) > 1:
+                continue
+            for f in cluster:
+                _record_country_use(_extract_country_from_entities(f.get("entities")))
+            clusters.append(cluster)
 
     logger.debug(f"Sampled {len(clusters)} cohesive fact clusters for domain={domain}")
     return clusters
@@ -922,6 +1182,12 @@ def sample_confusable_facts(
 
                 r_dim = _classify_dimension(r["fact_text"])
                 r_cat = _classify_wine_category(r["fact_text"])
+                # Plan §10 — wine-category leak guard. If the target has a
+                # detectable category, REJECT mismatched candidates outright
+                # rather than down-weighting (the audit showed soft penalties
+                # weren't enough to keep cross-category distractors out).
+                if target_cat and r_cat and r_cat != target_cat:
+                    continue
                 # Score: base 1.0 for Priority 1, +0.5 for dimension match
                 score = 1.0
                 ctx_parts = [f"same country ({target_country})", f"same {primary_type} type"]
@@ -930,13 +1196,9 @@ def sample_confusable_facts(
                     ctx_parts.append(f"same dimension ({target_dim})")
                 elif target_dim and r_dim and r_dim != target_dim:
                     score -= 0.2
-                # Wine category match/mismatch
-                if target_cat and r_cat:
-                    if r_cat == target_cat:
-                        score += 0.3
-                        ctx_parts.append(f"same wine category ({target_cat})")
-                    else:
-                        score -= 0.4  # strong penalty — different categories are trivially eliminable
+                if target_cat and r_cat == target_cat:
+                    score += 0.3
+                    ctx_parts.append(f"same wine category ({target_cat})")
                 r["_dimension"] = r_dim
                 r["_confusability_context"] = "; ".join(ctx_parts)
                 candidates.append((score, r))
@@ -978,19 +1240,21 @@ def sample_confusable_facts(
             r_dim = _classify_dimension(r["fact_text"])
             r_cat = _classify_wine_category(r["fact_text"])
 
+            # Plan §10 — wine-category leak guard (mandatory in fallback path
+            # too). Reject candidates whose detectable category disagrees
+            # with the target's.
+            if target_cat and r_cat and r_cat != target_cat:
+                continue
+
             # Score: base from affinity, +0.5 for dimension match
             score = affinity
             ctx_parts = [reason] if reason != "no shared context" else [f"same subdomain ({target_sub})"]
             if target_dim and r_dim == target_dim:
                 score += 0.5
                 ctx_parts.append(f"same dimension ({target_dim})")
-            # Wine category match/mismatch
-            if target_cat and r_cat:
-                if r_cat == target_cat:
-                    score += 0.3
-                    ctx_parts.append(f"same wine category ({target_cat})")
-                else:
-                    score -= 0.4
+            if target_cat and r_cat == target_cat:
+                score += 0.3
+                ctx_parts.append(f"same wine category ({target_cat})")
             r["_dimension"] = r_dim
             r["_confusability_context"] = "; ".join(ctx_parts)
             candidates.append((score, r))
@@ -998,6 +1262,11 @@ def sample_confusable_facts(
     # Sort by score descending — dimension-matched distractors first
     candidates.sort(key=lambda x: x[0], reverse=True)
     confusable = [c for _, c in candidates[:count]]
+
+    # Track per-country usage so distractor sampling participates in the
+    # session-level country quota too.
+    for f in confusable:
+        _record_country_use(_extract_country_from_entities(f.get("entities")))
 
     logger.debug(
         f"Sampled {len(confusable)} confusable facts for target={target_fact['id']} "
@@ -1030,6 +1299,42 @@ def _auto_distractor_type(
     if majority:
         return "attribute_swap"
     return "entity_id"
+
+
+# ─── A2 length normaliser stub (plan §11) ───────────────────────────────────
+
+
+def _normalize_option_lengths(
+    options: list[dict],
+    correct_id: str,
+    target_pct: float = 0.20,
+) -> list[dict]:
+    """Pad/trim distractor option texts to within ±target_pct of the correct
+    option's length.
+
+    This is a P2 stub. Per the improvement plan §11, the option-shuffle in
+    ``src/generators/_schemas.py`` (Team α scope) is the primary fix for A2
+    position/length bias. This length-normaliser is only wired in if A2
+    continues to flag length-bias failures after the shuffle is verified to
+    run unconditionally. Until then the function is intentionally NOT called
+    from any sampling or generation path.
+
+    Args:
+        options: list of option dicts with at least ``id`` and ``text`` keys.
+        correct_id: the ``id`` of the correct option (its length is the
+            target the others get normalised against).
+        target_pct: half-width of the allowed length band as a fraction of
+            the correct option's length (default 0.20 = ±20%).
+
+    Returns:
+        A new list of option dicts; the correct option is unchanged, and any
+        distractor whose text length falls outside the allowed band is
+        adjusted (truncated or padded with neutral filler) to land within it.
+        Currently a no-op pending verification of the upstream shuffle.
+    """
+    # Intentional no-op stub — see docstring. Returns input unchanged so
+    # call sites can be wired in safely once the upstream A2 fix is verified.
+    return list(options)
 
 
 def get_domain_stats() -> dict:
