@@ -1,7 +1,7 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** April 18, 2026
-**Project phase:** Phase 2c — Quality Audit Framework built; corpus generation pending
+**Last updated:** April 19, 2026
+**Project phase:** Phase 2d — Audit run #1 complete; regeneration BLOCKED by 3 critical defects
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ---
@@ -12,18 +12,71 @@
 |-------|-------|--------|
 | 1. Infrastructure & Data Collection | 1-6 | **Complete** — 38,104 facts from 35 genuine scrapers |
 | 2. Question Generation Pipeline | 7-10 | **Complete** — all 5 strategies built and iteratively tuned |
-| 2c. Quality Audit Framework | 11 | **Built** — 9-agent multi-team audit, 26 tests green, schema applied |
-| 2d. Audit run + regeneration | 12 | **Pending** — build pilot corpus, run audit, fix defects, full 10k run |
-| 3. AI Validation | 13-16 | Not started |
-| 4. Human Review & Control Set | 17-20 | Not started |
+| 2c. Quality Audit Framework | 11 | **Complete** — 9-agent multi-team audit |
+| 2d. Audit run #1 (pilot 472 Qs) | 12 | **Complete** — Go/No-Go BLOCKED, see findings below |
+| 2e. Defect fixes + audit run #2 | 13 | **Pending** — implement 3 critical fixes, re-run audit |
+| 2f. Full 10k generation run | 14 | **Pending** — gated on Go/No-Go pass |
+| 3. AI Validation | 15-17 | Not started |
+| 4. Human Review & Control Set | 18-20 | Not started |
 | 5. Evaluation & Analysis | 21-24 | Not started |
 | 6. Publication & Release | 25-30 | Not started |
 
 ---
 
-## Phase 2c: Quality Audit (Built — April 18, 2026)
+## Phase 2d: Audit Run #1 — Headline Findings (April 19, 2026)
 
-After iterative generation-quality tuning through April 12–18 (blend-as-variety filter, thin-geo rejection, inference-over-recall prompting, dimension-aware pairing, option shuffling, Gemini/Qwen token fix), we built a dedicated multi-agent audit framework that gates the full 10k generation run. Key decision: do not burn LLM budget on a 10k run until the pilot passes a structured audit.
+**Run ID:** `e8eba8bb-cb49-42cd-9e32-c741c987043e`
+**Corpus:** 472 questions tagged `audit_pilot_v1` (template=49, fact_to_q=120, comparative=85, scenario=119, distractor=99)
+**Cost:** $8.49 / 3,207 LLM calls (well under $130–175 estimate; judge prompts shorter than expected)
+**Wall time:** corpus build 2h50m + audit 3h25m
+**Reports:** `docs/QUALITY_AUDIT_REPORT.md`, `docs/GENERATION_IMPROVEMENT_PLAN.md`
+
+### Defect leaderboard (impact = 3·fails + warns + 2·errors)
+
+| Rank | Defect | Agent | Severity | Impact |
+|---:|---|---|---|---:|
+| 1 | **Verbatim source copying** in question + correct option | A3 FactEcho | 35% fail, 38% warn | **673** |
+| 2 | **Question solvable from world knowledge** (no source needed) | B2 ClosedBookSolvability | 30% fail, 32% warn | **570** |
+| 3 | **Key disagrees with judge consensus** (likely wrong answers) | B1 TriJudgeAnswer | 5% fail, 12% warn | **123** |
+| 4 | **Templates statistically distinguishable** (held-out AUC 0.96) | A4 TemplateFingerprint | 64% fail/warn | **75** |
+| 5 | Vague / marketing / blend-as-variety phrasing | A1 LexicalHygiene | 3% fail, 3% warn | **52** |
+| 6 | Wine-category distractor leak (red question, white distractor) | C2 CategoryLeak | 1% fail, 2% warn | **24** |
+| 7 | Country over-representation **4.46×** (Chile, Israel, US, Austria) | D3 SkewAudit | FAIL | **3** |
+| 8 | Position / length bias in MC options | A2 BiasStats | FAIL on at least one cell | **3** |
+| 9 | ChatGPT shows ~12pp self-preference advantage | D1 SelfPreference | warn | **1** |
+
+### Regeneration Go/No-Go: **BLOCKED**
+
+Three defects far exceed the gate thresholds:
+- A3 fail rate **35%** vs ≤2% threshold (×17 over)
+- B2 leakage rate at Level 3/4 well above 50% threshold
+- D3 country over-representation **4.46×** vs ≤1.5× threshold (×3 over)
+
+### Critical fixes required before audit run #2
+
+1. **A3 — paraphrase enforcement.** Add explicit "paraphrase, never copy >5 consecutive words verbatim" instruction to `src/generators/_prompts.py` for all LLM strategies. Add post-LLM rejector in `src/generators/_schemas.py` that fails any question with LCS ratio >0.6 against any linked source fact. Cost: S, blocks ranks 1.
+2. **B2 — anti-leakage prompting.** Modify `_prompts.py` to push LLMs toward fact-specific terminology and away from famous-entity references that test-takers can solve from world knowledge alone. Re-target leaky question difficulty up. Cost: M, blocks rank 2.
+3. **D3 — per-country quota.** Add per-country sampling cap to `src/generators/_fact_sampler.sample_facts` (or weight inverse to country frequency). Cost: M, blocks rank 7.
+
+Lower-impact fixes (A1 vague-regex extension, A4 template phrasing diversification, C2 wine-category sampling pre-filter) can land in the same iteration.
+
+### Pending human review (in flight)
+
+- **Gold sheet** at `data/reports/gold_sheet.csv` — 60 questions × 8 rubrics for reviewer to grade. Once imported via `import-gold`, audit run #2 will compute LLM-judge ↔ human Cohen's κ per rubric and downweight any signal where κ<0.6.
+
+### Next steps (in order)
+
+1. Implement the 3 critical fixes + lower-impact fixes (1-2 days).
+2. Re-run `build-corpus --per-strategy 120 --tag audit_pilot_v2` (~2-3h, ~$3).
+3. Re-run `run --teams A,B,C,D` (~3-4h, ~$10).
+4. `build-reports` and verify the Go/No-Go checklist now passes.
+5. **Only then** start the full 10k generation run.
+
+---
+
+## Phase 2c: Quality Audit Framework (Complete — April 18, 2026)
+
+After iterative generation-quality tuning through April 12–18 (blend-as-variety filter, thin-geo rejection, inference-over-recall prompting, dimension-aware pairing, option shuffling, Gemini/Qwen token fix), we built a dedicated multi-agent audit framework that gates the full 10k generation run.
 
 ### Architecture — 4 teams, 9 agents
 
@@ -35,19 +88,8 @@ After iterative generation-quality tuning through April 12–18 (blend-as-variet
 ### Infrastructure
 - **New module**: `src/qa/` with orchestrator CLI, shared foundation, 4 team agent files, 2 report renderers.
 - **New DB objects**: `audit_runs`, `audit_findings`, `audit_gold_labels` tables, `v_question_audit_summary`, `v_strategy_audit_rollup` views, `audit_severity` enum (applied via `config/postgres/002_audit_schema.sql`).
-- **Reproducibility**: `config_hash = sha256(agents+versions | models | seed | thresholds)` stored on every run; findings idempotent on `(run_id, q_id, agent_id, version)`.
+- **Reproducibility**: `config_hash = sha256(agents+versions | models | seed | thresholds)` stored on every run; findings idempotent on `(run_id, q_id, agent_id, version)`. Team B writes findings inline so audits are resumable.
 - **Test suite**: 26 pytest tests green across `_scoring`, `_findings`, Team A (4 agents), Team C.
-
-### Estimated cost
-~$130–175 end-to-end: corpus build $45–60 + Team B (3 judges × 600 Qs × 2 variants) $70–90 + D1 $15–25.
-
-### Next steps (in order)
-1. `python -m src.qa.orchestrator build-corpus --per-strategy 120` → 600 Qs tagged `audit_pilot_v1`.
-2. `python -m src.qa.orchestrator export-gold --size 60` → human grades 60 Qs against 8 rubrics.
-3. `python -m src.qa.orchestrator run --teams A,B,C,D` → full audit.
-4. `python -m src.qa.orchestrator build-reports --run-id <uuid>` → `docs/QUALITY_AUDIT_REPORT.md` + `docs/GENERATION_IMPROVEMENT_PLAN.md`.
-5. Fix defects against the Regeneration Go/No-Go checklist in the plan.
-6. Re-run audit until all Go/No-Go boxes hold → start full 10k generation run.
 
 ---
 

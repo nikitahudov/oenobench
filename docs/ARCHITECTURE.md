@@ -536,6 +536,60 @@ erDiagram
 
 ---
 
+## 10. Question Quality Audit Framework (Phase 2c/2d, Apr 2026)
+
+The QA layers above operate on **facts** during scraping. After question generation a separate multi-agent audit operates on **generated questions**. Code lives at `src/qa/`; CLI at `python -m src.qa.orchestrator`.
+
+```mermaid
+flowchart LR
+    subgraph CORPUS["Stage 0 — Pilot Corpus (audit_pilot_v1)"]
+        BC["build-corpus<br/>~600 Qs stratified<br/>5 strategies × 4 difficulties × 6 domains"]
+    end
+
+    subgraph TEAMS["Stages 1–3 — 4 Teams, 9 Agents"]
+        direction TB
+        TA["Team A · Static (no LLM)<br/>A1 LexicalHygiene<br/>A2 BiasStats (χ², MWU)<br/>A3 FactEcho (LCS)<br/>A4 TemplateFingerprint (logreg)"]
+        TB["Team B · Tri-Judge Panel<br/>(Claude/ChatGPT/Gemini)<br/>B1 TriJudgeAnswer (open-book)<br/>B2 ClosedBookSolvability"]
+        TC["Team C · Adversarial<br/>C2 CategoryLeak<br/>(C1/C3/C4 deferred)"]
+        TD["Team D · Population<br/>D1 SelfPreference (5×5 matrix)<br/>D3 SkewAudit (country χ²)"]
+    end
+
+    subgraph PERSIST["Persistence"]
+        AF["audit_findings<br/>(idempotent on<br/>run_id, q_id, agent_id, version)"]
+        AR["audit_runs<br/>(config_hash, seed, cost)"]
+        AGL["audit_gold_labels<br/>(human reviewer rubrics)"]
+    end
+
+    subgraph REPORT["Stage 5 — Reports"]
+        QAR["docs/QUALITY_AUDIT_REPORT.md<br/>per-strategy + per-generator"]
+        GIP["docs/GENERATION_IMPROVEMENT_PLAN.md<br/>ranked defects + Go/No-Go gate"]
+    end
+
+    BC --> TA
+    BC --> TB
+    BC --> TC
+    BC --> TD
+    TA --> AF
+    TB --> AF
+    TC --> AF
+    TD --> AF
+    AF --> QAR
+    AGL --> QAR
+    AR -.-> QAR
+    QAR --> GIP
+```
+
+**Key design choices:**
+- **Judges (Claude/ChatGPT/Gemini) are kept distinct from generator subjects** — Llama and Qwen are evaluated by D1 SelfPreference, never used as judges, to keep the bias measurement independent.
+- **Findings are idempotent and resumable.** Each audit run has a `config_hash`; identical configs reuse already-stored findings. Team B writes inline (not batched), so a 4-hour audit can be killed and resumed without losing work.
+- **Population-level findings (A2, A4, D1, D3) are bundled** into a single row per agent (cell breakdowns nested in payload) because the unique constraint cannot distinguish multiple `question_id=NULL` rows from the same agent.
+- **The Go/No-Go gate** in `docs/GENERATION_IMPROVEMENT_PLAN.md` sets concrete pass thresholds per agent that must hold before the full 10k generation run is allowed to start.
+- **Deferred LLM-driven adversarial agents (C1, C3, C4, B3, B4, D2)** are listed in the report's Limitations section with explicit escalation triggers (e.g., "if A4 AUC ≥ 0.9, run C1 + B4 on flagged subset").
+
+**First audit run (April 19, 2026):** 472 questions, 9 agents, 3,207 LLM calls, **$8.49 total**, 7h wall-clock. Identified 3 critical blockers (verbatim copying 35% fail, world-knowledge solvable 30% fail, country over-rep 4.46×). See `docs/QUALITY_AUDIT_REPORT.md` and `docs/GENERATION_IMPROVEMENT_PLAN.md`.
+
+---
+
 *This document is maintained alongside the codebase. Mermaid diagrams can be
 rendered to SVG/PDF for paper figures using `mmdc` (Mermaid CLI) or any
 Mermaid-compatible renderer.*
