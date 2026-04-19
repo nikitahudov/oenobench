@@ -306,7 +306,15 @@ def aggregate_cmd(run_id: str) -> None:
 @cli.command("build-reports")
 @click.option("--run-id", required=True)
 @click.option("--audit-out", default="docs/QUALITY_AUDIT_REPORT.md")
-@click.option("--plan-out", default="docs/GENERATION_IMPROVEMENT_PLAN.md")
+@click.option(
+    "--plan-out",
+    default="docs/GENERATION_IMPROVEMENT_PLAN_AUTO.md",
+    help=(
+        "Auto-generated plan output. The CURATED plan lives at "
+        "docs/GENERATION_IMPROVEMENT_PLAN.md and is hand-edited from "
+        "the auto plan + gold review."
+    ),
+)
 def build_reports_cmd(run_id: str, audit_out: str, plan_out: str) -> None:
     _setup_logging()
     from src.qa.reports.build_audit_report import render as render_audit
