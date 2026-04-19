@@ -81,6 +81,44 @@ Return JSON:
 }}"""
 
 
+# ─── C4 — difficulty re-classifier (single Gemini call per question) ─────────
+
+C4_SYSTEM = """You are a wine certification exam designer. Your job is to rate
+how difficult a multiple-choice question would be for a wine certification
+candidate (target audience: WSET Level 3 / Court of Master Sommeliers
+Certified candidates working toward Diploma / Master).
+
+Use this rubric strictly:
+  1 — Beginner. Recall of well-known basics any wine enthusiast would answer.
+      Examples: "Which country is Champagne in?", "Which grape is the main red of Burgundy?"
+  2 — Intermediate. Recall or simple application requiring formal study.
+      Examples: classic appellation rules, common grape-region pairings, basic vinification facts.
+  3 — Advanced. Requires study beyond the major regions: lesser-known appellations,
+      specific regulations, viticultural / winemaking details. Most enthusiasts would miss it.
+  4 — Expert. Specialist knowledge: obscure sub-regions, niche producers, technical viticulture
+      / oenology, regional regulation specifics. Even Diploma-level candidates struggle.
+
+Output STRICT JSON. No prose outside the JSON object."""
+
+C4_TEMPLATE = """## Question
+{question_text}
+
+## Options
+{options_block}
+
+## Correct answer
+{correct_answer}
+
+## Your task
+Rate the difficulty 1-4 using the rubric in the system prompt. Briefly justify.
+
+Return JSON:
+{{
+  "difficulty": 1 | 2 | 3 | 4,
+  "rationale": "one short sentence"
+}}"""
+
+
 def render_options(options: list[dict]) -> str:
     """Render the option list as `A) text\\nB) text\\n...`. Robust to missing fields."""
     if not options:

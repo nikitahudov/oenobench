@@ -64,7 +64,7 @@ DEFECT_CATALOGUE = {
         "fix": "Raise difficulty target for leaking questions; rewrite stems to use provided fact-specific "
                "terminology rather than famous-entity references.",
         "affected": "fact_to_question (most), template.",
-        "test": "B2 leakage ratio < 0.5 on Level-3/4 questions.",
+        "test": "B2 leakage ratio < 0.5 of judges (5-judge panel: claude/chatgpt/gemini/llama/qwen).",
         "effort": "M",
     },
     "C2_CategoryLeak": {

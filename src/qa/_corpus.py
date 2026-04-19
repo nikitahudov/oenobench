@@ -231,22 +231,49 @@ GOLD_RUBRICS = [
 
 
 def export_gold_sheet(tag: str, out_path: Path, sample_size: int, seed: int) -> int:
-    """Sample `sample_size` questions from the corpus and write a CSV for offline review."""
+    """Sample `sample_size` questions from the corpus and write a CSV for offline review.
+
+    The `source_facts` column contains ALL linked facts joined with `\\n---\\n`
+    and prefixed by `[1] ... [2] ... ` so multi-fact strategies (comparative,
+    scenario, distractor) can be reviewed against their full evidence base
+    (see `docs/GOLD_CALIBRATION_ANALYSIS.md` §3).
+    """
     random.seed(seed)
     conn = get_pg()
     cur = conn.cursor()
+    # Aggregate ALL linked facts per question. We synthesize a 1-based index
+    # via row_number() because question_facts has no explicit ordering column;
+    # ordering by fact_id is stable per-question.
     cur.execute(
         """
+        WITH ordered_facts AS (
+            SELECT
+                qf.question_id,
+                f.fact_text,
+                row_number() OVER (
+                    PARTITION BY qf.question_id
+                    ORDER BY qf.fact_id
+                ) AS fact_order
+            FROM question_facts qf
+            JOIN facts f ON f.id = qf.fact_id
+        )
         SELECT q.id AS uuid, q.question_id, q.domain::text, q.difficulty::text,
                q.cognitive_dim::text, q.question_type::text,
                q.question_text, q.options, q.correct_answer, q.correct_answer_text,
                q.explanation, gm.generator::text, gm.generation_method,
-               (SELECT f.fact_text FROM question_facts qf
-                  JOIN facts f ON f.id = qf.fact_id
-                 WHERE qf.question_id = q.id LIMIT 1) AS source_fact
+               COALESCE(
+                   string_agg(
+                       '[' || of.fact_order::text || '] ' || of.fact_text,
+                       E'\n---\n'
+                       ORDER BY of.fact_order
+                   ),
+                   ''
+               ) AS source_facts
         FROM   questions q
         JOIN   generation_metadata gm ON gm.question_id = q.id
+        LEFT   JOIN ordered_facts of ON of.question_id = q.id
         WHERE  %s = ANY(q.tags)
+        GROUP  BY q.id, gm.generator, gm.generation_method
         """,
         (tag,),
     )
@@ -281,7 +308,7 @@ def export_gold_sheet(tag: str, out_path: Path, sample_size: int, seed: int) -> 
             "question_text",
             "options",
             "correct_answer",
-            "source_fact",
+            "source_facts",
         ] + GOLD_RUBRICS + ["notes"]
         writer.writerow(header)
         for r in selected:
@@ -296,7 +323,9 @@ def export_gold_sheet(tag: str, out_path: Path, sample_size: int, seed: int) -> 
                 r["question_text"],
                 r["options"],
                 r["correct_answer"],
-                (r["source_fact"] or "")[:500],
+                # Truncated for spreadsheet legibility; full evidence is still
+                # present (most multi-fact bundles are well under 2000 chars).
+                (r["source_facts"] or "")[:2000],
             ] + [""] * (len(GOLD_RUBRICS) + 1))
     logger.info("gold sheet: wrote {} rows to {}", len(selected), out_path)
     return len(selected)
