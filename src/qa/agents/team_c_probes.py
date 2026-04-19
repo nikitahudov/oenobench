@@ -198,12 +198,15 @@ def _c4_call_llm(
         correct_answer=correct_answer or "",
     )
     client = get_client()
+    # Gemini 3.1 Pro consumes ~300 tokens on internal reasoning before
+    # producing the visible JSON. Need a large ceiling so the actual
+    # JSON body still fits.
     response = client.generate(
         prompt=prompt,
         system=C4_SYSTEM,
         model=model_short,
         temperature=0.0,
-        max_tokens=300,
+        max_tokens=1500,
         json_mode=True,
     )
     meta = {
