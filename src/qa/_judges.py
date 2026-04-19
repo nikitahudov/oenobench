@@ -24,8 +24,15 @@ from src.qa._prompts import (
     render_options,
 )
 
-# Three high-capability judges; intentionally excludes Llama/Qwen.
+# Three high-capability judges for B1 / D1 — intentionally excludes Llama/Qwen
+# because their world-knowledge gaps would inflate B1 disagreement.
 JUDGE_PANEL = ("claude", "chatgpt", "gemini")
+
+# Wider panel for B2 ClosedBookSolvability ONLY. The gold review showed Opus 4.7
+# / GPT-5.4 / Gemini 3.1 Pro know far more wine than the typical certification
+# candidate; they over-report leakage by ~5×. Llama and Qwen approximate
+# test-taker-strength world knowledge, so adding them re-calibrates the panel.
+JUDGE_PANEL_B2 = ("claude", "chatgpt", "gemini", "llama", "qwen")
 
 
 @dataclass
@@ -138,14 +145,23 @@ def judge_open_and_closed(
     source_text: str,
     claimed_key: str = "",
     judges: Iterable[str] = JUDGE_PANEL,
+    closed_book_judges: Iterable[str] | None = None,
 ) -> JudgeBatchResult:
     """Run B1 (open-book) and B2 (closed-book) on the same question.
 
-    Each judge is asked twice — once with the source fact, once without —
-    so we get six calls per question across the three-judge panel.
+    `judges` controls the open-book pass (B1). `closed_book_judges` controls
+    the closed-book pass (B2); when None it defaults to `JUDGE_PANEL_B2`,
+    which adds Llama and Qwen so the panel approximates a real test-taker's
+    world knowledge (see `docs/GOLD_CALIBRATION_ANALYSIS.md` §4 — Opus/GPT-5/
+    Gemini over-report leakage by ~5× because they know more wine than the
+    benchmark target audience).
+
     The claimed_key is NOT shown to judges; it's used post-hoc to score
     whether the judge majority matches the keyed answer.
     """
+    if closed_book_judges is None:
+        closed_book_judges = JUDGE_PANEL_B2
+
     options_block = render_options(options)
     open_prompt = OPEN_BOOK_TEMPLATE.format(
         question_text=question_text,
@@ -170,6 +186,10 @@ def judge_open_and_closed(
                 expects_fact_check=True,
             )
         )
+    for judge in closed_book_judges:
+        if judge not in GENERATOR_MODELS:
+            logger.warning("closed-book judge {} not in GENERATOR_MODELS; skipping", judge)
+            continue
         result.closed_book.append(
             _ask_one(
                 model_short=judge,

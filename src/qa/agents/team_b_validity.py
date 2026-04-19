@@ -21,7 +21,7 @@ from src.qa._judges import JUDGE_PANEL, judge_open_and_closed
 B1_ID = "B1_TriJudgeAnswer"
 B1_VERSION = "v1.0.0"
 B2_ID = "B2_ClosedBookSolvability"
-B2_VERSION = "v1.0.0"
+B2_VERSION = "v2.0.0"  # 5-judge panel + tighter ALL/≥4-of-5 gating
 
 
 def _coerce_options(q: dict) -> list[dict]:
@@ -181,22 +181,32 @@ def run_team_b(
             "cost_usd": sum(v.cost_usd for v in result.open_book),
         })
 
-        # ─── B2 — closed-book solvability ──────────────────────────────────────
+        # ─── B2 — closed-book solvability (recalibrated, 5-judge panel) ───────
+        # Per `docs/GOLD_CALIBRATION_ANALYSIS.md` §4, the original 3-judge panel
+        # over-reported leakage 5× because Opus/GPT-5/Gemini know more wine
+        # than the benchmark target audience. The wider 5-judge panel
+        # (claude, chatgpt, gemini, llama, qwen) approximates test-taker
+        # world knowledge. Thresholds tightened accordingly:
+        #   FAIL  — ALL 5 judges solve it AND difficulty ≤ 2
+        #   WARN  — ≥ 4 of 5 judges solve it (any difficulty)
+        #   PASS  — otherwise
         cb_choices = [v.chosen for v in result.closed_book]
         cb_majority, cb_count = _majority(cb_choices)
         closed_book_correct = bool(cb_majority and cb_majority == claimed_key)
-        # Leakage threshold: stricter for hard questions
         difficulty = str(q.get("difficulty") or "1")
         try:
             diff_int = int(difficulty)
         except ValueError:
             diff_int = 1
-        cb_ratio = (cb_count / len(result.closed_book)) if result.closed_book else 0.0
-        if closed_book_correct and cb_ratio >= 0.8 and diff_int <= 2:
-            b2_severity = SEVERITY_FAIL  # easy question is trivially world-knowledge
-        elif closed_book_correct and cb_ratio >= 0.67 and diff_int >= 3:
-            b2_severity = SEVERITY_WARN  # hard question that judges solved without source
-        elif closed_book_correct and cb_ratio >= 0.8:
+        n_closed = len(result.closed_book)
+        cb_ratio = (cb_count / n_closed) if n_closed else 0.0
+        # Counts of judges that picked the keyed answer (regardless of majority)
+        cb_keyed_count = sum(1 for c in cb_choices if c == claimed_key)
+        if closed_book_correct and n_closed and cb_keyed_count == n_closed and diff_int <= 2:
+            # Every judge solves an "easy" question without the fact → trivial leakage
+            b2_severity = SEVERITY_FAIL
+        elif closed_book_correct and n_closed and cb_keyed_count >= 4:
+            # ≥4 of 5 solved it → likely world-knowledge solvable
             b2_severity = SEVERITY_WARN
         else:
             b2_severity = SEVERITY_PASS
@@ -218,6 +228,8 @@ def run_team_b(
                 "majority_choice": cb_majority,
                 "closed_book_correct": closed_book_correct,
                 "leakage_ratio": round(cb_ratio, 3),
+                "judges_keyed": cb_keyed_count,
+                "judges_total": n_closed,
                 "difficulty": difficulty,
             },
             "llm_calls": len(result.closed_book),

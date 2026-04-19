@@ -48,7 +48,14 @@ from src.qa.agents.team_b_validity import (
     B2_VERSION,
     run_team_b,
 )
-from src.qa.agents.team_c_probes import C2_ID, C2_VERSION, run_team_c
+from src.qa.agents.team_c_probes import (
+    C2_ID,
+    C2_VERSION,
+    C4_ID,
+    C4_VERSION,
+    run_c4_difficulty_audit,
+    run_team_c,
+)
 from src.qa.agents.team_d_population import (
     D1_ID,
     D1_VERSION,
@@ -69,6 +76,7 @@ AGENT_REGISTRY = {
     B1_ID: B1_VERSION,
     B2_ID: B2_VERSION,
     C2_ID: C2_VERSION,
+    C4_ID: C4_VERSION,
     D1_ID: D1_VERSION,
     D3_ID: D3_VERSION,
 }
@@ -209,7 +217,35 @@ def _run_team(team_letter: str, tag: str, seed: int, extras: dict | None = None)
         click.echo(f"Team B: wrote {inline_count} findings inline (run_id={run_id})")
         return run_id
     elif team_letter == "C":
-        findings = run_team_c(run_id, questions)
+        include_c4 = bool((extras or {}).get("include_c4", False))
+        if include_c4:
+            # Run C2 (deterministic) immediately, then C4 with inline writes
+            # so progress on the LLM-bound pass is monitorable / resumable.
+            from src.qa._findings import write_finding as _write_finding
+
+            c2_findings = run_team_c(run_id, questions, include_c4=False)
+            inserted_c2 = write_findings_bulk(c2_findings)
+
+            inline_count = 0
+            def _inline_c4(f: dict) -> None:
+                nonlocal inline_count
+                try:
+                    _write_finding(**f)
+                    inline_count += 1
+                except Exception as exc:
+                    logger.error("C4 inline write failed: {}", exc)
+            run_c4_difficulty_audit(
+                run_id,
+                questions,
+                skip_existing_checker=skip,
+                write_finding_fn=_inline_c4,
+            )
+            click.echo(
+                f"Team C: wrote {inserted_c2} C2 findings + {inline_count} C4 findings inline "
+                f"(run_id={run_id})"
+            )
+            return run_id
+        findings = run_team_c(run_id, questions, include_c4=False)
     elif team_letter == "D":
         findings = run_team_d(
             run_id,
@@ -244,9 +280,44 @@ def run_team_b_cmd(tag: str, seed: int) -> None:
 @cli.command("run-team-c")
 @click.option("--tag", default=DEFAULT_TAG)
 @click.option("--seed", default=DEFAULT_SEED, type=int)
-def run_team_c_cmd(tag: str, seed: int) -> None:
+@click.option(
+    "--include-c4",
+    is_flag=True,
+    default=False,
+    help="Also run C4_DifficultyAudit (1 Gemini call/question; ~$0.001 each).",
+)
+def run_team_c_cmd(tag: str, seed: int, include_c4: bool) -> None:
     _setup_logging()
-    _run_team("C", tag, seed)
+    _run_team("C", tag, seed, extras={"include_c4": include_c4})
+
+
+@cli.command("run-team-c-c4")
+@click.option("--tag", default=DEFAULT_TAG)
+@click.option("--seed", default=DEFAULT_SEED, type=int)
+def run_team_c_c4_cmd(tag: str, seed: int) -> None:
+    """Run only C4_DifficultyAudit (skip C2). Useful for incremental top-ups."""
+    _setup_logging()
+    questions = _load_corpus(tag)
+    run_id = _get_or_create_run(tag, seed, size=len(questions))
+    skip = _make_skip_checker(run_id)
+
+    from src.qa._findings import write_finding as _write_finding
+
+    inline_count = 0
+    def _inline(f: dict) -> None:
+        nonlocal inline_count
+        try:
+            _write_finding(**f)
+            inline_count += 1
+        except Exception as exc:
+            logger.error("C4 inline write failed: {}", exc)
+    run_c4_difficulty_audit(
+        run_id,
+        questions,
+        skip_existing_checker=skip,
+        write_finding_fn=_inline,
+    )
+    click.echo(f"C4: wrote {inline_count} findings inline (run_id={run_id})")
 
 
 @cli.command("run-team-d")

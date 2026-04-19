@@ -247,6 +247,75 @@ def _cross_cutting(by_agent: dict[str, list[dict]]) -> list[str]:
     return lines
 
 
+# ─── Gold-rubric → LLM-proxy mapping (matches docs/GOLD_CALIBRATION_ANALYSIS.md §4) ──
+#
+# Each entry maps a human rubric to the LLM-proxy agent_id, the payload
+# extractor (returns a 1/0 from the agent's payload — 1 means "agent says PASS"
+# i.e. agrees with the positive human label), and a human-readable description.
+#
+# Conventions:
+#   • answer_correct        — agree if B1 majority_matches_key is True
+#   • needs_source          — agree if B2 says NOT closed-book correct (i.e. judges couldn't solve without source)
+#   • no_vague_language     — agree if A1 severity == pass (no regex match)
+#   • source_faithful       — agree if A3 lcs_ratio < 0.6 (i.e. not a verbatim copy)
+#   • distractors_plausible — agree if C2 has no leaked distractors
+
+GOLD_RUBRIC_TO_PROXY: list[dict] = [
+    {
+        "rubric": "answer_correct",
+        "agent_id": "B1_TriJudgeAnswer",
+        "extract": lambda payload: 1 if bool(payload.get("majority_matches_key")) else 0,
+        "label": "B1 TriJudgeAnswer (majority_matches_key)",
+    },
+    {
+        "rubric": "needs_source",
+        "agent_id": "B2_ClosedBookSolvability",
+        "extract": lambda payload: 0 if bool(payload.get("closed_book_correct")) else 1,
+        "label": "B2 ClosedBookSolvability (NOT closed-book correct)",
+    },
+    {
+        "rubric": "no_vague_language",
+        # A1 emits one finding per question, severity == 'pass' iff no regex hit.
+        "agent_id": "A1_LexicalHygiene",
+        "extract": lambda payload: 0 if (payload.get("matches") or {}) else 1,
+        "label": "A1 LexicalHygiene (no regex match)",
+    },
+    {
+        "rubric": "source_faithful",
+        "agent_id": "A3_FactEcho",
+        "extract": lambda payload: 1 if (payload.get("lcs_ratio") or 0) < 0.6 else 0,
+        "label": "A3 FactEcho (LCS < 0.6)",
+    },
+    {
+        "rubric": "distractors_plausible",
+        "agent_id": "C2_CategoryLeak",
+        "extract": lambda payload: 0 if (payload.get("leaked_distractors") or []) else 1,
+        "label": "C2 CategoryLeak (no leaked distractor)",
+    },
+]
+
+
+def _human_labels(row: dict) -> dict:
+    """Coerce the labels field of a gold row into a dict."""
+    raw = row.get("labels") or {}
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {}
+    return raw
+
+
+def _agent_payload(finding: dict) -> dict:
+    pb = finding.get("payload") or {}
+    if isinstance(pb, str):
+        try:
+            return json.loads(pb)
+        except Exception:
+            return {}
+    return pb
+
+
 def _gold_calibration(
     run_id: str,
     by_question: dict[str, list[dict]],
@@ -259,39 +328,120 @@ def _gold_calibration(
             "_No human gold labels imported. Run `import-gold` after offline review._",
             "",
         ]
-    lines = ["## 6 · Gold calibration", "", f"- Human-reviewed items: **{len(labels)}**"]
+    lines = ["## 6 · Gold calibration", "", f"- Human-reviewed items: **{len(labels)}**", ""]
 
-    # κ on answer_correct vs B1 majority_matches_key
-    rater_human = []
-    rater_judge = []
-    for qid, row in labels.items():
-        human_labels = row.get("labels") or {}
-        if isinstance(human_labels, str):
+    table_rows: list[str] = []
+    table_rows.append("| Rubric | Agent | Human pass% | LLM pass% | Agreement | κ | n |")
+    table_rows.append("|---|---|---:|---:|---:|---:|---:|")
+
+    flagged_signals: list[str] = []
+    for entry in GOLD_RUBRIC_TO_PROXY:
+        rubric = entry["rubric"]
+        rater_human: list[int] = []
+        rater_judge: list[int] = []
+        for qid, row in labels.items():
+            human = _human_labels(row).get(rubric)
+            if human is None:
+                continue
+            qfindings = by_question.get(qid, [])
+            f = next((x for x in qfindings if x["agent_id"] == entry["agent_id"]), None)
+            if not f:
+                continue
             try:
-                human_labels = json.loads(human_labels)
+                judge_label = int(entry["extract"](_agent_payload(f)))
             except Exception:
                 continue
-        h = human_labels.get("answer_correct")
-        if h is None:
+            rater_human.append(1 if human else 0)
+            rater_judge.append(judge_label)
+        n = len(rater_human)
+        if not n:
+            table_rows.append(f"| {rubric} | {entry['label']} | — | — | — | — | 0 |")
             continue
-        qfindings = by_question.get(qid, [])
-        b1 = next((f for f in qfindings if f["agent_id"] == "B1_TriJudgeAnswer"), None)
-        if not b1:
-            continue
-        pb = b1.get("payload") or {}
-        if isinstance(pb, str):
-            try:
-                pb = json.loads(pb)
-            except Exception:
-                continue
-        j = bool(pb.get("majority_matches_key"))
-        rater_human.append(1 if h else 0)
-        rater_judge.append(1 if j else 0)
-    if rater_human:
-        kappa = cohens_kappa(rater_human, rater_judge)
-        lines.append(f"- answer_correct κ(human, judge majority) = **{round(kappa, 3)}**  (n={len(rater_human)})")
+        h_pass = round(100 * sum(rater_human) / n, 1)
+        j_pass = round(100 * sum(rater_judge) / n, 1)
+        agreement = round(
+            100 * sum(1 for a, b in zip(rater_human, rater_judge) if a == b) / n, 1
+        )
+        kappa = round(cohens_kappa(rater_human, rater_judge), 3)
+        table_rows.append(
+            f"| {rubric} | {entry['label']} | {h_pass}% | {j_pass}% | {agreement}% | "
+            f"**{kappa}** | {n} |"
+        )
         if kappa < 0.6:
-            lines.append("- ⚠ κ below 0.6 — downweight B1 signal when interpreting strategy rollups.")
+            flagged_signals.append(f"`{rubric}` (κ={kappa})")
+
+    lines += table_rows
+    lines.append("")
+    if flagged_signals:
+        lines.append(
+            "- ⚠ κ below 0.6 — downweight these LLM signals when interpreting "
+            "strategy rollups: " + ", ".join(flagged_signals) + "."
+        )
+        lines.append("")
+    return lines
+
+
+# ─── §3.5 / §4.5 — gold pass-rate cross-tabs ─────────────────────────────────
+
+
+def _gold_passrate_table(
+    questions: list[dict],
+    bucket_key: str,
+    bucket_header: str,
+) -> list[str]:
+    """Render a cross-tab of gold-rubric pass rates by `bucket_key`
+    (e.g. 'generation_method' for per-strategy, 'generator' for per-generator).
+
+    Returns the table lines only (no H2/H3) — the caller adds the section
+    heading. Returns an empty list when no gold labels are present so
+    the section is skipped silently in early runs.
+    """
+    labels = fetch_gold_labels()
+    if not labels:
+        return []
+    # uuid → bucket
+    bucket_lookup: dict[str, str] = {}
+    for q in questions:
+        bucket = q.get(bucket_key) or "unknown"
+        bucket_lookup[str(q["id"])] = bucket
+    if not bucket_lookup:
+        return []
+
+    rubrics = [e["rubric"] for e in GOLD_RUBRIC_TO_PROXY]
+    # bucket -> rubric -> [human labels]
+    cells: dict[str, dict[str, list[int]]] = defaultdict(lambda: defaultdict(list))
+    for qid, row in labels.items():
+        bucket = bucket_lookup.get(qid)
+        if not bucket:
+            continue
+        humans = _human_labels(row)
+        for rubric in rubrics:
+            v = humans.get(rubric)
+            if v is None:
+                continue
+            cells[bucket][rubric].append(1 if v else 0)
+    if not cells:
+        return []
+
+    lines: list[str] = []
+    header = f"| {bucket_header} | n |" + "".join(f" {r} |" for r in rubrics)
+    sep = "|---|---:|" + "".join("---:|" for _ in rubrics)
+    lines.append(header)
+    lines.append(sep)
+    for bucket in sorted(cells):
+        row_cells = []
+        # 'n' is the max sample over rubrics for this bucket (counts vary per rubric)
+        n_vals = [len(cells[bucket][r]) for r in rubrics]
+        n = max(n_vals) if n_vals else 0
+        for rubric in rubrics:
+            ys = cells[bucket][rubric]
+            if not ys:
+                row_cells.append("—")
+            else:
+                row_cells.append(f"{round(100 * sum(ys) / len(ys), 1)}%")
+        lines.append(
+            f"| {bucket} | {n} | " + " | ".join(row_cells) + " |"
+        )
     lines.append("")
     return lines
 
@@ -307,7 +457,6 @@ def _limitations() -> list[str]:
         "- **B3 ParaphraseStability** — stem-rewrite consistency.",
         "- **B4 Ambiguity** — multi-defensible option scoring.",
         "- **C3 SourceSwap** — robustness to fact substitution.",
-        "- **C4 DimensionCognitiveAudit** — LLM check on dimension/Bloom's/difficulty labels.",
         "- **D2 DedupCalibration** — similarity-threshold P/R sweep.",
         "- **D3-cultural** — LLM cultural-framing labelling (pure stats only ran).",
         "",
@@ -373,9 +522,40 @@ def render(run_id: str, out_path: Path) -> None:
     lines.append("## 3 · Per-strategy deep dive")
     lines.append("")
     lines += _strategy_deep_dive(questions, grouped["by_question"])
+
+    # 3.5 — per-strategy gold pass-rate cross-tab (only when gold labels exist)
+    strat_gold = _gold_passrate_table(
+        questions, "generation_method", "strategy"
+    )
+    if strat_gold:
+        lines.append("## 3.5 · Per-strategy gold pass rates")
+        lines.append("")
+        lines.append(
+            "Cross-tab of human-rated rubric pass percentages by generation strategy. "
+            "Empty cells (`—`) mean no gold label was recorded for that "
+            "(strategy, rubric) cell."
+        )
+        lines.append("")
+        lines += strat_gold
+
     lines.append("## 4 · Per-generator deep dive")
     lines.append("")
     lines += _generator_deep_dive(questions, grouped["by_question"], d1_findings)
+
+    # 4.5 — per-generator gold pass-rate cross-tab
+    gen_gold = _gold_passrate_table(
+        questions, "generator", "generator"
+    )
+    if gen_gold:
+        lines.append("## 4.5 · Per-generator gold pass rates")
+        lines.append("")
+        lines.append(
+            "Cross-tab of human-rated rubric pass percentages by generator model. "
+            "Use this to compare quality across the 5 LLM generators "
+            "(plus `template_only`) and decide allocation."
+        )
+        lines.append("")
+        lines += gen_gold
 
     lines += _cross_cutting(grouped["by_agent"])
     lines += _gold_calibration(run_id, grouped["by_question"])
