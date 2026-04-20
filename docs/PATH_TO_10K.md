@@ -1,10 +1,27 @@
 # Path to the Full 10k Generation
 
 **Generated:** 2026-04-20
-**Status:** v2.2 plan, immediately follows audit run #2 (`3c6e27ce-…`)
-**Pre-reads:** `docs/GENERATION_IMPROVEMENT_PLAN.md` (v2.1), `docs/AUDIT_RUN_2_COMPARISON.md` (what worked / what didn't)
+**Status:** v2.2 plan, immediately follows audit run #2 (`3c6e27ce-…`) and gold-v2 re-grade (48/48 scored).
+**Pre-reads:** `docs/GENERATION_IMPROVEMENT_PLAN.md` (v2.1), `docs/AUDIT_RUN_2_COMPARISON.md` (what worked / what didn't), `data/reports/gold_sheet_v2_scored.csv` (human gold, 48 questions × 8 rubrics).
 
-This document is the single source of truth for the work between today and the production 10,000-question generation run. Five phases (A–E), ~3-4 days wall-clock, ~$100 cost, ~3 hours human time.
+This document is the single source of truth for the work between today and the production 10,000-question generation run. Five phases (A–E), ~3-4 days wall-clock, ~$105 cost, ~3 hours human time.
+
+---
+
+## Gold-v2 headline findings (informs Phase B)
+
+48/48 questions scored. Overall clean-pass (all 8 rubrics) = 45.8%. Excluding difficulty_match (calibration fails dominate) = 75%.
+
+| Strategy | 7-rubric clean | 8-rubric clean | Hard fails |
+|---|---|---|---|
+| **template** | **33%** (4/12) | 0% | 3 catastrophic wrong-key, 2 category-leak distractors, 3 identity-template `needs_source` fails |
+| comparative | 83% (10/12) | 75% | 1 chatgpt catastrophic (WB-GRP-0121-L2) |
+| fact_to_question | 92% (11/12) | 42% | 1 chatgpt ambiguous; most fails are difficulty calibration |
+| scenario_synthesis | 92% (11/12) | 67% | only 1 needs_source fail |
+
+Per-generator answer_correct: claude/qwen/llama/gemini = 100%; **chatgpt = 88%; template = 75%**. Difficulty bias is systematic: 10 of 15 directional miscalibrations are labeled-too-easy-by-1 level.
+
+→ Phase B additions below (fixes #8–#11).
 
 ---
 
@@ -41,16 +58,45 @@ Six focused fixes, partitionable across 3 worktree teams (or sequential ~3 days)
 | 5 | **C4 generation-time** — promote C4 from audit-only into the generator pipeline. After every LLM-generated question, ONE Gemini difficulty rating; if rating differs ≥2 levels from labelled, reject & resample. Reuse `src/qa/agents/team_c_probes._c4_call_llm`. | `src/generators/_schemas.py` (post-LLM step), wire kwargs through 4 LLM strategy modules | M | Generator |
 | 6 | **β-2 walk-back** — relax wine_category filter on `sample_fact_clusters`: only require ≥75% of cluster facts to share category, not 100%. Was the cause of scenario throughput crashing in v2 corpus build. | `src/generators/_fact_sampler.py` | S | Sampler |
 | 7 | **C2 manual triage** (after #4 lands) — inspect the 3 remaining C2 fails in `audit_pilot_v2`; add a regex case if a pattern emerges | manual SQL + `_fact_sampler.py` | S | Sampler |
+| 8 | **Template strategy radical overhaul** (gold-v2: 0/12 clean-pass all-8, 3 catastrophic wrong-key) — see §B.8 below | `template_generator.py`, `_schemas.py`, new `_template_validators.py` | L | Template |
+| 9 | **ChatGPT-comparative prompt fix** (gold-v2: 1 catastrophic + 2 ambiguous from chatgpt comparative; other generators clean) | `_prompts.py` (comparative chatgpt branch) | S | Audit |
+| 10 | **Difficulty classifier recalibration from gold-v2** — 10 of 15 directional miscalibrations are labeled-too-easy-by-1. Fold the 19 gold difficulty_match fails into C4's calibration set & bump prompt. | `team_c_probes.py::_c4_call_llm`, add calibration examples | S | Audit |
+| 11 | **FTQ `needs_source` gate for iconic entities** (gold-v2: WB-BIZ-0095-L2 world-knowledge-solvable FTQ slipped through) — pre-generation filter rejecting top-K famous brand / UNESCO wine sites when they are the sole entity | `_fact_sampler.py` | S | Sampler |
 
-### Recommended team partition
+### Recommended team partition (4 parallel worktrees)
 
-- **Generator team** — fixes 1, 5. Owns `template_generator.py`, `_schemas.py`, the 4 LLM strategy modules.
-- **Audit team** — fix 2. Owns `src/qa/agents/team_b_validity.py`.
-- **Sampler team** — fixes 3, 4, 6, 7. Owns `src/generators/_fact_sampler.py`.
+- **Generator team** — fixes 1, 5. Owns `template_generator.py` (paraphrase default), `_schemas.py`, the 4 LLM strategy modules (C4 generation-time gate).
+- **Audit team** — fixes 2, 9, 10. Owns `src/qa/agents/team_b_validity.py` (B2 threshold), `_prompts.py` comparative branch, `team_c_probes.py` (C4 calibration).
+- **Sampler team** — fixes 3, 4, 6, 7, 11. Owns `src/generators/_fact_sampler.py`.
+- **Template team** — fix 8 exclusively. Owns template inventory audit, `_template_validators.py` (new), distractor pool hardening, per-template difficulty table, mandatory Gemini verifier. Fix scope is large enough to justify its own worktree.
 
 Same parallel-worktree pattern as v2.1 (see `docs/IMPLEMENTATION_AGENT_ARCHITECTURE.md`). All 26+ existing tests must stay green; each fix adds 1-2 unit tests.
 
-**Cost:** $0 (code only). **Wall-clock:** ~1.5 days parallel, ~3 days sequential.
+**Cost:** ~$1-5 for Gemini template-verifier dry-run in fix #8; otherwise code only. **Wall-clock:** ~2 days parallel, ~4 days sequential.
+
+### §B.8 — Template radical overhaul spec
+
+Gold-v2 showed 5 root causes:
+
+- **R1** — Superlative-attribution templates ("most strongly associated with", "flagship grape of") can't be proven from a single fact → produced 3 catastrophic wrong-key questions.
+- **R2** — Identity templates ("Which country is X in?") on well-known entities fail `needs_source` (world-knowledge solvable).
+- **R3** — Distractor pools category-contaminated: "In which wine region is Force Majeure Vineyards?" got `{Georgian wine, Canadian wine, Italian wine}` as distractors (all country-level concepts tagged as `region`).
+- **R4** — Correct answer not literally supported by the linked source fact ("Kamptal is in Austria" anchored to "Riesling is grown in Kamptal region of Austria").
+- **R5** — Difficulty heuristic ignores the template: γ-3 uses only entity-mention count.
+
+Five sub-fixes, all in the Template-team worktree:
+
+| Sub | What | Effort |
+|---|---|---|
+| **8a** | Template inventory audit & purge — delete all superlative/unverifiable templates (~8), delete well-known identity templates (~5), rewrite survivors into authorised-list phrasing. Target ~35-40 templates, all `requires_fact_specific=True` + new `verifiable_from_single_fact=True` metadata. | S |
+| **8b** | `_template_validators.verify_answer_in_source_fact`: require `correct_answer_text` to appear (normalized) as a substring of the linked source fact. Alias list in `data/aliases.yaml` for known equivalences (US↔United States, UK↔Britain, etc). Wired into `fill_template()`. | M |
+| **8c** | Distractor pool strict type-gating: (1) hardcoded field→entity_type whitelist, (2) homogeneity check (token-count + shape), (3) static countries sentinel (~200 names) banned from `region`/`appellation` pools, (4) minimum pool size 20 (was 8). | M |
+| **8d** | Per-template difficulty calibration table keyed by `(template_id, mention_band)`, seeded from all 19 gold-v2 difficulty_match fails. γ-3 heuristic stays as fallback for unlisted combinations. | M |
+| **8e** | Mandatory Gemini answer-verification on every template question before insert — adapt `_verify.py` to a template-specific prompt: *"Given the source fact, question, and options — which option is most directly supported?"* Reject on disagreement. At 1000 templates × ~$0.001 = ~$1. | M |
+
+Regression test: `tests/generators/test_template_radical.py` — each of the 12 gold-v2 template questions must either be rejected or produce the corrected answer. Dry-run 100 templates, human spot-check 20, clean-pass ≥70%.
+
+Gate for Phase C audit run #3 (new): template `answer_correct ≥ 95%` on 30-Q human spot-check AND template 7-rubric clean-pass `≥ 70%`.
 
 ---
 
@@ -75,8 +121,12 @@ Expected outcomes per fix:
 - A1 fail rate drops from 4.8% → < 2% (fix #4)
 - C4 fail rate drops from 36% → < 10% in audit, because generation-time gate rejects mismatches before they reach the audit (fix #5)
 - Scenario_synthesis hits ~110-120 of 120 target instead of stopping at 51 (fix #6)
+- **Template answer_correct rises from 75% → ≥ 95%** on a 30-Q spot-check (fix #8)
+- **Template 7-rubric clean-pass rises from 33% → ≥ 70%** (fix #8)
+- **ChatGPT answer_correct ≥ 95%** across comparative/FTQ/scenario (fix #9)
+- **Difficulty-match audit rate ≥ 80%** (from ~60% in gold-v2) (fix #10)
 
-**Cost:** ~$5 corpus + ~$10 audit = **~$15**. **Wall-clock:** ~6h overnight.
+**Cost:** ~$5 corpus + ~$10 audit + ~$1 template verifier dry-run = **~$16**. **Wall-clock:** ~6h overnight.
 
 ---
 
@@ -84,7 +134,9 @@ Expected outcomes per fix:
 
 Verify ALL gates from the Go/No-Go checklist in `docs/GENERATION_IMPROVEMENT_PLAN.md` pass on run #3:
 
-- [ ] **Per-generator answer_correct ≥ 95%** on a fresh 30-question human spot-check (NEW gate from gold-cal #1)
+- [ ] **Per-generator answer_correct ≥ 95%** on a fresh 30-question human spot-check (gold-cal gate, confirmed critical by gold-v2 chatgpt & template outliers)
+- [ ] **Template-specific answer_correct ≥ 95%** on a 30-Q template-only spot-check (NEW gate from gold-v2 fix #8)
+- [ ] **Template 7-rubric clean-pass ≥ 70%** on the same spot-check (NEW, gold-v2 baseline was 33%)
 - [ ] A1 fail rate < 1%
 - [ ] A2 position-bias p > 0.2 in every (strategy, generator) cell with n ≥ 20
 - [ ] A3 fail rate < 2% on single-fact strategies
@@ -94,8 +146,8 @@ Verify ALL gates from the Go/No-Go checklist in `docs/GENERATION_IMPROVEMENT_PLA
 - [ ] C2 category-leak fail count = 0
 - [ ] D1 self-preference |Δ| < 0.07 across all 5 evaluator models
 - [ ] D3 max country over-representation ratio < 1.5
-- [ ] difficulty_match ≥ 80% on human spot-check (or C4 fail rate < 5% as proxy)
-- [ ] distractor_plausibility ≥ 75% on human spot-check (esp. templates)
+- [ ] difficulty_match ≥ 80% on human spot-check (gold-v2 baseline ~60%, target raised via fix #10)
+- [ ] distractor_plausibility ≥ 75% on human spot-check (esp. templates — fix #8c is the primary lever)
 
 If any gate fails: bounded v2.3 iteration on just that defect (~1 day each), then re-run a TARGETED audit (just the failing agent on a 200-Q sample, $2-3) before retrying the gate.
 
@@ -142,12 +194,12 @@ If post-run audit (`audit_full_v1`) hits all gates → ship the dataset. If any 
 
 | Phase | Wall-clock | Human time | Cost |
 |---|---|---|---|
-| A · gold re-grade (parallel) | parallel with B | ~2h | $0 |
-| B · v2.2 fixes (3 parallel teams) | ~1.5 days | minimal | $0 |
-| C · audit run #3 | ~6h (overnight) | minimal | ~$15 |
+| A · gold re-grade ✅ (done 2026-04-20) | — | ~2h | $0 |
+| B · v2.2 fixes (4 parallel teams inc. Template) | ~2 days | minimal | ~$1 (template verifier dry-run) |
+| C · audit run #3 | ~6h (overnight) | minimal | ~$16 |
 | D · sign-off + any v2.3 iteration | ~1h-1d | ~30 min review | $0-5 |
 | E · full 10k + dedup + post-audit | ~12h (overnight) | minimal | ~$90 |
-| **TOTAL** | **~3-4 days** | **~3h** | **~$100-110** |
+| **TOTAL** | **~3-4 days** | **~3h** | **~$107-112** |
 
 NeurIPS deadline: May 15. Comfortable margin (3+ weeks).
 
@@ -166,17 +218,13 @@ NeurIPS deadline: May 15. Comfortable margin (3+ weeks).
 
 ---
 
-## Open question for the user
+## Execution status (2026-04-20)
 
-Phase B can start immediately while you re-grade gold (Phase A). **Want me to spawn the 3 parallel worktree teams now?** Or wait for your gold re-grade so we can also fold any new findings (κ for distractor_plausibility, ambiguity, source_faithful corrected for multi-fact) into Phase B?
+- **Phase A — done.** `gold_sheet_v2_scored.csv` merged; human findings folded into fixes #8–#11.
+- **Phase B — in flight.** 4 parallel worktree teams spawned simultaneously:
+  - **Template team** (fix #8) — radical overhaul, ~2-day task
+  - **Generator team** (fixes #1, #5) — paraphrase default + C4 generation-time gate
+  - **Audit team** (fixes #2, #9, #10) — B2 threshold + ChatGPT comparative prompt fix + C4 calibration
+  - **Sampler team** (fixes #3, #4, #6, #7, #11) — D3 cap, A1 calibration, β-2 walk-back, C2 triage, FTQ iconic-entity filter
 
-If you want me to wait for gold re-grade, the runway shifts:
-- A blocks B start (~2h delay)
-- B then ~1.5 days
-- Total: ~4 days instead of ~3
-
-If you want me to start B now:
-- A and B run in parallel
-- Total: ~3 days
-
-Default if no answer: start B immediately (parallel) — better wall-clock, and any gold-driven additions slot into a small Phase B' before C.
+Phase C kicks off once all 4 teams merge. If Template team lags (expected: it is L-sized, the others are S/M), audit run #3 either blocks on it or fires first without template, then re-fires the template slice.
