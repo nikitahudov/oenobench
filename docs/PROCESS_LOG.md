@@ -583,3 +583,65 @@ Critical fixes required before re-running the audit (see `CURRENT_STATUS.md` Pha
 ### Human review notes
 - Gold-sheet at `data/reports/gold_sheet.csv` exported 60 questions stratified across 5 strategies (12/strategy). Reviewer is grading 8 rubrics offline.
 - Once imported via `python -m src.qa.orchestrator import-gold --csv-path data/reports/gold_sheet.csv --reviewer <name>`, the next `build-reports` will populate the §6 Gold Calibration section with Cohen's κ per rubric. Any LLM-judge signal where κ<0.6 will be downweighted in §3–4 strategy/generator scoring.
+
+## 2026-04-19 — Phase 2e: v2.1 multi-agent execution + Audit Run #2
+
+### What was done
+Implemented v2.1 of `docs/GENERATION_IMPROVEMENT_PLAN.md` via 4 parallel `Agent` worktree teams (per `docs/IMPLEMENTATION_AGENT_ARCHITECTURE.md`), merged into main, ran audit run #2 (`audit_pilot_v2`, 292 Qs, $7.64), wrote `docs/AUDIT_RUN_2_COMPARISON.md` and `docs/PATH_TO_10K.md` (the v2.2 forward plan).
+
+### Sources & inputs
+- v2.1 plan in `docs/GENERATION_IMPROVEMENT_PLAN.md`
+- Multi-agent architecture in `docs/IMPLEMENTATION_AGENT_ARCHITECTURE.md`
+- Run #1 findings in `audit_findings` for `e8eba8bb-…`
+
+### Methodology
+
+**Multi-agent execution.** 4 parallel `Agent(isolation="worktree", mode="acceptEdits")` calls, one per team scope:
+- Team α (worktree-agent-a91fd096, commit 27b55c7): orchestrator allocation v2.1 + new `src/generators/_verify.py` Llama/Qwen independent-solver + A3 paraphrase guard (prompt + LCS post-LLM rejector). 51 tests added.
+- Team β (worktree-agent-aa79264a, commit b0547e5): per-country quota in `_fact_sampler.py` + universal wine-category filter + 8 new vague-pattern regexes harvested from gold review notes. 33 tests added.
+- Team γ (worktree-agent-a4ea5991, commit a4261ee): full template overhaul per Plan §6.3a-e — embedding-similarity distractors via OpenRouter `text-embedding-3-small`, source-fact-anchored generation (42 of 48 templates marked `requires_fact_specific=True`), per-instance difficulty heuristic, 4-6 paraphrase variants per template (242 total), optional LLM-paraphrase post-pass. 24 tests added.
+- Team δ (worktree-agent-aad56091, commit dad59b0): multi-fact gold export (`source_facts` column with `[1]/[2]` prefixes), B2 5-judge panel + tighter thresholds, C4 difficulty-audit promoted from deferred, report-renderer upgrades (per-rubric κ, per-strategy/generator gold pass rates). 15 tests added.
+
+Coordinator merged in dependency order (α → β → γ → δ) with `git merge --no-ff` and ran `pytest tests/qa/ tests/generators/` after each: green at every step. Final test count: **123 passing**.
+
+**Audit run #2.** Built `audit_pilot_v2` corpus stopped early at 292 Qs across 4 strategies (template 43, fact_to_q 120, comparative 78, scenario 51, distractor 0). The slow scenario throughput was traced to Team β's universal wine_category filter on `sample_fact_clusters` requiring 100% category match across 2-4 cluster facts; flagged for v2.2 walk-back to 75%. Then ran teams A → C+C4 → D → B in parallel where possible; total audit cost $7.64. Mid-run debug: C4 produced 291/292 errors because Gemini 3.1 Pro consumed all 300 max_tokens on internal reasoning; bumped `max_tokens` to 1500 in `team_c_probes.py` and re-ran successfully.
+
+### Quality controls
+- 26 + 97 = 123 unit tests green throughout
+- `git status` after each team merge to detect mis-cwd writes (Team α did mis-cwd; cleaned up via `git restore` since canonical version was safely in worktree branch)
+- `audit_runs.config_hash` stable across re-runs; only C4 needed a manual finding-delete + re-run (severity transitions error→pass after the max_tokens fix)
+- Verifier's fail-closed semantics: API errors and unparseable verifier responses rejected, never silent-accept
+
+### Quantitative results
+
+| Metric | v1 | v2 | Change |
+|---|---:|---:|---|
+| Corpus | 472 Qs | 292 Qs | smaller (build stopped early) |
+| Cost | $8.49 | $7.64 | within budget |
+| A3 fail | 35% | 5.8% | **WIN** ✓ paraphrase guard works |
+| B1 fail | 4.7% | 2.7% | **WIN** ✓ Llama/Qwen verifier catching wrong-keys |
+| D1 self-pref | warn (Δ=0.117) | PASS (Δ=0.10) | **WIN** ✓ allocation cap helped |
+| D3 country | 4.46× | 3.38× | improved (still > 1.5× gate) |
+| A4 AUC | 0.96 | 0.96 | unchanged — phrasing diversification ineffective |
+| B2 fail | 30% | 38% | WORSE — 5-judge recalibration backfired |
+| C4 (new) | n/a | 36% fail / 35% warn | NEW signal — 71% difficulty mislabel rate |
+
+Verifier costs ~$0.0017–$0.0024 per accepted Llama/Qwen question (well under the $11 plan budget for the full 10k run).
+
+### Decisions & trade-offs
+- **Stopped corpus build early** at 292 Qs because scenario_synthesis throughput crashed to ~5 Qs/hr (Team β's wine_category filter on cluster sampling was too strict). Prioritised getting an audit signal over completing the full 600.
+- **Refactored Team B mid-run for inline writes** so the ~3-4h LLM pass was monitorable + resumable.
+- **Renamed `docs/GENERATION_IMPROVEMENT_PLAN_AUTO.md`** so the curated plan stays canonical (orchestrator's `build-reports` writes the auto plan to the `_AUTO` suffix).
+
+### Issues encountered & resolutions
+1. C4 max_tokens too small for Gemini 3.1 Pro reasoning consumption — fixed by bumping 300 → 1500.
+2. Team α mis-cwd to main repo — cleaned via `git restore`; no harm because canonical version was in worktree branch.
+3. Slow scenario throughput from over-strict cluster filter — flagged for v2.2 walk-back (Plan §6 fix #6).
+4. `.claude/` directory not gitignored — fixed; added to `.gitignore`.
+
+### Human review notes
+- Gold review #1 (60 Qs against pilot v1) revealed Llama/Qwen produce 30-40% wrong-key questions (only 60% / 71% answer_correct vs 100% for Claude/ChatGPT/Gemini/template). This was the audit's biggest blind spot and drove the verifier design.
+- Gold review #2 pending: `data/reports/gold_sheet_v2.csv` exported (48 Qs, multi-fact column 11 — Plan §4 fix landed). Reviewer to grade offline; once imported the run #2 reports gain per-rubric κ for all 5 LLM-judge signals.
+
+### Next steps (canonical)
+See `docs/PATH_TO_10K.md` for the 5-phase v2.2 → 10k production plan: gold re-grade (parallel) → 6 v2.2 fixes via 3 worktree teams → audit run #3 → sign-off → full 10k run. Total ~3-4 days, ~$110.

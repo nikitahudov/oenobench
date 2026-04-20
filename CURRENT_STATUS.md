@@ -1,8 +1,17 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** April 19, 2026
-**Project phase:** Phase 2d — Audit run #1 complete; regeneration BLOCKED by 3 critical defects
+**Last updated:** April 20, 2026
+**Project phase:** Phase 2e — Audit run #2 complete; v2.1 fixes graded; v2.2 plan ready (`docs/PATH_TO_10K.md`)
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
+
+## Latest cliff notes (start here next session)
+
+- **Audit run #2 complete** (`audit_pilot_v2`, 292 Qs, $7.64). Run #1 vs #2 comparison: `docs/AUDIT_RUN_2_COMPARISON.md`.
+- v2.1 fix grades: A3 paraphrase guard ✓ (35%→5.8% fail), Llama/Qwen verifier ✓ (caught wrong-keys live), D1 self-pref ✓ (warn→PASS), D3 country quota partial (4.46×→3.38× still > 1.5× gate), A4 detectability ✗ (AUC 0.96 unchanged), B2 leakage ✗ (recalibration backfired 30%→38%), C4 newly-promoted surfaced 71% difficulty mislabeling.
+- **Go/No-Go BLOCKED** — 6 gates failing.
+- **Next session start point:** `docs/PATH_TO_10K.md` (v2.2 plan: Phase A user gold re-grade, Phase B 3 worktree teams for 6 v2.2 fixes, Phase C audit run #3, Phase D sign-off, Phase E full 10k production).
+- **User pending:** re-grade `data/reports/gold_sheet_v2.csv` (48 Qs, multi-fact column 11 — fix #4 from v2.1 plan).
+- **Open question:** start Phase B immediately in parallel with the gold re-grade (saves ~1 day wall-clock), or wait for the re-grade first.
 
 ---
 
