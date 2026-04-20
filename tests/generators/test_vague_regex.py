@@ -33,8 +33,11 @@ GOLD_SHEET_EXAMPLES = [
         "What grape is used to produce this wine?",
     ),
     (
-        "is_considered_the",
-        "Which country is considered the origin of the Malbec grape?",
+        # v2.2 fix #4 — "is considered the" was over-firing on factual questions
+        # like "considered the origin of X". The regex now requires a vague
+        # superlative (best/finest/top/most X) to follow. New positive case:
+        "is_considered_the_best",
+        "Which producer is considered the best in the region?",
     ),
     (
         "is_considered_to_be",
@@ -111,6 +114,10 @@ CLEAN_PHRASINGS = [
     "Riesling is the dominant grape in the Mosel region of Germany.",
     "Champagne uses the méthode traditionnelle for its second fermentation.",
     "Which grape variety is required to produce Brunello di Montalcino?",
+    # v2.2 fix #4 — these 5 examples were false positives in gold v1 review.
+    # Predecessor sampler-team agent identified them; the regex now skips them.
+    "Which country is considered the origin of the Malbec grape?",
+    "Which country is considered the origin of Tempranillo?",
 ]
 
 
@@ -120,3 +127,45 @@ def test_clean_phrasings_do_not_match(example: str) -> None:
     assert _VAGUE_PATTERNS.search(example) is None, (
         f"False positive — clean phrasing was flagged: {example!r}"
     )
+
+
+# ─── v2.2 fix #4 — demonstrative-hit long-stem guard (team_a_static layer) ──
+
+
+LONG_STEM_WITH_ANTECEDENT = [
+    # Long scenario stems where "these wines" / "these producers" / "this wine"
+    # have antecedent established earlier in the stem. These must NOT be A1
+    # question-level fails even though the raw regex matches.
+    (
+        "A sommelier is preparing a flight of three Châteaux Margaux vintages: "
+        "1990, 1995, and 2000. Among these wines, which one has the highest tannin?"
+    ),
+    (
+        "Three Mendoza producers — Catena, Zuccardi, and Trapiche — each released a 2020 "
+        "Malbec. For these producers, which one uses the longest barrel aging?"
+    ),
+    (
+        "A winemaker is monitoring a Barolo vineyard in late September. "
+        "The nighttime temperatures have been unusually cool. For this wine, "
+        "what harvest decision best balances tannin ripeness and acid retention?"
+    ),
+]
+
+
+@pytest.mark.parametrize("qtext", LONG_STEM_WITH_ANTECEDENT)
+def test_long_stem_demonstrative_is_not_flagged(qtext: str) -> None:
+    """v2.2 fix #4: A1 question-level scan drops demonstrative hits when the
+    stem is long enough to carry an antecedent."""
+    from src.qa.agents.team_a_static import _filter_demonstrative_fps
+    raw_hits = [m.group(0) for m in _VAGUE_PATTERNS.finditer(qtext)]
+    filtered = _filter_demonstrative_fps(qtext, raw_hits)
+    # Long-stem antecedent path: demonstrative-only hits must be dropped.
+    demonstrative_only = all(
+        h.lower().startswith(("this wine", "these "))
+        for h in raw_hits
+    )
+    if demonstrative_only:
+        assert filtered == [], (
+            f"A1 long-stem guard failed — kept demonstrative hits in stem: "
+            f"raw={raw_hits!r} filtered={filtered!r} qtext={qtext!r}"
+        )

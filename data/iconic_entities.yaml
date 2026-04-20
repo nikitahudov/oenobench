@@ -1,0 +1,92 @@
+# OenoBench — Iconic wine entities (v2.2 fix #11)
+#
+# Facts whose ONLY named entity appears on this list are DROPPED from
+# fact_to_question (FTQ) sampling — they produce questions solvable
+# from world knowledge alone (B2 leakage). A fact that also names a
+# non-iconic entity is fine to use (the non-iconic entity is the real
+# subject).
+#
+# Seed list compiled from gold-v2 failures (WB-BIZ-0095-L2 referenced
+# the Bordeaux 1855 classification — a textbook-famous wine concept
+# every WSET student memorises).
+#
+# The filter is OFF for comparative / scenario / distractor strategies —
+# they can still use iconic entities because the multi-fact construction
+# requires genuine synthesis.
+
+classifications:
+  - Bordeaux 1855
+  - Saint-Émilion Classification
+  - Cru Bourgeois
+  - Grand Cru Burgundy
+  - Premier Cru Burgundy
+  - Grand Cru Classé
+  - Premier Cru Classé
+  - Prädikatswein
+  - VDP Grosses Gewächs
+  - DOCG
+  - DOCa
+  - AOC
+  - Geographical Indication
+
+producers_bordeaux:
+  - Château Margaux
+  - Château Lafite Rothschild
+  - Château Latour
+  - Château Mouton Rothschild
+  - Château Haut-Brion
+  - Château d'Yquem
+  - Château Pétrus
+  - Château Cheval Blanc
+  - Château Ausone
+  - Château Figeac
+
+producers_burgundy:
+  - Domaine de la Romanée-Conti
+  - Romanée-Conti
+  - Domaine Leroy
+  - Domaine Leflaive
+  - Maison Louis Jadot
+  - Henri Jayer
+
+producers_champagne:
+  - Dom Pérignon
+  - Krug
+  - Bollinger
+  - Louis Roederer Cristal
+  - Veuve Clicquot
+  - Moët & Chandon
+  - Taittinger
+  - Pol Roger
+  - Laurent-Perrier
+
+producers_italy:
+  - Gaja
+  - Sassicaia
+  - Ornellaia
+  - Masseto
+  - Solaia
+  - Tignanello
+
+producers_new_world:
+  - Opus One
+  - Screaming Eagle
+  - Penfolds Grange
+  - Harlan Estate
+  - Ridge Monte Bello
+  - Vega Sicilia
+
+# These region names appear iconic when referenced alone (no sub-region
+# modifier). "Bordeaux" alone → iconic. "Saint-Émilion" or "Pauillac"
+# is specific and NOT iconic. The filter only matches exact bare names.
+regions_bare:
+  - Bordeaux
+  - Burgundy
+  - Champagne
+  - Napa Valley
+  - Tuscany
+  - Rioja
+  - Barolo
+  - Chianti
+  - Port
+  - Sherry

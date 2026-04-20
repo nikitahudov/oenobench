@@ -33,14 +33,16 @@ _VAGUE_PATTERNS = re.compile(
     r"one of the (?:best|finest|greatest|most important)|"
     r"is famous for its|is known for its quality)\b"
     # ── Gold-sheet review additions (no_vague_language flagged rows) ──
-    # Ambiguous demonstrative referents — "these wines", "these Bordeaux
-    # wines", "this wine" with no in-stem antecedent.
-    r"|\bthese\s+(?:wines?|bordeaux\s+wines?|grapes?|producers?|appellations?|regions?)\b"
+    # Ambiguous demonstrative referents — "these wines", "this wine" with no
+    # in-stem antecedent. v2.2 fix #4: removed 'producers' from the "these X"
+    # list (gold-v1 FP: scenarios naming three producers establish antecedent).
+    r"|\bthese\s+(?:wines?|bordeaux\s+wines?|grapes?|appellations?|regions?)\b"
     r"|\bthis\s+wine\b"
-    # Soft hedging that signals the stem doesn't actually use the source fact
-    # (e.g. "Which country is considered the origin of Malbec?" — solvable
-    # from common knowledge, no source needed).
-    r"|\b(?:is|are)\s+considered\s+(?:the|to\s+be)\b"
+    # Soft hedging that signals the stem doesn't actually use the source fact.
+    # v2.2 fix #4: narrowed "is considered the" — original caught "considered
+    # the origin of X" which IS factual. Now requires a vague superlative to
+    # follow (best/finest/top/most X).
+    r"|\b(?:is|are)\s+considered\s+(?:the|to\s+be)\s+(?:best|finest|top|most\s+\w+|greatest|leading|premier)\b"
     r"|\b(?:is|are)\s+said\s+to\b"
     # "best matches this scenario" / "best matches the description" — vague
     # matching language that obscures what the question actually asks.
@@ -326,6 +328,104 @@ DOMAIN_TARGETS = {
 # counter resets on module import.
 
 _COUNTRY_QUOTA_HARD_CAP_RATIO = 1.2  # v2.2 fix #3 — tightened 1.5→1.2 after audit run #2 showed 3.38× residual skew
+
+
+# ── v2.2 fix #11 — Iconic-entity list for FTQ pre-filter ───────────────────
+# Loaded lazily from data/iconic_entities.yaml. Facts whose ONLY named entity
+# is on this list are DROPPED from FTQ sampling (not from other strategies,
+# which can still use iconic entities via multi-fact synthesis).
+
+_ICONIC_CACHE: set[str] | None = None
+
+
+def _load_iconic_entities() -> set[str]:
+    """Read data/iconic_entities.yaml and return a lowercased name set.
+
+    Returns an empty set (and logs a warning) if the file is missing so the
+    sampler continues to work in test/dev environments without the YAML.
+    """
+    global _ICONIC_CACHE
+    if _ICONIC_CACHE is not None:
+        return _ICONIC_CACHE
+    try:
+        import yaml  # PyYAML
+        from pathlib import Path
+        path = Path(__file__).resolve().parents[2] / "data" / "iconic_entities.yaml"
+        if not path.exists():
+            logger.warning(f"iconic_entities.yaml not found at {path}")
+            _ICONIC_CACHE = set()
+            return _ICONIC_CACHE
+        with path.open() as f:
+            data = yaml.safe_load(f) or {}
+        names: set[str] = set()
+        for _category, entries in data.items():
+            if isinstance(entries, list):
+                for entry in entries:
+                    if isinstance(entry, str) and entry.strip():
+                        names.add(entry.strip().lower())
+        _ICONIC_CACHE = names
+        logger.debug(f"Loaded {len(names)} iconic entities from {path}")
+        return _ICONIC_CACHE
+    except Exception as e:
+        logger.warning(f"Failed to load iconic_entities.yaml: {e}")
+        _ICONIC_CACHE = set()
+        return _ICONIC_CACHE
+
+
+def _fact_is_iconic_only(fact: dict) -> bool:
+    """Return True iff EVERY named entity on the fact is in the iconic list.
+
+    Used by FTQ sampling to drop world-knowledge-solvable facts. A fact with
+    ≥1 non-iconic entity is NOT iconic-only (the non-iconic entity is likely
+    the real subject — e.g. "Bordeaux 1855 classified Château Chasse-Spleen"
+    is about Chasse-Spleen, not Bordeaux 1855).
+    """
+    iconic = _load_iconic_entities()
+    if not iconic:
+        return False
+    entities = fact.get("entities") or []
+    parsed = _parse_entities(entities) if not isinstance(entities, list) else entities
+    if not isinstance(parsed, list) or not parsed:
+        return False
+    names: list[str] = []
+    for ent in parsed:
+        if not isinstance(ent, dict):
+            continue
+        nm = (ent.get("name") or ent.get("value") or "").strip().lower()
+        if nm:
+            names.append(nm)
+    if not names:
+        return False
+    return all(nm in iconic for nm in names)
+
+
+# ── v2.2 fix #7 — Multi-category seed-fact filter ──────────────────────────
+# Root-cause per sampler predecessor: all 3 C2 category-leak audit failures
+# came from scenario_synthesis stems that explicitly compared wine categories
+# (red vs white, sparkling vs still). Cluster was category-cohesive BUT the
+# SEED FACT TEXT itself mentioned multiple categories. This filter rejects
+# such seed facts before cluster building.
+
+_MULTI_CATEGORY_COLOR_RE = re.compile(
+    r"\b(?:red\s+(?:and|or|vs\.?|versus)\s+white|"
+    r"white\s+(?:and|or|vs\.?|versus)\s+red|"
+    r"sparkling\s+(?:and|or|vs\.?|versus)\s+still|"
+    r"still\s+(?:and|or|vs\.?|versus)\s+sparkling|"
+    r"dry\s+(?:and|or|vs\.?|versus)\s+(?:sweet|fortified)|"
+    r"(?:sweet|fortified)\s+(?:and|or|vs\.?|versus)\s+dry|"
+    r"red,\s*white,?\s*(?:and|or)\s+(?:rosé|ros\xe9|rose|sparkling))\b",
+    re.IGNORECASE,
+)
+
+
+def _fact_has_multi_category_text(fact_text: str) -> bool:
+    """Return True if the fact text explicitly enumerates multiple wine
+    categories (red AND white, sparkling VS still, etc.). Such facts, when
+    used as a scenario cluster seed, produce cross-category stems that fail
+    C2 audit. Single-category mentions (e.g. "Barolo is a red wine") return
+    False because the other category word doesn't appear.
+    """
+    return bool(_MULTI_CATEGORY_COLOR_RE.search(fact_text or ""))
 _QUOTA_LOCK = threading.Lock()
 _COUNTRY_USAGE: dict[str, int] = defaultdict(int)
 _TOTAL_RETURNED: int = 0
@@ -462,6 +562,7 @@ def sample_facts(
     exclude_ids: set[str] | None = None,
     prefer_diverse_sources: bool = True,
     wine_category: str | None = None,
+    strategy: str | None = None,
 ) -> list[dict]:
     """Sample facts from PostgreSQL for question generation.
 
@@ -473,6 +574,13 @@ def sample_facts(
             "sparkling", "rosé", "fortified"). When set, only facts whose
             ``_classify_wine_category`` matches are returned. Default ``None``
             preserves the legacy behaviour (no category filtering).
+        strategy: name of the generator strategy requesting facts. When set
+            to "fact_to_question" or "template", the v2.2 fix #11 iconic-
+            entity filter fires: facts whose ONLY named entity is iconic
+            (e.g. "Château Margaux is a Bordeaux 1855 First Growth") are
+            dropped because the question is world-knowledge-solvable. Other
+            strategies still get iconic facts (multi-fact synthesis keeps
+            the difficulty up).
     """
     conn = get_pg()
     cur = conn.cursor()
@@ -524,6 +632,10 @@ def sample_facts(
     candidates: list[tuple[float, dict]] = []
     quality_filtered = 0
     category_filtered = 0
+    iconic_filtered = 0
+    # v2.2 fix #11 — single-fact strategies (FTQ + template) drop iconic-only
+    # facts to prevent world-knowledge-solvable questions.
+    apply_iconic_filter = strategy in ("fact_to_question", "template")
     for r in rows:
         if not _is_fact_specific(r["fact_text"]):
             quality_filtered += 1
@@ -533,7 +645,11 @@ def sample_facts(
             if cat != wine_category:
                 category_filtered += 1
                 continue
-        candidates.append((1.0, dict(r)))
+        fact_dict = dict(r)
+        if apply_iconic_filter and _fact_is_iconic_only(fact_dict):
+            iconic_filtered += 1
+            continue
+        candidates.append((1.0, fact_dict))
 
     # Apply per-country quota weighting + hard cap, then deterministic order
     # by score (highest first) — within the same score the SQL random() order
@@ -566,6 +682,8 @@ def sample_facts(
         logger.debug(f"Filtered {quality_filtered} vague/marketing facts")
     if category_filtered:
         logger.debug(f"Filtered {category_filtered} facts not matching wine_category={wine_category}")
+    if iconic_filtered:
+        logger.debug(f"Filtered {iconic_filtered} iconic-only facts (v2.2 fix #11)")
     if capped:
         logger.debug(f"Skipped {capped} facts capped by country quota")
     logger.debug(f"Sampled {len(results)} facts for domain={domain}")
@@ -1043,10 +1161,15 @@ def sample_fact_clusters(
             (domain, sub, exclude, cluster_size * 6),
         )
         candidates = [dict(r) for r in cur.fetchall()]
-        # Filter vague and thin geographic facts
+        # Filter vague and thin geographic facts. v2.2 fix #7: also drop
+        # facts whose text explicitly enumerates multiple wine categories
+        # (e.g. "red and white blends" in a single fact). Using such a fact
+        # as the scenario seed caused all 3 C2 category-leak audit failures.
         candidates = [
             c for c in candidates
-            if _is_fact_specific(c["fact_text"]) and _is_fact_rich(c["fact_text"])
+            if _is_fact_specific(c["fact_text"])
+            and _is_fact_rich(c["fact_text"])
+            and not _fact_has_multi_category_text(c["fact_text"])
         ]
 
         if len(candidates) < cluster_size:

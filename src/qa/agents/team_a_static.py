@@ -78,6 +78,30 @@ def _scan_text_for_patterns(text: str, *patterns: re.Pattern) -> list[str]:
     return hits
 
 
+# v2.2 fix #4 — Short-stem guard. Demonstratives like "this wine" / "these
+# wines" are LEGITIMATE in long scenario stems where an antecedent is
+# established earlier in the text ("A winemaker is monitoring a Barolo
+# vineyard... this wine..."). They are only vague when the stem is too
+# short to possibly contain that antecedent. Applied only to question-text
+# scanning (not facts or options).
+_SHORT_STEM_WORD_THRESHOLD = 15
+_DEMONSTRATIVE_HIT = re.compile(
+    r"\b(?:this\s+wine|these\s+(?:wines?|bordeaux\s+wines?|grapes?|appellations?|regions?))\b",
+    re.IGNORECASE,
+)
+
+
+def _filter_demonstrative_fps(qtext: str, hits: list[str]) -> list[str]:
+    """Drop demonstrative hits in long stems where antecedent is presumed set."""
+    if not hits:
+        return hits
+    word_count = len((qtext or "").split())
+    if word_count <= _SHORT_STEM_WORD_THRESHOLD:
+        return hits  # short stem — keep all hits
+    # Long stem — drop hits that are purely demonstrative phrases.
+    return [h for h in hits if not _DEMONSTRATIVE_HIT.fullmatch(h.strip())]
+
+
 def run_a1_lexical_hygiene(run_id: str, questions: list[dict]) -> list[dict]:
     findings = []
     for q in questions:
@@ -94,6 +118,8 @@ def run_a1_lexical_hygiene(run_id: str, questions: list[dict]) -> list[dict]:
         matched: dict[str, list[str]] = {}
         # Question stem
         q_hits = _scan_text_for_patterns(qtext, _VAGUE_PATTERNS, _EXTRA_VAGUE, _BLEND_AS_VARIETY)
+        # v2.2 fix #4 — drop demonstrative hits in long stems with antecedent.
+        q_hits = _filter_demonstrative_fps(qtext, q_hits)
         if _THIN_GEO_Q.match(qtext.strip()):
             q_hits.append("(thin-geo question stem)")
         if q_hits:
