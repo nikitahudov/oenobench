@@ -66,6 +66,7 @@ def _generate_one(
     domain: str,
     scenario_type: str,
     generator: str,
+    labelled_difficulty: str | None = None,
 ) -> dict | None:
     """Generate a single scenario question from a fact cluster.
 
@@ -113,6 +114,8 @@ def _generate_one(
             "scenario_based",
             source_fact_texts=[f["fact_text"] for f in cluster],
             verify_with_independent_solver=True,
+            verify_difficulty_with_c4=True,
+            labelled_difficulty=labelled_difficulty,
             generator=generator,
         )
         if parsed is not None:
@@ -227,11 +230,16 @@ def _run_generate(
             cluster_ids = {str(f["id"]) for f in cluster}
             run_used_ids.update(cluster_ids)
 
-            # Randomly pick difficulty (2-4) and cognitive dim for variety
+            # Randomly pick difficulty (2-4) and cognitive dim for variety.
+            # v2.2 fix #5 — difficulty picked BEFORE parse so we can thread
+            # it into the C4 generation-time gate inside parse_llm_response.
             difficulty = str(random.randint(2, 4))
             cognitive_dim = random.choice(_COGNITIVE_DIMS)
 
-            result = _generate_one(cluster, domain, scenario_type, generator)
+            result = _generate_one(
+                cluster, domain, scenario_type, generator,
+                labelled_difficulty=difficulty,
+            )
             if result is None:
                 skipped_parse += 1
                 logger.info(
@@ -359,7 +367,10 @@ def _run_test(domain: str, generator: str, scenario_type: str):
         click.echo(f"Generator:    {generator} ({GENERATOR_MODELS[generator]})")
         click.echo(f"Scenario:     {scenario_type}")
 
-        result = _generate_one(cluster, domain, scenario_type, generator)
+        result = _generate_one(
+            cluster, domain, scenario_type, generator,
+            labelled_difficulty=str(random.randint(2, 4)),
+        )
         if result is None:
             click.echo("  FAILED: could not parse LLM response\n")
             continue

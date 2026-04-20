@@ -147,6 +147,7 @@ def _generate_one(
     domain: str,
     generator: str,
     distractor_type: str = "entity_id",
+    labelled_difficulty: str | None = None,
 ) -> dict | None:
     """Generate a single distractor-mined question.
 
@@ -209,6 +210,8 @@ def _generate_one(
             "multiple_choice",
             source_fact_texts=all_source_facts,
             verify_with_independent_solver=True,
+            verify_difficulty_with_c4=True,
+            labelled_difficulty=labelled_difficulty,
             generator=generator,
         )
         if parsed is not None:
@@ -320,10 +323,14 @@ def _run_generate(
         all_fact_ids = {str(target_fact["id"])} | {str(f["id"]) for f in distractor_facts}
         run_used_ids.update(all_fact_ids)
 
-        # Difficulty 3-4 for distractor-mined questions
+        # Difficulty 3-4 for distractor-mined questions. v2.2 fix #5 —
+        # threaded into C4 gen-time gate inside parse_llm_response.
         difficulty = str(random.choice([3, 4]))
 
-        result = _generate_one(target_fact, distractor_facts, domain, generator, dtype)
+        result = _generate_one(
+            target_fact, distractor_facts, domain, generator, dtype,
+            labelled_difficulty=difficulty,
+        )
         if result is None:
             skipped_parse += 1
             logger.info(
@@ -463,7 +470,10 @@ def _run_test(domain: str, generator: str):
                 click.echo(f"     Context: {ctx}")
         click.echo(f"Generator:    {generator} ({GENERATOR_MODELS[generator]})")
 
-        result = _generate_one(target_fact, distractor_facts, domain, generator, dtype)
+        result = _generate_one(
+            target_fact, distractor_facts, domain, generator, dtype,
+            labelled_difficulty=str(random.choice([3, 4])),
+        )
         if result is None:
             click.echo("  FAILED: could not parse LLM response\n")
             continue

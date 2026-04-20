@@ -108,6 +108,7 @@ def _generate_one(
     domain: str,
     comparison_type: str,
     generator: str,
+    labelled_difficulty: str | None = None,
 ) -> dict | None:
     """Generate a single comparative question from a fact group (2-4 facts).
 
@@ -176,6 +177,8 @@ def _generate_one(
             "multiple_choice",
             source_fact_texts=[f["fact_text"] for f in facts],
             verify_with_independent_solver=True,
+            verify_difficulty_with_c4=True,
+            labelled_difficulty=labelled_difficulty,
             generator=generator,
         )
         if parsed is not None:
@@ -309,7 +312,14 @@ def _run_generate(
             else:
                 effective_type = comparison_type
 
-            result = _generate_one(facts, domain, effective_type, generator)
+            # v2.2 fix #5 — pick difficulty BEFORE parse so we can thread it
+            # into the C4 generation-time gate.
+            difficulty = random.choice(["2", "3"])
+
+            result = _generate_one(
+                facts, domain, effective_type, generator,
+                labelled_difficulty=difficulty,
+            )
             if result is None:
                 skipped_parse += 1
                 fact_ids = [str(f["id"]) for f in facts]
@@ -342,8 +352,7 @@ def _run_generate(
                 )
                 continue
 
-            # Assign difficulty based on comparison type
-            difficulty = random.choice(["2", "3"])
+            # difficulty already assigned above pre-parse
             qid = mint_question_id(domain, difficulty)
             options_dicts = (
                 [{"id": o.id, "text": o.text} for o in parsed.options]
@@ -459,7 +468,11 @@ def _run_test(domain: str, generator: str, comparison_type: str, group_size: int
         click.echo(f"Comparison: {effective_type} | Dimension: {dim}")
         click.echo(f"Context: {ctx}")
 
-        result = _generate_one(facts, domain, effective_type, generator)
+        # Test path: preset difficulty for C4 gate
+        result = _generate_one(
+            facts, domain, effective_type, generator,
+            labelled_difficulty=random.choice(["2", "3"]),
+        )
         if result is None:
             click.echo("  FAILED: could not parse LLM response or LLM skipped\n")
             continue

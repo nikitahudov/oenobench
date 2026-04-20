@@ -233,6 +233,8 @@ def parse_llm_response(
     *,
     source_fact_texts: Optional[list[str]] = None,
     verify_with_independent_solver: bool = False,
+    verify_difficulty_with_c4: bool = False,
+    labelled_difficulty: Optional[str] = None,
     generator: Optional[str] = None,
 ) -> Optional[GeneratedQuestion]:
     """Parse and validate an LLM's JSON response into a GeneratedQuestion.
@@ -301,6 +303,41 @@ def parse_llm_response(
                 question.question_text[:120],
             )
             return None
+
+    # ─── v2.2 fix #5 — C4 generation-time difficulty gate ────────────────
+    # After parsing + paraphrase guard but BEFORE Llama/Qwen verifier, ask
+    # Gemini (via the same C4 prompt the auditor uses) to re-rate difficulty.
+    # Reject if the prediction differs from the labelled difficulty by ≥ 2
+    # levels — that's a "this is not what you said it was" mismatch.
+    if verify_difficulty_with_c4 and labelled_difficulty:
+        import os
+        if os.environ.get("OENOBENCH_SKIP_C4_GATE") == "1":
+            logger.debug("C4 gen-time gate disabled via OENOBENCH_SKIP_C4_GATE=1")
+        else:
+            from src.generators._c4_helper import classify_difficulty
+            opts_payload = (
+                [{"id": o.id, "text": o.text} for o in question.options]
+                if question.options
+                else []
+            )
+            predicted = classify_difficulty(
+                question_text=question.question_text,
+                options=opts_payload,
+                correct_answer=question.correct_answer or "",
+            )
+            if predicted is not None:
+                try:
+                    delta = abs(int(predicted) - int(labelled_difficulty))
+                except (TypeError, ValueError):
+                    delta = 0  # non-numeric labelled → skip gate
+                if delta >= 2:
+                    logger.warning(
+                        "C4 gen-time REJECT | labelled={} predicted={} delta={} | "
+                        "generator={} | q={!r}",
+                        labelled_difficulty, predicted, delta, generator,
+                        question.question_text[:120],
+                    )
+                    return None
 
     # Independent-solver verification (v2.1 §1). Only fires for Llama/Qwen.
     if verify_with_independent_solver and generator:

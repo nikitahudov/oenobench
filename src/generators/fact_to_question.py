@@ -112,6 +112,8 @@ def _generate_one(
             question_type,
             source_fact_texts=[fact["fact_text"]],
             verify_with_independent_solver=True,
+            verify_difficulty_with_c4=True,
+            labelled_difficulty=difficulty,
             generator=generator,
         )
         if parsed is not None:
