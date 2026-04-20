@@ -197,7 +197,17 @@ Rules:
 4. Never reference sources or use phrases like "according to" or "based on the text".
 5. Output valid JSON only. No text before or after the JSON object.
 6. Blend categories (e.g., "Red Blend", "White Blend") are NOT grape varieties. \
-Never refer to them as varieties — use "wine style" or "blend category" instead."""
+Never refer to them as varieties — use "wine style" or "blend category" instead.
+7. FACT-ANCHORING (v2.2 fix #9): BOTH halves of the comparative must be \
+supported by a DISTINCT source fact from the set you are given. Do NOT invent \
+a comparison that isn't anchored in the facts. If one entity's fact is garbled, \
+incomplete, or missing the comparable attribute, return \
+{{"error": "no_comparison", "reason": "..."}} — do not force a comparison.
+8. DISTRACTOR TYPE CONSISTENCY (v2.2 fix #9): All distractors must be of the \
+SAME entity type as the correct answer. If the correct answer is a grape, all \
+distractors must be grapes. If it's an appellation, all distractors are \
+appellations. Never mix grapes, regions, producers, or classifications in one \
+option set."""
 
 COMPARATIVE_TEMPLATE = """\
 Create a comparative question using these facts about different but related \
@@ -407,7 +417,16 @@ business case, or service situation) that requires applying the provided facts.
 4. Never reference sources. The scenario should read naturally.
 5. Output valid JSON only. No text before or after the JSON object.
 6. Blend categories (e.g., "Red Blend", "White Blend") are NOT grape varieties. \
-Never refer to them as varieties — use "wine style" or "blend category" instead."""
+Never refer to them as varieties — use "wine style" or "blend category" instead.
+7. SINGLE WINE CATEGORY (v2.2 fix #9 addendum): The scenario MUST NOT compare \
+across wine categories. Do NOT write stems that ask the reader to choose \
+between red vs white wines, sparkling vs still, fortified vs dry, etc. The \
+scenario must operate within a single wine category (red OR white OR sparkling \
+OR fortified OR sweet). If the provided facts span multiple categories, return \
+{{"error": "multi_category_cluster", "reason": "..."}} instead of producing \
+a question. All 3 audit-run-2 C2 category-leak failures were scenario stems \
+explicitly comparing categories (red-vs-white, Sauvignon-Blanc-vs-premium-reds, \
+pink-sparkling-by-blending-red-and-white)."""
 
 SCENARIO_TEMPLATE = """\
 Create a scenario-based question that synthesizes these facts.

@@ -98,6 +98,30 @@ Use this rubric strictly:
   4 — Expert. Specialist knowledge: obscure sub-regions, niche producers, technical viticulture
       / oenology, regional regulation specifics. Even Diploma-level candidates struggle.
 
+CALIBRATION RULE (v2.2 fix #10): Most questions asking about a SPECIFIC small
+producer or obscure appellation should be rated L3 or higher — NOT L2. If the
+question's entity is not one a WSET-3 student would routinely encounter in
+textbook study, default to L3 unless the question is trivially phrased.
+
+CALIBRATION EXAMPLES (from human re-grade of audit run #2):
+  Q: "In what year was the Wine Association of Nova Scotia established?"
+     → difficulty 3 (obscure regional body — not L2 recall)
+  Q: "Which Israeli wine producer set up a facility in Barkan Industrial Park?"
+     → difficulty 3 (obscure specific producer — not L2 recall)
+  Q: "True or False: the producer Force Majeure Vineyards sits within the
+      United States wine region." → difficulty 3 (small WA producer, not L1)
+  Q: "Which region houses the producer Château Margaux?"
+     → difficulty 1 (famous producer, textbook recall — not L3)
+  Q: "Which grape was crossed with Aramon du Gard to create Rayon d'Or,
+      the second parent of Vidal blanc?" → difficulty 4 (deep viticultural
+      history — not L2)
+  Q: "Which Italian wine region is directly expressed through the terroir
+      captured in Trentodoc wines?" → difficulty 1 (famous — not L2)
+  Q: "A winemaker in Tuscany is monitoring Sangiovese vineyards in late
+      September..." → difficulty 3 (standard viticulture reasoning — not L4)
+  Q: "Which individual played a key role in securing Wine of Origin status
+      for a South African region in 2005?" → difficulty 3 (not L2 recall)
+
 Output STRICT JSON. No prose outside the JSON object."""
 
 C4_TEMPLATE = """## Question

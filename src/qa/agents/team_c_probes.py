@@ -36,7 +36,7 @@ C2_ID = "C2_CategoryLeak"
 C2_VERSION = "v1.0.0"
 
 C4_ID = "C4_DifficultyAudit"
-C4_VERSION = "v1.0.0"
+C4_VERSION = "v1.1.0"  # v2.2 fix #10 — calibration examples seeded from gold-v2 fails
 
 # Single high-quality, low-cost judge model. Gemini was the lowest-cost of the
 # three high-capability judges in the gold review and the user-favoured model

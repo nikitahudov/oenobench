@@ -21,7 +21,7 @@ from src.qa._judges import JUDGE_PANEL, judge_open_and_closed
 B1_ID = "B1_TriJudgeAnswer"
 B1_VERSION = "v1.0.0"
 B2_ID = "B2_ClosedBookSolvability"
-B2_VERSION = "v2.0.0"  # 5-judge panel + tighter ALL/≥4-of-5 gating
+B2_VERSION = "v3.0.0"  # v2.2 fix #2 — difficulty-aware gating: ≥4/5 FAIL at L≤2
 
 
 def _coerce_options(q: dict) -> list[dict]:
@@ -181,15 +181,17 @@ def run_team_b(
             "cost_usd": sum(v.cost_usd for v in result.open_book),
         })
 
-        # ─── B2 — closed-book solvability (recalibrated, 5-judge panel) ───────
-        # Per `docs/GOLD_CALIBRATION_ANALYSIS.md` §4, the original 3-judge panel
-        # over-reported leakage 5× because Opus/GPT-5/Gemini know more wine
-        # than the benchmark target audience. The wider 5-judge panel
-        # (claude, chatgpt, gemini, llama, qwen) approximates test-taker
-        # world knowledge. Thresholds tightened accordingly:
-        #   FAIL  — ALL 5 judges solve it AND difficulty ≤ 2
-        #   WARN  — ≥ 4 of 5 judges solve it (any difficulty)
-        #   PASS  — otherwise
+        # ─── B2 — closed-book solvability (v3.0.0, v2.2 fix #2) ──────────────
+        # Difficulty-aware gating. The v2.0 rule (FAIL only if ALL 5 solve AND
+        # diff ≤ 2) was too permissive at L≤2 — gold-v2 showed genuine
+        # world-knowledge questions slipping through with 4/5 solving. The
+        # v3.0 rule hardens L≤2 and keeps L≥3 unchanged:
+        #   L ≤ 2:  FAIL if ≥4 of 5 solve it closed-book
+        #           WARN if 3 of 5 solve it
+        #           PASS otherwise
+        #   L ≥ 3:  FAIL if all 5 solve it (5/5)
+        #           WARN if ≥4 of 5 solve it
+        #           PASS otherwise
         cb_choices = [v.chosen for v in result.closed_book]
         cb_majority, cb_count = _majority(cb_choices)
         closed_book_correct = bool(cb_majority and cb_majority == claimed_key)
@@ -202,14 +204,20 @@ def run_team_b(
         cb_ratio = (cb_count / n_closed) if n_closed else 0.0
         # Counts of judges that picked the keyed answer (regardless of majority)
         cb_keyed_count = sum(1 for c in cb_choices if c == claimed_key)
-        if closed_book_correct and n_closed and cb_keyed_count == n_closed and diff_int <= 2:
-            # Every judge solves an "easy" question without the fact → trivial leakage
-            b2_severity = SEVERITY_FAIL
-        elif closed_book_correct and n_closed and cb_keyed_count >= 4:
-            # ≥4 of 5 solved it → likely world-knowledge solvable
-            b2_severity = SEVERITY_WARN
-        else:
-            b2_severity = SEVERITY_PASS
+        if diff_int <= 2:
+            if closed_book_correct and cb_keyed_count >= 4:
+                b2_severity = SEVERITY_FAIL
+            elif closed_book_correct and cb_keyed_count == 3:
+                b2_severity = SEVERITY_WARN
+            else:
+                b2_severity = SEVERITY_PASS
+        else:  # diff_int >= 3
+            if closed_book_correct and n_closed and cb_keyed_count == n_closed:
+                b2_severity = SEVERITY_FAIL
+            elif closed_book_correct and cb_keyed_count >= 4:
+                b2_severity = SEVERITY_WARN
+            else:
+                b2_severity = SEVERITY_PASS
 
         _emit({
             "run_id": run_id,

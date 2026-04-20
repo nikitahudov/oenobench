@@ -1,14 +1,18 @@
-"""δ-2: Team B B2 ClosedBookSolvability recalibration with the wider judge panel.
+"""δ-2 + v2.2 fix #2: B2 ClosedBookSolvability difficulty-aware gating (v3.0.0).
 
-The new gate is:
-  - FAIL when ALL 5 judges (claude/chatgpt/gemini/llama/qwen) solved an easy
-    (difficulty ≤ 2) question without the source.
-  - WARN when ≥ 4 of 5 judges solved it.
-  - PASS otherwise.
+The v3.0.0 gate (v2.2 fix #2) is:
+  difficulty ≤ 2 (L1/L2):
+    - FAIL when ≥4 of 5 judges keyed correctly  (gold-v2 showed L2 FTQs
+      with 4/5 closed-book solves were genuinely world-knowledge-leaky)
+    - WARN when 3 of 5 keyed
+    - PASS otherwise
+  difficulty ≥ 3 (L3/L4):
+    - FAIL when ALL 5 judges keyed
+    - WARN when ≥4 of 5 keyed
+    - PASS otherwise
 
-Under the OLD gate a closed-book ratio of 0.85 (4/5 judges, equivalent to 4/5 = 0.8)
-on a difficulty-2 question would have been FAIL (cb_ratio >= 0.8 AND diff <= 2).
-Under the NEW gate it must be WARN (only 4 of 5 keyed; not all 5).
+This replaces v2.0.0 where even "4/5 keyed at diff ≤ 2" was only WARN; gold-v2
+confirmed that was too permissive.
 """
 
 from __future__ import annotations
@@ -91,23 +95,34 @@ def _run_with_panel(monkeypatch, *, closed_book_choices: list[str], difficulty="
     return b2
 
 
-def test_b2_warns_when_4_of_5_judges_solve_easy_question(monkeypatch):
-    # 4 of 5 judges keyed A (the correct answer); 1 chose B.
-    # Under OLD thresholds (cb_ratio>=0.8, diff<=2) this was FAIL.
-    # Under NEW thresholds (need ALL 5 keyed for FAIL) this is WARN.
+def test_b2_fails_when_4_of_5_judges_solve_easy_question(monkeypatch):
+    # v3.0.0: at difficulty ≤ 2, ≥4/5 closed-book solves is FAIL (tightened
+    # from v2.0.0's "only 5/5 at diff≤2 is FAIL").
     b2 = _run_with_panel(
         monkeypatch,
         closed_book_choices=["A", "A", "A", "A", "B"],
         difficulty="2",
     )
-    assert b2["severity"] == "warn", (
-        f"Expected WARN under recalibrated 5-judge panel; got {b2['severity']}"
+    assert b2["severity"] == "fail", (
+        f"v3.0.0: 4/5 keyed at diff=2 must FAIL; got {b2['severity']}"
     )
     payload = b2["payload"]
     assert payload["judges_keyed"] == 4
     assert payload["judges_total"] == 5
     assert payload["closed_book_correct"] is True
     assert payload["leakage_ratio"] == round(4 / 5, 3)
+
+
+def test_b2_warns_when_3_of_5_judges_solve_easy_question(monkeypatch):
+    # v3.0.0: 3/5 at diff ≤ 2 is WARN band.
+    b2 = _run_with_panel(
+        monkeypatch,
+        closed_book_choices=["A", "A", "A", "B", "C"],
+        difficulty="2",
+    )
+    assert b2["severity"] == "warn", (
+        f"v3.0.0: 3/5 keyed at diff=2 must WARN; got {b2['severity']}"
+    )
 
 
 def test_b2_fails_when_all_5_judges_solve_easy_question(monkeypatch):
@@ -124,19 +139,20 @@ def test_b2_fails_when_all_5_judges_solve_easy_question(monkeypatch):
     assert payload["judges_total"] == 5
 
 
-def test_b2_passes_when_only_3_of_5_judges_solve(monkeypatch):
+def test_b2_passes_when_only_3_of_5_judges_solve_hard(monkeypatch):
+    # v3.0.0: at difficulty ≥ 3, 3/5 is below the WARN gate (4/5 minimum).
     b2 = _run_with_panel(
         monkeypatch,
         closed_book_choices=["A", "A", "A", "B", "C"],
         difficulty="3",
     )
     assert b2["severity"] == "pass", (
-        f"3 of 5 judges (60%) is below the WARN gate; got {b2['severity']}"
+        f"v3.0.0: 3/5 at diff=3 is below WARN gate; got {b2['severity']}"
     )
 
 
 def test_b2_warns_when_4_of_5_judges_solve_hard_question(monkeypatch):
-    # Even on hard questions, ≥4-of-5 is enough to WARN (no FAIL since diff>2).
+    # v3.0.0: at difficulty ≥ 3, 4/5 is WARN; 5/5 is FAIL.
     b2 = _run_with_panel(
         monkeypatch,
         closed_book_choices=["A", "A", "A", "A", "B"],
@@ -144,6 +160,18 @@ def test_b2_warns_when_4_of_5_judges_solve_hard_question(monkeypatch):
     )
     assert b2["severity"] == "warn", (
         f"Hard question with 4/5 leakage should WARN; got {b2['severity']}"
+    )
+
+
+def test_b2_fails_when_5_of_5_judges_solve_hard_question(monkeypatch):
+    # v3.0.0: at difficulty ≥ 3, only 5/5 triggers FAIL.
+    b2 = _run_with_panel(
+        monkeypatch,
+        closed_book_choices=["A", "A", "A", "A", "A"],
+        difficulty="3",
+    )
+    assert b2["severity"] == "fail", (
+        f"v3.0.0: 5/5 at diff=3 must FAIL; got {b2['severity']}"
     )
 
 
