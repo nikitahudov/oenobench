@@ -82,48 +82,52 @@ from src.utils.db import get_pg
 #                              wins. Identity templates are weight 0.2; fact-
 #                              specific templates are weight 1.0+.
 
+# ─── v2.2 fix #8a — Template inventory purge (2026-04-20) ──────────────────
+#
+# Gold-v2 human review showed template strategy clean-passed 0/12 on all 8
+# rubrics. Root causes R1-R2 (superlative/identity templates producing
+# unverifiable or world-knowledge-solvable questions) were traced to these
+# templates, which have been DELETED in this revision:
+#
+#   T-REG-COUNTRY-01        — "Which country is {region} in?" (world-knowledge)
+#   T-REG-GRAPE-01          — "primary grape" (superlative, unverifiable)
+#                              REPLACED by T-REG-AUTH-GRAPE-01 (authorised-list)
+#   T-REG-STYLE-01          — "primarily known for" (superlative)
+#   T-REG-NEIGHBOR-01       — "borders or is near" (unverifiable from 1 fact)
+#   T-GRP-REGION-01         — "most strongly associated with" (superlative)
+#                              REPLACED by T-GRP-AUTH-APPELLATION-01
+#   T-GRP-ORIGIN-01         — "country of origin" (world-knowledge, contested)
+#   T-PRD-GRAPE-01          — "flagship grape of" (superlative, unverifiable)
+#   T-PRD-COUNTRY-01        — "country of X producer" (world-knowledge)
+#   T-BIZ-EXPORT-01         — "largest export market" (superlative, no fact basis)
+#
+# Surviving templates: 38 + 2 rewrites = 40. All now carry
+# `verifiable_from_single_fact: True`.
+#
 TEMPLATES: list[dict] = [
-    # ── wine_regions: identity (down-weighted) ───────────────────────────
+    # ── wine_regions ─────────────────────────────────────────────────────
+    # T-REG-AUTH-GRAPE-01 — v2.2 fix #8a rewrite of T-REG-GRAPE-01.
+    # Asks about authorised grapes (factually verifiable from a fact that
+    # lists permitted varieties), NOT which grape is "primary" (superlative).
     {
-        "id": "T-REG-COUNTRY-01",
+        "id": "T-REG-AUTH-GRAPE-01",
         "patterns": [
-            "Which country is the {region} wine region located in?",
-            "In which country is the wine region of {region} found?",
-            "Identify the country where the {region} wine region is located.",
-            "Name the country in which the {region} wine region lies.",
-            "The country of the {region} wine region is which of the following?",
-            "What country is home to the {region} wine region?",
+            "Which of the following grapes is authorised in {appellation}?",
+            "Which grape variety is permitted for use in {appellation}?",
+            "Identify a grape authorised for production in {appellation}.",
+            "Name a grape variety approved for {appellation} wines.",
+            "Under {appellation} regulations, which grape is authorised?",
         ],
         "domain": "wine_regions",
-        "difficulty_range": ["1"],
-        "cognitive_dim": "recall",
-        "question_type": "multiple_choice",
-        "correct_field": "country",
-        "distractor_strategy": "same_type",
-        "required_entities": ["country", "region"],
-        "explanation_template": "The {region} wine region is located in {country}.",
-        "requires_fact_specific": False,
-        "selection_weight": 0.2,
-    },
-    {
-        "id": "T-REG-GRAPE-01",
-        "patterns": [
-            "Which grape variety is the primary grape used in {appellation} wines?",
-            "What is the principal grape variety of {appellation}?",
-            "Identify the dominant grape used in the production of {appellation}.",
-            "Name the main grape variety associated with {appellation}.",
-            "The primary grape behind {appellation} wines is which of the following?",
-            "Which variety dominates {appellation} wine production?",
-        ],
-        "domain": "wine_regions",
-        "difficulty_range": ["1", "2"],
+        "difficulty_range": ["2"],
         "cognitive_dim": "recall",
         "question_type": "multiple_choice",
         "correct_field": "grape",
         "distractor_strategy": "same_type",
         "required_entities": ["grape", "appellation"],
-        "explanation_template": "{appellation} wines are primarily made from {grape}.",
+        "explanation_template": "{grape} is an authorised variety in {appellation}.",
         "requires_fact_specific": True,
+        "verifiable_from_single_fact": True,
         "selection_weight": 1.0,
     },
     {
@@ -168,25 +172,9 @@ TEMPLATES: list[dict] = [
         "requires_fact_specific": True,
         "selection_weight": 0.8,
     },
-    {
-        "id": "T-REG-TF-COUNTRY-01",
-        "patterns": [
-            "True or False: {region} is a wine region in {country}.",
-            "True or False: the {region} wine region lies within {country}.",
-            "Decide True or False — {region} is a wine region in {country}.",
-            "Indicate True or False: {region} is part of {country}'s wine landscape.",
-        ],
-        "domain": "wine_regions",
-        "difficulty_range": ["1"],
-        "cognitive_dim": "recall",
-        "question_type": "true_false",
-        "correct_field": "country",
-        "distractor_strategy": "true_false",
-        "required_entities": ["country", "region"],
-        "explanation_template": "{region} is indeed located in {country}.",
-        "requires_fact_specific": False,
-        "selection_weight": 0.2,
-    },
+    # T-REG-TF-COUNTRY-01 deleted (v2.2 fix #8a) — region→country TF
+    # questions are world-knowledge-solvable; gold-v2 WB-REG-0096-L1
+    # ("Leelanau in US") failed needs_source at L1.
     {
         "id": "T-REG-SOIL-01",
         "patterns": [
@@ -249,27 +237,7 @@ TEMPLATES: list[dict] = [
         "requires_fact_specific": True,
         "selection_weight": 1.0,
     },
-    {
-        "id": "T-REG-STYLE-01",
-        "patterns": [
-            "What style of wine is {appellation} primarily known for?",
-            "Which wine style does {appellation} principally produce?",
-            "Identify the wine style most associated with {appellation}.",
-            "Name the dominant wine style of {appellation}.",
-            "The wine style {appellation} is best known for is which of the following?",
-            "Which style of wine dominates {appellation} production?",
-        ],
-        "domain": "wine_regions",
-        "difficulty_range": ["1", "2"],
-        "cognitive_dim": "recall",
-        "question_type": "multiple_choice",
-        "correct_field": "wine_style",
-        "distractor_strategy": "same_type",
-        "required_entities": ["wine_style", "appellation"],
-        "explanation_template": "{appellation} is primarily known for producing {wine_style} wines.",
-        "requires_fact_specific": True,
-        "selection_weight": 1.0,
-    },
+    # T-REG-STYLE-01 deleted (v2.2 fix #8a) — superlative "primarily known for"
     {
         "id": "T-REG-TF-GRAPE-01",
         "patterns": [
@@ -289,26 +257,8 @@ TEMPLATES: list[dict] = [
         "requires_fact_specific": True,
         "selection_weight": 1.0,
     },
-    {
-        "id": "T-REG-NEIGHBOR-01",
-        "patterns": [
-            "Which of the following wine regions borders or is near {region}?",
-            "Identify the wine region neighbouring {region}.",
-            "Name a wine region that lies adjacent to {region}.",
-            "Which wine region sits near {region}?",
-            "The wine region bordering {region} is which of the following?",
-        ],
-        "domain": "wine_regions",
-        "difficulty_range": ["3"],
-        "cognitive_dim": "comprehension",
-        "question_type": "multiple_choice",
-        "correct_field": "neighbor_region",
-        "distractor_strategy": "same_type",
-        "required_entities": ["neighbor_region", "region"],
-        "explanation_template": "{neighbor_region} is a neighbouring wine region to {region}.",
-        "requires_fact_specific": True,
-        "selection_weight": 1.0,
-    },
+    # T-REG-NEIGHBOR-01 deleted (v2.2 fix #8a) — "borders or is near" can't
+    # be verified from a single fact (requires knowing ALL neighbors).
     {
         "id": "T-REG-ALTITUDE-01",
         "patterns": [
@@ -430,67 +380,35 @@ TEMPLATES: list[dict] = [
         "requires_fact_specific": True,
         "selection_weight": 1.0,
     },
-    # ── grape_varieties (~9 templates) ───────────────────────────────────
+    # ── grape_varieties ──────────────────────────────────────────────────
+    # T-GRP-AUTH-APPELLATION-01 — v2.2 fix #8a rewrite of T-GRP-REGION-01.
+    # Asks which appellation authorises a grape (verifiable from one fact),
+    # not which region is "most associated with" the grape (superlative).
     {
-        "id": "T-GRP-REGION-01",
+        "id": "T-GRP-AUTH-APPELLATION-01",
         "patterns": [
-            "Which wine region is best known for growing {grape}?",
-            "What wine region is most associated with {grape}?",
-            "Identify the wine region most strongly associated with {grape}.",
-            "Name the signature wine region of {grape}.",
-            "The wine region most identified with {grape} is which of the following?",
-            "In which wine region does {grape} reach its highest expression?",
+            "Which of the following appellations authorises {grape} in its wines?",
+            "Which wine appellation permits {grape}?",
+            "Identify an appellation that authorises {grape}.",
+            "Name an appellation in which {grape} is permitted.",
+            "In which of these appellations is {grape} authorised?",
         ],
         "domain": "grape_varieties",
-        "difficulty_range": ["1", "2"],
+        "difficulty_range": ["2"],
         "cognitive_dim": "recall",
         "question_type": "multiple_choice",
-        "correct_field": "region",
+        "correct_field": "appellation",
         "distractor_strategy": "same_type",
-        "required_entities": ["region", "grape"],
-        "explanation_template": "{grape} is a signature grape of the {region} wine region.",
+        "required_entities": ["grape", "appellation"],
+        "explanation_template": "{grape} is an authorised variety in {appellation}.",
         "requires_fact_specific": True,
-        "selection_weight": 0.6,
+        "verifiable_from_single_fact": True,
+        "selection_weight": 1.0,
     },
-    {
-        "id": "T-GRP-COLOR-01",
-        "patterns": [
-            "What colour wine does the {grape} grape primarily produce?",
-            "Which wine colour is associated with the {grape} grape?",
-            "Identify the wine colour that {grape} produces.",
-            "The colour of wine produced from {grape} is which of the following?",
-            "Which wine colour does {grape} most commonly yield?",
-        ],
-        "domain": "grape_varieties",
-        "difficulty_range": ["1"],
-        "cognitive_dim": "recall",
-        "question_type": "multiple_choice",
-        "correct_field": "color",
-        "distractor_strategy": "same_type",
-        "required_entities": ["color", "grape"],
-        "explanation_template": "{grape} is a {color} grape variety.",
-        "requires_fact_specific": False,
-        "selection_weight": 0.2,
-    },
-    {
-        "id": "T-GRP-TF-COLOR-01",
-        "patterns": [
-            "True or False: {grape} is a {color} grape variety.",
-            "True or False: the {grape} grape is classified as {color}.",
-            "Decide True or False — {grape} is a {color} grape variety.",
-            "Indicate True or False: {grape} produces {color} wine.",
-        ],
-        "domain": "grape_varieties",
-        "difficulty_range": ["1"],
-        "cognitive_dim": "recall",
-        "question_type": "true_false",
-        "correct_field": "color",
-        "distractor_strategy": "true_false",
-        "required_entities": ["color", "grape"],
-        "explanation_template": "{grape} is indeed a {color} grape variety.",
-        "requires_fact_specific": False,
-        "selection_weight": 0.2,
-    },
+    # T-GRP-COLOR-01 + T-GRP-TF-COLOR-01 deleted (v2.2 fix #8a) — grape→wine
+    # colour is world-knowledge for any famous grape (Pinot Noir → red, etc.)
+    # and the colour is inherent to the grape. These templates over-produced
+    # L1 recall that every LLM trivially solves closed-book.
     {
         "id": "T-GRP-SYNONYM-01",
         "patterns": [
@@ -511,26 +429,10 @@ TEMPLATES: list[dict] = [
         "requires_fact_specific": True,
         "selection_weight": 1.0,
     },
-    {
-        "id": "T-GRP-ORIGIN-01",
-        "patterns": [
-            "Which country is considered the origin of the {grape} grape?",
-            "What country is the homeland of the {grape} grape?",
-            "Identify the country of origin of the {grape} grape.",
-            "Name the country where {grape} originated.",
-            "The grape {grape} originated in which country?",
-        ],
-        "domain": "grape_varieties",
-        "difficulty_range": ["2"],
-        "cognitive_dim": "recall",
-        "question_type": "multiple_choice",
-        "correct_field": "country",
-        "distractor_strategy": "same_type",
-        "required_entities": ["country", "grape"],
-        "explanation_template": "{grape} originated in {country}.",
-        "requires_fact_specific": False,
-        "selection_weight": 0.3,
-    },
+    # T-GRP-ORIGIN-01 deleted (v2.2 fix #8a) — country-of-origin is both
+    # world-knowledge (e.g. Blaufränkisch → Austria is textbook) AND
+    # contested for many grapes (parentage debates). The fact "grape X is
+    # grown in country Y" does NOT establish Y as the origin.
     {
         "id": "T-GRP-PARENT-01",
         "patterns": [
@@ -653,47 +555,11 @@ TEMPLATES: list[dict] = [
         "requires_fact_specific": True,
         "selection_weight": 1.0,
     },
-    {
-        "id": "T-PRD-GRAPE-01",
-        "patterns": [
-            "Which grape variety is {producer} most associated with?",
-            "What grape variety is most strongly identified with {producer}?",
-            "Identify the flagship grape variety of {producer}.",
-            "Name the grape most associated with the producer {producer}.",
-            "The flagship grape of {producer} is which of the following?",
-            "What is the flagship grape of {producer}?",
-        ],
-        "domain": "producers",
-        "difficulty_range": ["2", "3"],
-        "cognitive_dim": "recall",
-        "question_type": "multiple_choice",
-        "correct_field": "flagship_grape",
-        "distractor_strategy": "same_type",
-        "required_entities": ["flagship_grape", "producer"],
-        "explanation_template": "{producer} is most closely associated with the {flagship_grape} grape.",
-        "requires_fact_specific": True,
-        "selection_weight": 1.2,
-    },
-    {
-        "id": "T-PRD-COUNTRY-01",
-        "patterns": [
-            "In which country is {producer} based?",
-            "What country is the producer {producer} located in?",
-            "Identify the country of the producer {producer}.",
-            "Name the country in which {producer} operates.",
-            "The country in which {producer} is based is which of the following?",
-        ],
-        "domain": "producers",
-        "difficulty_range": ["1"],
-        "cognitive_dim": "recall",
-        "question_type": "multiple_choice",
-        "correct_field": "country",
-        "distractor_strategy": "same_type",
-        "required_entities": ["country", "producer"],
-        "explanation_template": "{producer} is based in {country}.",
-        "requires_fact_specific": False,
-        "selection_weight": 0.2,
-    },
+    # T-PRD-GRAPE-01 deleted (v2.2 fix #8a) — "flagship grape" / "most
+    # associated" is a superlative that requires global ranking, not
+    # provable from a single fact.
+    # T-PRD-COUNTRY-01 deleted (v2.2 fix #8a) — producer→country is too
+    # world-knowledge-solvable (Château X → France, Penfolds → Australia).
     {
         "id": "T-PRD-CLASS-01",
         "patterns": [
@@ -1033,27 +899,18 @@ TEMPLATES: list[dict] = [
         "requires_fact_specific": True,
         "selection_weight": 1.0,
     },
-    {
-        "id": "T-BIZ-EXPORT-01",
-        "patterns": [
-            "Which country is the largest export market for wines from {region}?",
-            "What country is the top export destination for wines of {region}?",
-            "Identify the largest export market for {region} wines.",
-            "Name the leading export market for wines from {region}.",
-            "The largest export market for {region} wines is which of the following?",
-        ],
-        "domain": "wine_business",
-        "difficulty_range": ["3", "4"],
-        "cognitive_dim": "recall",
-        "question_type": "multiple_choice",
-        "correct_field": "market",
-        "distractor_strategy": "same_type",
-        "required_entities": ["market", "region"],
-        "explanation_template": "{market} is the largest export market for {region} wines.",
-        "requires_fact_specific": True,
-        "selection_weight": 1.0,
-    },
+    # T-BIZ-EXPORT-01 deleted (v2.2 fix #8a) — "largest export market" is
+    # superlative and rarely reducible to a single fact's ranking.
 ]
+
+# v2.2 fix #8a — set `verifiable_from_single_fact: True` as the default on
+# every surviving template. After the purge all templates in the list are
+# fact-specific (the superlative/identity ones were deleted, not kept with
+# low weights as in γ-2). Individual templates can still override by setting
+# the field explicitly in their dict literal.
+for _t in TEMPLATES:
+    _t.setdefault("verifiable_from_single_fact", True)
+del _t  # don't leak loop var into module namespace
 
 DOMAINS = list(DOMAIN_TARGETS.keys())
 OPTION_IDS = ["A", "B", "C", "D"]
@@ -1259,42 +1116,131 @@ def embedding_similarity_distractors(
     return band[:count]
 
 
+# v2.2 fix #8c — Distractor-pool hardening.
+#
+# Gold-v2 showed "region" pools contaminated with country-level concepts:
+# "In which wine region is Force Majeure Vineyards located?" got distractors
+# {Georgian wine, Canadian wine, Italian wine} because those appear tagged
+# as `region` in some facts. A grape pool got "Verdejo" as a region. The
+# root cause: the fact-base's entity_type labels are scraper-heterogeneous.
+#
+# The hardened pool:
+#   1. Whitelist per correct_field — only accept entities tagged with an
+#      allowed type for that field.
+#   2. Drop candidates that pattern-match as bare country names (iconic
+#      country sentinel from `_template_validators`).
+#   3. Shape-homogeneity: the correct value and distractors must share
+#      token shape (multi-word vs single token; hyphen vs no hyphen) so we
+#      don't put a country-style single-word in an appellation-style pool.
+#   4. Minimum pool size 20 (was 8) — skip the template instance if smaller.
+
+_FIELD_ALLOWED_ENTITY_TYPES: dict[str, frozenset[str]] = {
+    "country":          frozenset({"country"}),
+    "region":           frozenset({"region"}),
+    "appellation":      frozenset({"appellation"}),
+    "subregion":        frozenset({"subregion", "region"}),
+    "neighbor_region":  frozenset({"region"}),
+    "grape":            frozenset({"grape"}),
+    "parent_grape":     frozenset({"grape", "parent_grape"}),
+    "flagship_grape":   frozenset({"grape"}),
+    "producer":         frozenset({"producer"}),
+    "soil":             frozenset({"soil"}),
+    "climate":          frozenset({"climate"}),
+    "wine_style":       frozenset({"wine_style"}),
+    "classification":   frozenset({"classification"}),
+    "technique":        frozenset({"technique"}),
+    "process":          frozenset({"process"}),
+    "regulatory_body":  frozenset({"regulatory_body"}),
+    "market":           frozenset({"market", "country"}),
+}
+
+# Fields where drawing a bare country name as a distractor is always wrong.
+_FIELDS_REJECTING_COUNTRY_SHAPE: frozenset[str] = frozenset({
+    "region", "appellation", "subregion", "neighbor_region",
+})
+
+_MIN_POOL_SIZE_V22 = 20
+
+
+def _same_shape(correct: str, candidate: str) -> bool:
+    """Return True if both strings share a rough shape class.
+
+    Classes:
+      * multi_word  — 2+ space-separated tokens or contains a hyphen
+      * single_word — one token, no hyphen
+    """
+    def _cls(s: str) -> str:
+        s = s.strip()
+        if not s:
+            return ""
+        if " " in s or "-" in s:
+            return "multi_word"
+        return "single_word"
+    return _cls(correct) == _cls(candidate)
+
+
 def _candidate_pool_for_type(
     entity_type: str,
     correct_value: str,
     facts: list[dict],
 ) -> list[str]:
-    """Collect unique candidate entity names of a given type for distractor sampling.
+    """v2.2 fix #8c — hardened candidate pool for distractor sampling.
 
-    Pulls first from the in-process fact list (cheap) and tops up from a cached
-    DB lookup when the local pool is too thin.
+    Applies: type whitelist, country-sentinel, shape-homogeneity, min size 20.
+    Returns [] if the hardened pool is too small; caller skips the template.
     """
+    from src.generators._template_validators import is_iconic_bare_country
+
+    allowed = _FIELD_ALLOWED_ENTITY_TYPES.get(entity_type, frozenset({entity_type}))
+    reject_countries = entity_type in _FIELDS_REJECTING_COUNTRY_SHAPE
     seen: set[str] = set()
     out: list[str] = []
     correct_lower = correct_value.lower()
+
+    def _accept(val: str, etype: str) -> bool:
+        # Type gate: candidate must be tagged with an allowed entity_type.
+        if etype and etype not in allowed:
+            return False
+        # Identity-skip.
+        if val.lower() == correct_lower:
+            return False
+        # Country-sentinel: drop any bare country or "X wine" pseudo-region.
+        if reject_countries and is_iconic_bare_country(val):
+            return False
+        # Shape homogeneity vs the correct value.
+        if not _same_shape(correct_value, val):
+            return False
+        return True
+
+    # In-memory pool first.
     for fact in facts:
-        ents = _extract_entities(fact)
-        val = ents.get(entity_type, "")
+        ents_map = _extract_entities(fact)  # type → first name
+        val = ents_map.get(entity_type, "")
         if not val:
             continue
-        if val.lower() == correct_lower:
+        if not _accept(val, entity_type):
             continue
         key = val.lower()
         if key not in seen:
             seen.add(key)
             out.append(val)
 
-    # γ-1 needs at least K=8 candidates to pick a meaningful neighbour band.
-    if len(out) < _EMB_TOPK + 2:
+    # DB fallback when local pool is thin.
+    if len(out) < _MIN_POOL_SIZE_V22 + 2:
         for cand in _global_candidates_for_type(entity_type):
+            if not _accept(cand, entity_type):
+                continue
             key = cand.lower()
-            if key in seen or key == correct_lower:
+            if key in seen:
                 continue
             seen.add(key)
             out.append(cand)
-            if len(out) >= 50:  # cap pool size to control embedding cost
+            if len(out) >= 60:  # cap pool size to control embedding cost
                 break
 
+    # Fail closed if the hardened pool is too small.
+    if len(out) < _MIN_POOL_SIZE_V22:
+        return []
     return out
 
 
@@ -1369,6 +1315,75 @@ def heuristic_difficulty(entity_name: str) -> str:
     if cnt >= 5:
         return "3"
     return "4"
+
+
+def _mention_band(entity_name: str) -> str:
+    """Return the mention-count band name (used by the v2.2 fix #8d table)."""
+    cnt = _entity_mention_count(entity_name)
+    if cnt >= 100:
+        return "high"
+    if cnt >= 20:
+        return "med"
+    if cnt >= 5:
+        return "low"
+    return "very_low"
+
+
+# ─── v2.2 fix #8d — Per-template difficulty calibration table ─────────────
+#
+# Seeded from gold-v2 difficulty_match=0 rows. Keys are (template_id, band).
+# Values are the ground-truth difficulty the human reviewer wrote in the
+# `notes` column. For combinations not listed, we fall back to the γ-3
+# heuristic difficulty().
+#
+# gold-v2 evidence (selected):
+#   WB-PRD-0087-L1 (Force Majeure, low mentions, T-PRD-TF-REGION-01)
+#     labelled d=1, actual d=3 → ("T-PRD-TF-REGION-01", "low"): "3"
+#   WB-PRD-0096-L2 (Burrowing Owl, low, T-PRD-TF-REGION-01)
+#     labelled d=2, actual d=3 → same key ends up "3"
+#   WB-PRD-0099-L3 (Château Margaux, high, T-PRD-REGION-01)
+#     labelled d=3, actual d=1 → ("T-PRD-REGION-01", "high"): "1"
+#   WB-REG-0090-L3 (Castel del Monte, high, T-REG-SUBREGION-01)
+#     labelled d=3, actual d=2 → ("T-REG-SUBREGION-01", "high"): "2"
+
+_DIFFICULTY_TABLE: dict[tuple[str, str], str] = {
+    # Producer-in-region (famous → trivial, obscure → harder than γ-3)
+    ("T-PRD-REGION-01", "high"):     "1",
+    ("T-PRD-REGION-01", "med"):      "2",
+    ("T-PRD-REGION-01", "low"):      "3",
+    ("T-PRD-REGION-01", "very_low"): "4",
+    ("T-PRD-TF-REGION-01", "high"): "2",
+    ("T-PRD-TF-REGION-01", "med"):  "2",
+    ("T-PRD-TF-REGION-01", "low"):  "3",
+    ("T-PRD-TF-REGION-01", "very_low"): "3",
+    # Region/appellation containment
+    ("T-REG-SUBREGION-01", "high"): "2",
+    ("T-REG-SUBREGION-01", "med"):  "2",
+    ("T-REG-SUBREGION-01", "low"):  "3",
+    # Classification / regulatory — inherently L3+
+    ("T-REG-CLASS-01",  "high"): "3",
+    ("T-REG-CLASS-01",  "med"):  "3",
+    ("T-REG-CLASS-01",  "low"):  "4",
+    ("T-REG-CLASS2-01", "high"): "3",
+    ("T-REG-CLASS2-01", "med"):  "3",
+    ("T-PRD-CLASS-01",  "high"): "3",
+    ("T-PRD-CLASS-01",  "med"):  "3",
+    # Rewritten authorised-list templates — L2 for well-known regions
+    ("T-REG-AUTH-GRAPE-01", "high"):     "2",
+    ("T-REG-AUTH-GRAPE-01", "low"):      "3",
+    ("T-GRP-AUTH-APPELLATION-01", "high"): "2",
+    ("T-GRP-AUTH-APPELLATION-01", "low"):  "3",
+}
+
+
+def calibrated_difficulty(template_id: str, entity_name: str) -> str:
+    """v2.2 fix #8d — Look up difficulty in the per-template table; fall back
+    to γ-3 mention-count heuristic when the combination is not listed."""
+    band = _mention_band(entity_name)
+    key = (template_id, band)
+    if key in _DIFFICULTY_TABLE:
+        return _DIFFICULTY_TABLE[key]
+    return heuristic_difficulty(entity_name)
 
 
 # ─── γ-4 Phrasing diversification ─────────────────────────────────────────
@@ -1490,8 +1505,24 @@ def fill_template(
 
     question_type = template["question_type"]
 
-    # γ-3 — per-instance difficulty heuristic
-    difficulty = heuristic_difficulty(correct_value)
+    # v2.2 fix #8b — source-faithfulness gate. Require the correct answer
+    # (or its aliases) to appear literally in the linked source fact, and
+    # require every content token of the filled explanation to be supported.
+    source_fact_text = fact.get("fact_text") or ""
+    from src.generators._template_validators import verify_answer_in_source_fact
+    if not verify_answer_in_source_fact(
+        correct_answer_text=correct_value,
+        source_fact=source_fact_text,
+        explanation_filled=explanation,
+    ):
+        logger.debug(
+            f"Template {template['id']} REJECT source-faithfulness — "
+            f"answer={correct_value!r} fact={source_fact_text[:80]!r}"
+        )
+        return None
+
+    # v2.2 fix #8d — per-template difficulty calibration table (supersedes γ-3).
+    difficulty = calibrated_difficulty(template["id"], correct_value)
 
     if question_type == "true_false":
         options = [{"id": "A", "text": "True"}, {"id": "B", "text": "False"}]
@@ -1581,6 +1612,7 @@ def _weighted_template_order(
 @click.option("--all", "run_all", is_flag=True, help="Generate for all domains using targets")
 @click.option("--no-paraphrase", is_flag=True, help="Disable γ-5 LLM paraphrase post-pass (debug). Default: paraphrase ON.")
 @click.option("--no-embeddings", is_flag=True, help="Disable γ-1 embedding distractors (debug)")
+@click.option("--no-verify", is_flag=True, help="Disable v2.2 fix #8e mandatory Gemini answer-verification (debug).")
 def main(
     domain,
     count,
@@ -1592,6 +1624,7 @@ def main(
     run_all,
     no_paraphrase,
     no_embeddings,
+    no_verify,
 ):
     """Template-based question generator (Strategy 2, v2 overhaul)."""
     if list_templates:
@@ -1663,13 +1696,32 @@ def main(
                 if result is None:
                     continue
 
-                # γ-5 — optional LLM paraphrase
+                # γ-5 — optional LLM paraphrase (default-on in v2.2, fix #1)
                 if paraphrase_fn is not None:
                     rephrased = paraphrase_fn(
                         result["question_text"], result["options"]
                     )
                     if rephrased:
                         result["question_text"] = rephrased
+
+                # v2.2 fix #8e — mandatory Gemini answer-verification. One
+                # call per template question before insert; rejects on
+                # disagreement or "N" (fact doesn't support any option).
+                if not no_verify and result["question_type"] == "multiple_choice":
+                    from src.generators._verify import verify_template_answer_with_gemini
+                    agrees, _vdebug = verify_template_answer_with_gemini(
+                        question_text=result["question_text"],
+                        options=result["options"],
+                        correct_answer_id=result["correct_answer"],
+                        source_fact_text=fact.get("fact_text", ""),
+                    )
+                    if not agrees:
+                        logger.warning(
+                            f"Template {template['id']} REJECT by Gemini verifier "
+                            f"({_vdebug.get('chosen')!r} vs {_vdebug.get('expected')!r}) "
+                            f"— cost=${_vdebug.get('cost_usd', 0.0):.4f}"
+                        )
+                        continue
 
                 if dry_run:
                     click.echo(

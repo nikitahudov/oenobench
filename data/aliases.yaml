@@ -1,0 +1,81 @@
+# OenoBench — Entity-name aliases for template source-faithfulness gate
+#
+# v2.2 fix #8b. When the template validator checks whether a question's
+# correct_answer_text (or the filled explanation) is "literally supported"
+# by the linked source fact, it does case-insensitive substring matching
+# against the fact text. Many valid answers use a different spelling or
+# shorthand than the fact: "US" vs "United States", "UK" vs "Britain",
+# French vs English appellation names. This file lists the equivalence
+# classes we accept.
+#
+# Format: each key is the canonical (or one) form; the value is the list
+# of accepted aliases. At runtime the validator treats ALL forms (key +
+# every alias) as interchangeable — if any of them appears in the fact,
+# the gate passes.
+#
+# Keep this list TIGHT. Don't add fuzzy matches. Only add entries that a
+# wine expert would call clear synonyms.
+
+countries_and_short_names:
+  "United States":
+    - US
+    - USA
+    - U.S.
+    - U.S.A.
+    - United States of America
+    - America
+  "United Kingdom":
+    - UK
+    - Britain
+    - Great Britain
+    - GB
+  "Czech Republic":
+    - Czechia
+  "South Korea":
+    - Korea
+    - Republic of Korea
+
+french_english_regions:
+  "Burgundy":
+    - Bourgogne
+  "Rhône":
+    - Rhone
+    - Rhône Valley
+  "Alsace":
+    - Alsace wine
+  "Loire":
+    - Loire Valley
+    - Val de Loire
+
+italian_english_regions:
+  "Piedmont":
+    - Piemonte
+    - Piedmonte
+  "Tuscany":
+    - Toscana
+  "Sicily":
+    - Sicilia
+  "Sardinia":
+    - Sardegna
+
+german_english_regions:
+  "Palatinate":
+    - Pfalz
+  "Rhineland-Palatinate":
+    - Rheinland-Pfalz
+
+appellation_shortforms:
+  "Denominazione di Origine Controllata":
+    - DOC
+  "Denominazione di Origine Controllata e Garantita":
+    - DOCG
+  "Appellation d'Origine Contrôlée":
+    - AOC
+    - AOP
+  "Denominación de Origen":
+    - DO
+  "Denominación de Origen Calificada":
+    - DOCa
+  "Indicazione Geografica Tipica":
+    - IGT
+    - IGP

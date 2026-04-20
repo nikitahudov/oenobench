@@ -70,11 +70,13 @@ def test_select_pattern_variant_different_entities_rotate():
 
 def test_phrasing_distribution_across_multiple_templates():
     """Several different templates should each yield ≥ 3 distinct phrasings."""
+    # v2.2 fix #8a — T-REG-GRAPE-01 replaced by T-REG-AUTH-GRAPE-01;
+    # T-PRD-GRAPE-01 deleted (flagship-grape superlative).
     template_ids = [
         "T-REG-CLIMATE-01",
-        "T-REG-GRAPE-01",
+        "T-REG-AUTH-GRAPE-01",
         "T-GRP-AROMA-01",
-        "T-PRD-GRAPE-01",
+        "T-PRD-APPELLATION-01",
         "T-WMK-TECHNIQUE-01",
         "T-VIT-PEST-01",
     ]
@@ -89,10 +91,16 @@ def test_phrasing_distribution_across_multiple_templates():
 
 
 def test_total_phrasing_count_in_target_range():
-    """Whole catalogue should land in the 200-270 variant range from γ-4 spec."""
+    """Whole catalogue should land in the 170-320 variant range.
+
+    v2.2 fix #8a deleted 12 templates (superlative + world-knowledge), which
+    trimmed the variant total from ~260 to ~190. The γ-5 LLM paraphrase
+    post-pass (default-on in v2.2) provides the remaining anti-detectability
+    diversity, so the raw variant count can be lower.
+    """
     total = sum(len(t.get("patterns") or []) for t in TEMPLATES)
-    assert 200 <= total <= 320, (
-        f"Total phrasing variants is {total}; expected 200-320 range."
+    assert 170 <= total <= 320, (
+        f"Total phrasing variants is {total}; expected 170-320 range."
     )
 
 

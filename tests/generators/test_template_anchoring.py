@@ -87,11 +87,32 @@ def test_climate_template_requires_climate_entity():
     assert len(matched) == 1
 
 
-def test_country_identity_template_is_not_fact_specific():
-    """Identity templates (region→country) are kept but down-weighted."""
-    template = _by_id("T-REG-COUNTRY-01")
-    assert template["requires_fact_specific"] is False
-    assert template["selection_weight"] < 1.0
+def test_deleted_templates_are_absent():
+    """v2.2 fix #8a — identity and superlative templates are DELETED, not kept."""
+    deleted_ids = [
+        "T-REG-COUNTRY-01",      # region→country identity (world-knowledge)
+        "T-REG-GRAPE-01",        # "primary grape" superlative
+        "T-REG-STYLE-01",        # "primarily known for" superlative
+        "T-REG-NEIGHBOR-01",     # "borders or is near" (can't verify from 1 fact)
+        "T-GRP-REGION-01",       # "most strongly associated with" superlative
+        "T-GRP-ORIGIN-01",       # grape→country-of-origin (world-knowledge + contested)
+        "T-PRD-GRAPE-01",        # producer→flagship grape (superlative)
+        "T-PRD-COUNTRY-01",      # producer→country (world-knowledge)
+        "T-BIZ-EXPORT-01",       # "largest export market" (superlative)
+    ]
+    existing = {t["id"] for t in TEMPLATES}
+    for tid in deleted_ids:
+        assert tid not in existing, (
+            f"Template {tid} should have been deleted by v2.2 fix #8a"
+        )
+
+
+def test_authorised_list_rewrites_present():
+    """v2.2 fix #8a — two replacement templates use authorised-list phrasing."""
+    for tid in ("T-REG-AUTH-GRAPE-01", "T-GRP-AUTH-APPELLATION-01"):
+        template = _by_id(tid)
+        assert template["requires_fact_specific"] is True
+        assert template["verifiable_from_single_fact"] is True
 
 
 def test_aging_template_requires_aging_wine_style_region():
@@ -119,23 +140,10 @@ def test_aging_template_requires_aging_wine_style_region():
     assert len(find_matching_facts(template, [complete_fact])) == 1
 
 
-def test_flagship_grape_template_requires_flagship_grape():
-    template = _by_id("T-PRD-GRAPE-01")
-    assert template["requires_fact_specific"] is True
-    assert template["correct_field"] == "flagship_grape"
-
-    incomplete = _make_fact(
-        entities=[{"type": "producer", "name": "Château Margaux"}],
-    )
-    assert find_matching_facts(template, [incomplete]) == []
-
-    complete = _make_fact(
-        entities=[
-            {"type": "producer", "name": "Château Margaux"},
-            {"type": "flagship_grape", "name": "Cabernet Sauvignon"},
-        ],
-    )
-    assert len(find_matching_facts(template, [complete])) == 1
+# T-PRD-GRAPE-01 flagship_grape template deleted by v2.2 fix #8a —
+# its "flagship grape of {producer}" phrasing is superlative and can't be
+# proved from a single fact. No replacement; the relationship is better
+# tested via comparative/scenario strategies.
 
 
 def test_classification_template_requires_classification_field():
@@ -168,14 +176,21 @@ def test_fill_template_returns_none_when_correct_field_missing():
 
 
 def test_fill_template_works_when_all_anchored_fields_present():
-    """Smoke test that an anchored template fills end-to-end with use_embeddings=False."""
+    """Smoke test that an anchored template fills end-to-end with use_embeddings=False.
+
+    v2.2 fix #8b: the fact_text must literally mention the correct answer
+    (source-faithfulness gate), so we give the seed fact a realistic text.
+    """
     template = _by_id("T-REG-SOIL-01")
     correct_fact = _make_fact(
         entities=[
             {"type": "region", "name": "Rheingau"},
             {"type": "soil", "name": "slate"},
         ],
+        fact_text="The Rheingau wine region is known for its slate soils.",
     )
+    # v2.2 fix #8c requires pool size ≥ 20 when embeddings are on; with
+    # use_embeddings=False the legacy min-3 fallback is still exercised.
     distractor_facts = [
         _make_fact(
             entities=[
@@ -205,11 +220,11 @@ def test_majority_of_templates_are_fact_specific():
     )
 
 
-def test_identity_templates_have_low_selection_weight():
-    """Identity (non-fact-specific) templates should be down-weighted ≤ 0.5."""
+def test_all_templates_are_fact_specific_post_v22():
+    """v2.2 fix #8a — identity templates deleted. Every surviving template
+    must be fact-specific (so low-weight identity-only templates are gone)."""
     for t in TEMPLATES:
-        if not t.get("requires_fact_specific"):
-            assert t["selection_weight"] <= 0.5, (
-                f"Identity template {t['id']} has weight {t['selection_weight']}; "
-                "should be ≤ 0.5 so fact-specific templates are preferred."
-            )
+        assert t.get("requires_fact_specific") is True, (
+            f"Template {t['id']} is not fact-specific; v2.2 fix #8a should "
+            "have deleted it."
+        )

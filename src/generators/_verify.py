@@ -249,3 +249,120 @@ def verify_question_with_independent_solver(
         )
 
     return is_valid, debug
+
+
+# ─── Template-specific verifier (v2.2 fix #8e) ──────────────────────────────
+#
+# For every TEMPLATE-generated question we route through Gemini (cheapest of
+# the high-capability models) to pick the option most directly supported by
+# the linked source fact. Gold-v2 showed 3 of 12 template questions were
+# "completely incorrect" despite passing all existing gates — this verifier
+# catches that class. At ~1000 templates × ~$0.001 = ~$1 for the run.
+
+_TEMPLATE_VERIFIER_MODEL = "gemini"
+
+_TEMPLATE_VERIFIER_SYSTEM = """\
+You are verifying a multiple-choice wine question. Choose the option most \
+DIRECTLY supported by the provided source fact. Do not use outside knowledge. \
+If the fact does not directly support any option, answer N.
+
+Output STRICT JSON with ONLY a single-letter `chosen` key: \
+{"chosen": "A" | "B" | "C" | "D" | "N"}."""
+
+
+def _build_template_verifier_prompt(
+    question_text: str,
+    options: list[dict],
+    source_fact_text: str,
+) -> str:
+    options_block = _format_options_block(options)
+    return (
+        f"Source fact:\n{source_fact_text}\n\n"
+        f"Question: {question_text}\n"
+        f"Options:\n{options_block}\n\n"
+        "Respond with JSON: {\"chosen\": \"A|B|C|D|N\"}."
+    )
+
+
+def verify_template_answer_with_gemini(
+    *,
+    question_text: str,
+    options: list[dict],
+    correct_answer_id: str,
+    source_fact_text: str,
+) -> tuple[bool, dict]:
+    """v2.2 fix #8e — one Gemini call per template question, before insert.
+
+    Returns (agrees, debug). `agrees` is True iff Gemini's chosen letter
+    equals correct_answer_id (case-insensitive, first character). Any of
+    {disagree, N=no-support, parse-failure, API-failure} → False, question
+    rejected upstream.
+    """
+    if not options or not correct_answer_id:
+        return True, {"skipped": True, "reason": "missing options or key"}
+
+    prompt = _build_template_verifier_prompt(
+        question_text=question_text,
+        options=options,
+        source_fact_text=source_fact_text or "",
+    )
+    client = get_client()
+    response: LLMResponse = client.generate(
+        prompt=prompt,
+        system=_TEMPLATE_VERIFIER_SYSTEM,
+        model=_TEMPLATE_VERIFIER_MODEL,
+        temperature=0.0,
+        max_tokens=40,
+        json_mode=True,
+    )
+
+    cost_usd = _estimate_cost(
+        _TEMPLATE_VERIFIER_MODEL, response.input_tokens, response.output_tokens
+    )
+
+    if not response.success:
+        logger.warning(
+            "template-verify: LLM call failed | error={} | question={!r}",
+            response.error, question_text[:80],
+        )
+        return False, {
+            "verifier_model": _TEMPLATE_VERIFIER_MODEL,
+            "chosen": None,
+            "error": response.error,
+            "cost_usd": cost_usd,
+        }
+
+    parsed = response.parsed or {}
+    chosen = str(parsed.get("chosen", "")).strip().upper()[:1] or None
+    expected = (correct_answer_id or "").strip().upper()[:1]
+
+    debug = {
+        "verifier_model": _TEMPLATE_VERIFIER_MODEL,
+        "chosen": chosen,
+        "expected": expected,
+        "raw": response.content[:300],
+        "cost_usd": cost_usd,
+    }
+
+    if chosen is None:
+        logger.warning("template-verify: unparseable response | raw={!r}", response.content[:200])
+        return False, debug
+
+    if chosen == "N":
+        logger.warning(
+            "template-verify: Gemini says fact does NOT support any option | q={!r}",
+            question_text[:80],
+        )
+        return False, debug
+
+    agrees = chosen == expected
+    if agrees:
+        logger.debug(
+            "template-verify: AGREE | chosen={} | cost=${:.4f}", chosen, cost_usd
+        )
+    else:
+        logger.warning(
+            "template-verify: DISAGREE | chosen={} | expected={} | q={!r}",
+            chosen, expected, question_text[:80],
+        )
+    return agrees, debug
