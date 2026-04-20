@@ -34,6 +34,17 @@ def insert_question(
         Question UUID string, or None on failure.
     """
     conn = get_pg()
+    # Defensive: clear any lingering transaction state from a prior failed
+    # call before touching autocommit. Under heavy parallel load the
+    # connection may be left mid-transaction when the previous caller
+    # raised outside our try/except — and psycopg2 errors with
+    # "set_session cannot be used inside a transaction" if we then try
+    # to flip autocommit. Rollback is safe here (it's a no-op if there's
+    # no open transaction).
+    try:
+        conn.rollback()
+    except Exception:
+        pass
     cur = conn.cursor()
     q_uuid = str(uuid.uuid4())
 
