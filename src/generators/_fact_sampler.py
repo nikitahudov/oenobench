@@ -325,7 +325,7 @@ DOMAIN_TARGETS = {
 # The fact-base distribution is computed lazily once per process; the usage
 # counter resets on module import.
 
-_COUNTRY_QUOTA_HARD_CAP_RATIO = 1.5  # plan §3 — never exceed 1.5× base share
+_COUNTRY_QUOTA_HARD_CAP_RATIO = 1.2  # v2.2 fix #3 — tightened 1.5→1.2 after audit run #2 showed 3.38× residual skew
 _QUOTA_LOCK = threading.Lock()
 _COUNTRY_USAGE: dict[str, int] = defaultdict(int)
 _TOTAL_RETURNED: int = 0
@@ -1065,12 +1065,10 @@ def sample_fact_clusters(
                 break
             c_names = _extract_entity_names(c["entities"])
             c_keywords = _content_keywords(c["fact_text"])
-            c_category = _classify_wine_category(c["fact_text"])
-            # Plan §10 — wine-category cohesion. If both the cluster and this
-            # candidate have a detectable category and they DIFFER, skip the
-            # candidate. Unclassifiable candidates (None) are allowed.
-            if cluster_category and c_category and cluster_category != c_category:
-                continue
+            # v2.2 fix #6 — β-2 walk-back: allow minority-category members so
+            # scenario_synthesis isn't throughput-starved. We no longer reject
+            # candidates whose category differs from the cluster seed; instead
+            # we enforce a ≥75% majority-category rule at cluster-close time.
             # Require shared entity NAMES or strong meaningful keyword overlap
             name_overlap = bool(cluster_names & c_names)
             keyword_overlap = len(cluster_keywords & c_keywords) >= 4
@@ -1078,22 +1076,30 @@ def sample_fact_clusters(
                 cluster.append(c)
                 cluster_names |= c_names
                 cluster_keywords |= c_keywords
-                # Lock in the cluster's category once any classified fact lands
-                # so subsequent additions are filtered against it.
-                if cluster_category is None and c_category is not None:
-                    cluster_category = c_category
 
         if len(cluster) >= cluster_size:
             cluster = cluster[:cluster_size]
-            # Final cohesion check — defensive belt-and-braces: if the picked
-            # cluster ended up mixing categories (shouldn't happen given the
-            # per-step filter above, but guard against future refactors), drop
-            # the cluster.
-            cats_in_cluster = {
+            # v2.2 fix #6 — require ≥75% of classified-category facts in the
+            # cluster to share the majority category. Unclassifiable (None)
+            # facts don't count toward either numerator or denominator.
+            cats_in_cluster = [
                 _classify_wine_category(f["fact_text"]) for f in cluster
-            } - {None}
-            if len(cats_in_cluster) > 1:
-                continue
+            ]
+            classified = [c for c in cats_in_cluster if c is not None]
+            if classified:
+                from collections import Counter as _C
+                top_cat, top_count = _C(classified).most_common(1)[0]
+                purity = top_count / len(classified)
+                if purity < 0.75:
+                    logger.debug(
+                        f"Cluster rejected — category purity {purity:.2f} < 0.75 "
+                        f"(top={top_cat}, counts={_C(classified)})"
+                    )
+                    continue
+                logger.debug(
+                    f"Cluster accepted — category purity {purity:.2f} "
+                    f"(top={top_cat}, counts={_C(classified)})"
+                )
             for f in cluster:
                 _record_country_use(_extract_country_from_entities(f.get("entities")))
             clusters.append(cluster)

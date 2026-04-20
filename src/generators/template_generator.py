@@ -24,9 +24,11 @@ entity data from the fact DB. Key v2 fixes (per docs/GENERATION_IMPROVEMENT_PLAN
     selected deterministically from a hash of (entity_name, template_id) so
     identical inputs reproduce identical phrasings.
 
-  * γ-5 Optional LLM paraphrase post-pass: ``--paraphrase`` flag wraps each
-    output through ``_template_paraphrase.paraphrase_question_text`` (Gemini
-    via OpenRouter) for an extra anti-detectability layer.
+  * γ-5 LLM paraphrase post-pass: **default ON in v2.2** — each output is
+    wrapped through ``_template_paraphrase.paraphrase_question_text`` (Gemini
+    via OpenRouter) for anti-detectability. Use ``--no-paraphrase`` to disable
+    for debug. A4 audit showed templates were 96% detectable pre-paraphrase;
+    post-paraphrase drops to <80%.
 
 Usage:
     python -m src.generators.template_generator --all
@@ -35,7 +37,8 @@ Usage:
     python -m src.generators.template_generator --list
     python -m src.generators.template_generator --validate
     python -m src.generators.template_generator --test-run
-    python -m src.generators.template_generator --domain wine_regions --count 5 --test-run --paraphrase
+    python -m src.generators.template_generator --domain wine_regions --count 5 --test-run
+    python -m src.generators.template_generator --domain wine_regions --count 5 --no-paraphrase  # debug only
 """
 
 from __future__ import annotations
@@ -1576,7 +1579,7 @@ def _weighted_template_order(
 @click.option("--validate", is_flag=True, help="Quality report on generated questions")
 @click.option("--list", "list_templates", is_flag=True, help="List available templates")
 @click.option("--all", "run_all", is_flag=True, help="Generate for all domains using targets")
-@click.option("--paraphrase", is_flag=True, help="Optional γ-5 LLM paraphrase post-pass (Gemini)")
+@click.option("--no-paraphrase", is_flag=True, help="Disable γ-5 LLM paraphrase post-pass (debug). Default: paraphrase ON.")
 @click.option("--no-embeddings", is_flag=True, help="Disable γ-1 embedding distractors (debug)")
 def main(
     domain,
@@ -1587,7 +1590,7 @@ def main(
     validate,
     list_templates,
     run_all,
-    paraphrase,
+    no_paraphrase,
     no_embeddings,
 ):
     """Template-based question generator (Strategy 2, v2 overhaul)."""
@@ -1611,14 +1614,19 @@ def main(
     total_generated = 0
     generated_ids: list[str] = []
 
+    # v2.2 fix #1 — γ-5 LLM paraphrase post-pass is DEFAULT ON (was opt-in via --paraphrase).
+    # A4 audit showed templates at 96% detectability; γ-5 drops that to <80%. Default-on fixes
+    # the root issue. Use --no-paraphrase for debug.
     paraphrase_fn = None
-    if paraphrase:
+    if not no_paraphrase:
         try:
             from src.generators._template_paraphrase import paraphrase_question_text
             paraphrase_fn = paraphrase_question_text
-            logger.info("γ-5 LLM paraphrase post-pass ENABLED (Gemini)")
+            logger.info("γ-5 LLM paraphrase post-pass ENABLED (Gemini) — default ON in v2.2")
         except Exception as e:
-            logger.warning(f"Paraphrase module unavailable: {e}")
+            logger.error(f"Paraphrase module unavailable, continuing without it: {e}")
+    else:
+        logger.info("γ-5 LLM paraphrase post-pass DISABLED (--no-paraphrase)")
 
     use_embeddings = not no_embeddings
 
