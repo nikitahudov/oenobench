@@ -100,11 +100,21 @@ def _generate_one(
             )
             continue
 
-        # Check for skip signal
+        # Check for skip signal OR v2.2 fix #9 addendum `error` signal —
+        # LLM refuses to build a cross-category scenario. Both end the
+        # attempt cleanly without retry spam.
         if response.parsed and response.parsed.get("skip"):
             logger.info(
                 "LLM skipped cluster | subdomain={} | reason={}",
                 cluster[0].get("subdomain"),
+                response.parsed.get("reason", "unspecified"),
+            )
+            return None
+        if response.parsed and response.parsed.get("error"):
+            logger.info(
+                "LLM declined cluster | subdomain={} | error={} | reason={}",
+                cluster[0].get("subdomain"),
+                response.parsed.get("error"),
                 response.parsed.get("reason", "unspecified"),
             )
             return None

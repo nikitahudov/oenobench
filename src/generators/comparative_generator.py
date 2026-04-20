@@ -163,11 +163,19 @@ def _generate_one(
             )
             continue
 
-        # Check if LLM signaled to skip
+        # Check if LLM signaled to skip, OR v2.2 fix #9 `error: no_comparison`
         if response.parsed and response.parsed.get("skip"):
             logger.info(
                 "LLM skipped group | facts={} | reason={}",
                 fact_ids,
+                response.parsed.get("reason", "unspecified"),
+            )
+            return None
+        if response.parsed and response.parsed.get("error"):
+            logger.info(
+                "LLM declined group | facts={} | error={} | reason={}",
+                fact_ids,
+                response.parsed.get("error"),
                 response.parsed.get("reason", "unspecified"),
             )
             return None
