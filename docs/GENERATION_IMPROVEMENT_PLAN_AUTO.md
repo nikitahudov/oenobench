@@ -1,66 +1,66 @@
 # OenoBench Generation Improvement Plan
 
-- Run ID: `e8eba8bb-cb49-42cd-9e32-c741c987043e`
-- Corpus tag: `audit_pilot_v1`
-- Generated: 2026-04-19T10:57:14.105754
+- Run ID: `0bfe85dc-4fdc-4500-b274-a4b05d982e20`
+- Corpus tag: `audit_pilot_v3`
+- Generated: 2026-04-21T02:54:14.561922
 
 ## Prioritised defects
 
 Ranked by impact = `3·fails + 1·warns + 2·errors`. Effort S ≈ <1d, M ≈ 1-3d, L ≈ 3-7d.
 
-### Verbatim source copying in question text  ·  impact 673  ·  effort S
+### Question solvable from world knowledge (easy leakage)  ·  impact 698  ·  effort M
+
+- Agent: `B2_ClosedBookSolvability`
+- Severity: fail=220, warn=38, error=0
+- Affected: fact_to_question (most), template.
+- Proposed fix: Raise difficulty target for leaking questions; rewrite stems to use provided fact-specific terminology rather than famous-entity references.
+- Verification: B2 leakage ratio < 0.5 of judges (5-judge panel: claude/chatgpt/gemini/llama/qwen).
+- Example question UUIDs: 2a0b4c8e-387e-4334-91e8-10f54a55de3d, 8abbd9cc-6cbc-4c0f-b000-82cbeac53c17, d300afa4-f082-49fe-9754-dbf5cbcee03a, f09ff278-6b7a-4c9a-8158-de686790a38d, 19b2622e-a1e1-49aa-b1f9-f0e123ec397e
+
+### C4_DifficultyAudit  ·  impact 234  ·  effort M
+
+- Agent: `C4_DifficultyAudit`
+- Severity: fail=12, warn=186, error=6
+- Affected: unknown
+- Proposed fix: Investigate findings manually.
+- Verification: Re-run audit after fix.
+- Example question UUIDs: d0cf5ac4-2588-40c4-bd9a-ed1787562e85, 2a0b4c8e-387e-4334-91e8-10f54a55de3d, 8abbd9cc-6cbc-4c0f-b000-82cbeac53c17, 734123ca-c0d7-4374-b4de-28d11f774024, c1b0b2bf-c3f1-4518-a13a-adbc6645356c
+
+### Verbatim source copying in question text  ·  impact 182  ·  effort S
 
 - Agent: `A3_FactEcho`
-- Severity: fail=164, warn=181, error=0
+- Severity: fail=16, warn=134, error=0
 - Affected: fact_to_question, scenario_synthesis.
 - Proposed fix: Add a prompt instruction in `_prompts.py`: 'Paraphrase the fact — never copy >5 consecutive words verbatim.' Add a post-LLM reject if LCS ratio > 0.6.
 - Verification: A3 fail rate drops below 2% on regenerated batch.
-- Example question UUIDs: d042d121-a0b0-4c38-a4ee-f2c17269ce54, a78b4bd6-eed8-49c9-b488-509cfffd1dfb, 8ea13ce6-d4c9-42cf-8f52-cad63aebac5b, 536c6a88-328e-4b9c-9fc5-69bc418ea330, 79da0efa-a35f-4d74-8833-572f657ff5b2
+- Example question UUIDs: 4ec1a779-f213-4d07-bc89-1d01f0a2e8c5, 80fcb68a-a03a-4628-b2f4-1d1c53c83c0b, 85e9e8fa-baff-498e-b608-2d98ea7532cd, c00a0ace-a75d-4103-9aa5-812e12ef8fdd, 25b4f40f-d3a3-4037-a5c1-da73d5e8bf1e
 
-### Question solvable from world knowledge (easy leakage)  ·  impact 570  ·  effort M
-
-- Agent: `B2_ClosedBookSolvability`
-- Severity: fail=140, warn=150, error=0
-- Affected: fact_to_question (most), template.
-- Proposed fix: Raise difficulty target for leaking questions; rewrite stems to use provided fact-specific terminology rather than famous-entity references.
-- Verification: B2 leakage ratio < 0.5 on Level-3/4 questions.
-- Example question UUIDs: d042d121-a0b0-4c38-a4ee-f2c17269ce54, f572724d-2bcf-48cf-8317-8e90faa7845d, 04b0f78f-434b-47d9-af75-b2ad21b643d3, 9b87bde4-e039-4a5d-a4b6-0b945e657a45, 49c6d892-27bf-4e06-842d-7723d4d8922a
-
-### Key disagrees with judge consensus / source fact  ·  impact 123  ·  effort L
-
-- Agent: `B1_TriJudgeAnswer`
-- Severity: fail=22, warn=57, error=0
-- Affected: All LLM strategies.
-- Proposed fix: Root-cause per example: (a) fact hallucination → tighten 'use ONLY provided fact' instruction; (b) ambiguous key → add B4 and human review; (c) option swap bug → audit `_schemas.py` shuffle logic.
-- Verification: B1 fail rate < 5% in follow-up run; rebuild failing questions.
-- Example question UUIDs: 04b0f78f-434b-47d9-af75-b2ad21b643d3, 9b87bde4-e039-4a5d-a4b6-0b945e657a45, 49c6d892-27bf-4e06-842d-7723d4d8922a, 692755b4-de58-48ab-9c40-6ac536f6015c, 329e0a09-d848-4f9c-9c96-5b14a6626630
-
-### Template questions statistically distinguishable from LLM ones  ·  impact 75  ·  effort M
-
-- Agent: `A4_TemplateFingerprint`
-- Severity: fail=21, warn=12, error=0
-- Affected: template.
-- Proposed fix: Diversify template phrasings (rotate opening verbs, add filler, vary punctuation). If AUC remains high, reduce template share of the final corpus.
-- Verification: Re-run A4 after template edits; AUC target < 0.85.
-- Example question UUIDs: 6d43294d-b8b6-4963-9189-1003166ed2df, 00bf35ff-fcc3-476f-b4f7-1b842b500498, bf73bf47-444a-4570-9476-1cb79d07f1a8, f5354cdb-c9ef-4483-946a-cb4008b51628, f013c407-313f-409a-9633-f5e2d983c9dd
-
-### Vague / marketing / blend-as-variety phrasing  ·  impact 52  ·  effort S
+### Vague / marketing / blend-as-variety phrasing  ·  impact 61  ·  effort S
 
 - Agent: `A1_LexicalHygiene`
-- Severity: fail=13, warn=13, error=0
+- Severity: fail=16, warn=13, error=0
 - Affected: All LLM strategies.
 - Proposed fix: Extend `_VAGUE_PATTERNS` and `_BLEND_AS_VARIETY` regexes with the matched phrases; add post-LLM filter in `_schemas.py` that rejects questions whose stem or options contain any blocked phrase.
 - Verification: Fixture questions with each blocked phrase should score fail in A1.
-- Example question UUIDs: 4dc8e167-63cf-4b6b-84e1-ca8455017512, ad7763f2-f0f4-4a04-bdd9-1d5a09a3de99, 617b5027-fdba-4487-bbfe-04fbab8853e2, d042d121-a0b0-4c38-a4ee-f2c17269ce54, f572724d-2bcf-48cf-8317-8e90faa7845d
+- Example question UUIDs: d28375d6-dab4-40e6-acb5-cdf4506667e6, 75ce6042-ee8e-4b13-8e61-e66d39e19958, a7be65a2-bd32-490e-85bb-a5edd7f3614d, f28a2b20-7308-4427-a837-db0d7ef3572d, b087b0cb-40a3-4a86-97e1-92b85d8cf253
 
-### Distractor wine-category mismatch  ·  impact 24  ·  effort S
+### Key disagrees with judge consensus / source fact  ·  impact 45  ·  effort L
+
+- Agent: `B1_TriJudgeAnswer`
+- Severity: fail=9, warn=18, error=0
+- Affected: All LLM strategies.
+- Proposed fix: Root-cause per example: (a) fact hallucination → tighten 'use ONLY provided fact' instruction; (b) ambiguous key → add B4 and human review; (c) option swap bug → audit `_schemas.py` shuffle logic.
+- Verification: B1 fail rate < 5% in follow-up run; rebuild failing questions.
+- Example question UUIDs: c1b0b2bf-c3f1-4518-a13a-adbc6645356c, d9d0d250-7acd-4785-a3b2-3d2de160640a, 5dbbd408-1e2f-4738-815e-766b10bdd977, 7d6db076-708c-40be-a46a-200ce019dae0, c00a0ace-a75d-4103-9aa5-812e12ef8fdd
+
+### Distractor wine-category mismatch  ·  impact 7  ·  effort S
 
 - Agent: `C2_CategoryLeak`
-- Severity: fail=5, warn=9, error=0
+- Severity: fail=0, warn=7, error=0
 - Affected: fact_to_question, comparative, scenario_synthesis.
 - Proposed fix: Make `_classify_wine_category` mandatory for ALL distractor sampling (not just distractor_miner); reject mismatched distractors in sampler layer.
 - Verification: C2 fail count == 0 on regenerated batch.
-- Example question UUIDs: 23ec25f3-82b5-4230-9af5-1213de9a8efd, 2b51de72-35a0-462e-ad7b-95ba3f0c7b05, 0bdb8a31-fa68-4323-a71c-322ace2ee7bb, 082d82b4-a0a9-47f8-bbc4-3972f6b4a34d, cd87fc8f-ebdf-4dc9-af85-f1dda9db8090
+- Example question UUIDs: 734123ca-c0d7-4374-b4de-28d11f774024, b2c2df9e-a8c8-40e7-ac6d-f4dc0b411bc7, 42ef01cf-c83a-4f4e-9466-e8e59bd21818, 8c2df0a3-e891-4749-98cf-08f4c2b691bd, 4f4a4642-fd4a-4c0a-9f5c-250cb7aecd01
 
 ### Geographic or subdomain over-representation  ·  impact 3  ·  effort M
 
