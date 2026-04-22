@@ -307,8 +307,11 @@ def parse_llm_response(
     # ─── v2.2 fix #5 — C4 generation-time difficulty gate ────────────────
     # After parsing + paraphrase guard but BEFORE Llama/Qwen verifier, ask
     # Gemini (via the same C4 prompt the auditor uses) to re-rate difficulty.
-    # Reject if the prediction differs from the labelled difficulty by ≥ 2
-    # levels — that's a "this is not what you said it was" mismatch.
+    # v2.3 fix #16 — switched to a level-aware reject threshold: L3/L4 labels
+    # must be precisely calibrated (reject at delta >= 1) because gold-v3
+    # showed most L3/L4 miscalibrations were 1-level misses. L1/L2 labels
+    # still tolerate a 1-level miss (reject at delta >= 2) because template
+    # deterministic difficulty sometimes buckets differently than LLM judgment.
     if verify_difficulty_with_c4 and labelled_difficulty:
         import os
         if os.environ.get("OENOBENCH_SKIP_C4_GATE") == "1":
@@ -330,12 +333,23 @@ def parse_llm_response(
                     delta = abs(int(predicted) - int(labelled_difficulty))
                 except (TypeError, ValueError):
                     delta = 0  # non-numeric labelled → skip gate
-                if delta >= 2:
+
+                # Level-aware rejection: L3/L4 questions must be precisely
+                # calibrated; L1/L2 tolerate a 1-level miss because template
+                # deterministic difficulty labels sometimes bucket differently
+                # than LLM judgment.
+                try:
+                    labelled_int = int(labelled_difficulty)
+                except (TypeError, ValueError):
+                    labelled_int = 0
+                reject_threshold = 1 if labelled_int >= 3 else 2
+
+                if delta >= reject_threshold:
                     logger.warning(
-                        "C4 gen-time REJECT | labelled={} predicted={} delta={} | "
-                        "generator={} | q={!r}",
-                        labelled_difficulty, predicted, delta, generator,
-                        question.question_text[:120],
+                        "C4 gen-time REJECT | labelled={} predicted={} delta={} "
+                        "threshold={} | generator={} | q={!r}",
+                        labelled_difficulty, predicted, delta, reject_threshold,
+                        generator, question.question_text[:120],
                     )
                     return None
 

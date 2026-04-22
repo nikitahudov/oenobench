@@ -36,7 +36,313 @@ C2_ID = "C2_CategoryLeak"
 C2_VERSION = "v1.0.0"
 
 C4_ID = "C4_DifficultyAudit"
-C4_VERSION = "v1.1.0"  # v2.2 fix #10 — calibration examples seeded from gold-v2 fails
+C4_VERSION = "v1.2.0"  # v2.3 fix #16 — gold-v3 calibration refresh + rubric anchored to observable properties
+
+# ─── Gold-v3 calibration harvest (v2.3 fix #16) ──────────────────────────────
+#
+# These cases were extracted from the gold-v3 human review
+# (data/reports/gold_sheet_v3_scored.csv, 2026-04-22). Each case represents a
+# question where the labelled difficulty diverged from the human-rated actual
+# difficulty, with the direction recorded in `notes`.
+#
+# The bulk of mislabels are L2→L3 ("too easy by one") and L3→L2 ("too hard by
+# one"); these are the failure modes the existing gen-time C4 gate (delta ≥ 2)
+# does not catch. The new level-aware threshold in
+# `src/generators/_schemas.py` rejects L3/L4 questions at delta ≥ 1.
+#
+# The few-shot examples in `C4_SYSTEM` below are a curated subset of these
+# cases; the rest act as silent calibration that the rewritten rubric text
+# embeds indirectly (observable-property anchors for each level).
+
+_C4_GOLD_V3_FEWSHOT: list[dict] = [
+    # ── Too-easy mislabels (labelled < actual): 7 cases ───────────────────
+    {
+        "uuid": "b4c3d2e1-0000-0000-0000-000000000003",
+        "question": (
+            "Cautín, a small wine-producing zone with only a few hectares under "
+            "vine, is located at the far southern end of Chile. Within which broad "
+            "Chilean viticultural region does it fall?"
+        ),
+        "options": [
+            {"id": "A", "text": "Aconcagua"},
+            {"id": "B", "text": "Austral"},
+            {"id": "C", "text": "Central Valley"},
+            {"id": "D", "text": "Coquimbo"},
+        ],
+        "correct_answer": "B",
+        "labelled": 2,
+        "actual": 3,
+        "reasoning": (
+            "Cautín is a tiny obscure Chilean zone well beyond textbook recall; "
+            "fits advanced study rather than simple grape-region pairing at L2."
+        ),
+    },
+    {
+        "uuid": "b4c3d2e1-0000-0000-0000-000000000004",
+        "question": (
+            "A viticulture student compares two vineyard sites. Site 1 sits on a "
+            "broad, level stretch of freely draining gravel between two mountain "
+            "ranges. Site 2 shows mixed parent material from altered granite and "
+            "marine sedimentary rocks. Which AVAs match the two sites?"
+        ),
+        "options": [
+            {"id": "A", "text": "Site 1 = Oakville AVA; Site 2 = Paso Robles AVA"},
+            {"id": "B", "text": "Both Site 1 and Site 2 = Oakville AVA"},
+            {"id": "C", "text": "Site 1 = Paso Robles AVA; Site 2 = Oakville AVA"},
+            {"id": "D", "text": "Both Site 1 and Site 2 = Paso Robles AVA"},
+        ],
+        "correct_answer": "A",
+        "labelled": 2,
+        "actual": 3,
+        "reasoning": (
+            "Requires inferring AVA identity from two soil descriptions and pairing "
+            "them — two-step inference beyond a single grape-region fact."
+        ),
+    },
+    {
+        "uuid": "b4c3d2e1-0000-0000-0000-000000000005",
+        "question": (
+            "A winemaker in New Jersey's Outer Coastal Plain is evaluating whether "
+            "to expand plantings of a red grape that has recently emerged as a "
+            "notable success in that AVA. Which proposal should they pursue?"
+        ),
+        "options": [
+            {"id": "A", "text": "Blaufränkisch as a newly created NJ specialty"},
+            {"id": "B", "text": "Blaufränkisch — strong performer in the Outer Coastal Plain"},
+            {"id": "C", "text": "Do not proceed with Blaufränkisch"},
+            {"id": "D", "text": "Proceed with Blaufränkisch emphasizing AVA success"},
+        ],
+        "correct_answer": "D",
+        "labelled": 2,
+        "actual": 3,
+        "reasoning": (
+            "Obscure AVA + obscure Central-European grape; requires specialist "
+            "knowledge of an emerging New Jersey varietal story, not textbook recall."
+        ),
+    },
+    {
+        "uuid": "b4c3d2e1-0000-0000-0000-000000000007",
+        "question": (
+            "A golden-skinned white grape variety capable of producing both dry "
+            "table wines and lusciously sweet botrytized wines has its two most "
+            "significant plantings in which pair of countries?"
+        ),
+        "options": [
+            {"id": "A", "text": "France and Australia"},
+            {"id": "B", "text": "Italy and Argentina"},
+            {"id": "C", "text": "France and South Africa"},
+            {"id": "D", "text": "Spain and Chile"},
+        ],
+        "correct_answer": "A",
+        "labelled": 2,
+        "actual": 3,
+        "reasoning": (
+            "Grape identified by three-feature description (colour, dry-sweet "
+            "versatility, botrytis); requires inference + planting knowledge of "
+            "Sémillon, beyond L2 recall."
+        ),
+    },
+    {
+        "uuid": "b4c3d2e1-0000-0000-0000-000000000008",
+        "question": (
+            "A European producer wants to go beyond mandatory labeling. The "
+            "marketing director proposes tactile braille dots, a scannable "
+            "graphic, and reverse-label content. Which assessment is correct?"
+        ),
+        "options": [
+            {"id": "A", "text": "All three are optional; tactile follows the Chapoutier precedent"},
+            {"id": "B", "text": "Tactile + scannable optional; reverse label legally required"},
+            {"id": "C", "text": "Only scannable optional; tactile now mandatory EU-wide"},
+            {"id": "D", "text": "All three must be approved in official label registration"},
+        ],
+        "correct_answer": "A",
+        "labelled": 2,
+        "actual": 3,
+        "reasoning": (
+            "Requires applying EU labelling rules to three concrete proposals — "
+            "multi-step application of regulation that exceeds simple recall."
+        ),
+    },
+    {
+        "uuid": "b4c3d2e1-0000-0000-0000-000000000011",
+        "question": (
+            "Which of the following best describes the elevation range for "
+            "vineyards producing a high-altitude sparkling wine in northern "
+            "Italy, known for some of the world's upper-limit vineyard sites?"
+        ),
+        "options": [
+            {"id": "A", "text": "500 to 1,200 meters above sea level"},
+            {"id": "B", "text": "300 to 700 meters above sea level"},
+            {"id": "C", "text": "200 to 900 meters above sea level"},
+            {"id": "D", "text": "100 to 500 meters above sea level"},
+        ],
+        "correct_answer": "C",
+        "labelled": 2,
+        "actual": 3,
+        "reasoning": (
+            "Specific elevation numbers for Trentodoc are specialist viticultural "
+            "detail, not L2 recall of a textbook grape-region pairing."
+        ),
+    },
+    {
+        "uuid": "b4c3d2e1-0000-0000-0000-000000000014",
+        "question": (
+            "A vineyard manager is reviewing planting compliance for two California "
+            "estates: Estate X in Clarksburg AVA, Estate Y in Rutherford. Which "
+            "varieties are permitted for each?"
+        ),
+        "options": [
+            {"id": "A", "text": "Estate X: Sauvignon Blanc / Estate Y: Zinfandel"},
+            {"id": "B", "text": "Estate X: Cabernet Franc / Estate Y: Chenin Blanc"},
+            {"id": "C", "text": "Estate X: Pinot Noir / Estate Y: Syrah"},
+            {"id": "D", "text": "Estate X: Chenin Blanc / Estate Y: Cabernet Franc"},
+        ],
+        "correct_answer": "D",
+        "labelled": 2,
+        "actual": 3,
+        "reasoning": (
+            "Paired AVA-variety compliance lookup over two AVAs demands specific "
+            "appellation knowledge beyond a single grape-region recall."
+        ),
+    },
+    # ── Too-hard mislabels (labelled > actual): 7 cases ───────────────────
+    {
+        "uuid": "b4c3d2e1-0000-0000-0000-000000000001",
+        "question": (
+            "Which certification system is exclusive to wines produced within a "
+            "specific country, ensuring only domestically made wines can receive "
+            "its official quality designation?"
+        ),
+        "options": [
+            {"id": "A", "text": "European Union wine regulations"},
+            {"id": "B", "text": "Vintners Quality Alliance (VQA)"},
+            {"id": "C", "text": "Denominación de Origen"},
+            {"id": "D", "text": "Appellation d'origine contrôlée (AOC)"},
+        ],
+        "correct_answer": "B",
+        "labelled": 4,
+        "actual": 3,
+        "reasoning": (
+            "VQA is a notable national scheme any advanced study covers; L3 fits "
+            "better than expert-tier L4, which is reserved for niche/obscure terms."
+        ),
+    },
+    {
+        "uuid": "b4c3d2e1-0000-0000-0000-000000000002",
+        "question": "True or False: Château Marquis de Terme is located in the Margaux wine region.",
+        "options": [
+            {"id": "A", "text": "True"},
+            {"id": "B", "text": "False"},
+        ],
+        "correct_answer": "A",
+        "labelled": 3,
+        "actual": 2,
+        "reasoning": (
+            "Binary True/False on a classed-growth château-to-appellation mapping; "
+            "this is intermediate recall (L2), not advanced study."
+        ),
+    },
+    {
+        "uuid": "b4c3d2e1-0000-0000-0000-000000000006",
+        "question": (
+            "This federal entity came into existence in January 2003 following a "
+            "restructuring of the Bureau of Alcohol, Tobacco and Firearms. Which "
+            "entity is it?"
+        ),
+        "options": [
+            {"id": "A", "text": "Alcohol and Tobacco Tax and Trade Bureau (TTB)"},
+            {"id": "B", "text": "Federal Alcohol Administration (FAA)"},
+            {"id": "C", "text": "Wine Institute Regulatory Division"},
+            {"id": "D", "text": "Bureau of Alcohol, Tobacco, Firearms and Explosives (ATF)"},
+        ],
+        "correct_answer": "A",
+        "labelled": 3,
+        "actual": 2,
+        "reasoning": (
+            "TTB is named in standard US wine-law curricula; recognising it from a "
+            "clear date + origin clue is L2 recall, not advanced study."
+        ),
+    },
+    {
+        "uuid": "b4c3d2e1-0000-0000-0000-000000000009",
+        "question": (
+            "Which grape variety has strains that can produce berries in shades "
+            "of pink or reddish brown, despite being technically classified as a "
+            "white grape?"
+        ),
+        "options": [
+            {"id": "A", "text": "Nama"},
+            {"id": "B", "text": "Xinomavro"},
+            {"id": "C", "text": "Malvasia"},
+            {"id": "D", "text": "Muscat Blanc à Petits Grains"},
+        ],
+        "correct_answer": "D",
+        "labelled": 4,
+        "actual": 3,
+        "reasoning": (
+            "Muscat Blanc à Petits Grains pink strains appear in standard advanced "
+            "curricula; L3 fits rather than the L4 expert/obscure tier."
+        ),
+    },
+    {
+        "uuid": "b4c3d2e1-0000-0000-0000-000000000010",
+        "question": (
+            "A New Zealand winemaker is drafting the back-label story for a small "
+            "family cellar in Wairarapa. Which positioning best reflects the "
+            "country's current quality image?"
+        ),
+        "options": [
+            {"id": "A", "text": "NZ reputation driven by large-scale wineries across all regions"},
+            {"id": "B", "text": "NZ best wines increasingly from small artisanal estates"},
+            {"id": "C", "text": "Hawke's Bay lacks deep history; boutique recognition sparse"},
+            {"id": "D", "text": "Wairarapa hosts the country's largest wineries"},
+        ],
+        "correct_answer": "B",
+        "labelled": 4,
+        "actual": 3,
+        "reasoning": (
+            "Choosing the best NZ quality narrative is an L3 judgement call using "
+            "advanced country knowledge, not expert-level niche detail (L4)."
+        ),
+    },
+    {
+        "uuid": "b4c3d2e1-0000-0000-0000-000000000012",
+        "question": "True or False: Château Sociando-Mallet is located in the Domaine Andron wine region.",
+        "options": [
+            {"id": "A", "text": "True"},
+            {"id": "B", "text": "False"},
+        ],
+        "correct_answer": "A",
+        "labelled": 3,
+        "actual": 2,
+        "reasoning": (
+            "Binary True/False on a Bordeaux estate location mapping; recall-level "
+            "check on a named property, fits L2 rather than L3 advanced study."
+        ),
+    },
+    {
+        "uuid": "b4c3d2e1-0000-0000-0000-000000000013",
+        "question": (
+            "A winemaker is selecting a grape variety suitable for a vineyard "
+            "located in an AVA known for permitting Bordeaux red varieties but "
+            "not Rhône white varieties. Which grape is the winemaker more likely "
+            "to select?"
+        ),
+        "options": [
+            {"id": "A", "text": "Marsanne"},
+            {"id": "B", "text": "Viognier"},
+            {"id": "C", "text": "Merlot"},
+            {"id": "D", "text": "Petit Verdot"},
+        ],
+        "correct_answer": "C",
+        "labelled": 3,
+        "actual": 2,
+        "reasoning": (
+            "Bordeaux-red vs Rhône-white is a canonical taxonomy students learn "
+            "early; picking Merlot is L2 application, not advanced study."
+        ),
+    },
+]
 
 # Single high-quality, low-cost judge model. Gemini was the lowest-cost of the
 # three high-capability judges in the gold review and the user-favoured model
