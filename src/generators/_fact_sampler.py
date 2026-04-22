@@ -426,9 +426,18 @@ def _fact_has_multi_category_text(fact_text: str) -> bool:
     False because the other category word doesn't appear.
     """
     return bool(_MULTI_CATEGORY_COLOR_RE.search(fact_text or ""))
+
+
 _QUOTA_LOCK = threading.Lock()
 _COUNTRY_USAGE: dict[str, int] = defaultdict(int)
 _TOTAL_RETURNED: int = 0
+# v2.3 fix #17 — track the denominator used by the cap. Audit D3 measures
+# share over COUNTRY-TAGGED samples only (facts without an extractable country
+# are excluded from both numerator and denominator), so the runtime cap must
+# use the same denominator or it will be systematically too loose when many
+# sampled facts have no country entity. `_TOTAL_RETURNED_TAGGED` counts only
+# admissions whose country is non-None.
+_TOTAL_RETURNED_TAGGED: int = 0
 
 
 def _extract_country_from_entities(entities) -> str | None:
@@ -481,33 +490,123 @@ def _country_base_distribution() -> dict[str, float]:
 
 def reset_country_usage() -> None:
     """Reset the per-country usage counter (for tests + new generation runs)."""
-    global _TOTAL_RETURNED
+    global _TOTAL_RETURNED, _TOTAL_RETURNED_TAGGED
     with _QUOTA_LOCK:
         _COUNTRY_USAGE.clear()
         _TOTAL_RETURNED = 0
+        _TOTAL_RETURNED_TAGGED = 0
 
 
 def get_country_usage() -> tuple[dict[str, int], int]:
-    """Return a snapshot ``(usage_counter_copy, total_returned)`` for tests."""
+    """Return a snapshot ``(usage_counter_copy, total_returned)`` for tests.
+
+    ``total_returned`` counts only country-tagged admissions (the audit D3
+    denominator). Facts without an extractable country entity are excluded
+    from the cap bookkeeping entirely — they don't change any country's
+    observed share. ``_TOTAL_RETURNED`` (all admissions, including
+    country-less) is still tracked internally for debugging but isn't part
+    of the public contract.
+    """
     with _QUOTA_LOCK:
-        return dict(_COUNTRY_USAGE), _TOTAL_RETURNED
+        return dict(_COUNTRY_USAGE), _TOTAL_RETURNED_TAGGED
 
 
 def _record_country_use(country: str | None) -> None:
     """Increment usage counters for a returned fact's country.
 
-    Facts without an extractable country are still counted toward the total
-    (so the hard cap denominator reflects all returned facts), but they don't
-    increment any per-country bucket.
+    Facts without an extractable country still tick ``_TOTAL_RETURNED`` but
+    are excluded from ``_TOTAL_RETURNED_TAGGED`` — that denominator mirrors
+    the audit D3 definition, which computes per-country share ONLY over
+    country-tagged samples. Using the all-samples denominator makes the cap
+    systematically too loose when many sampled facts lack a country entity
+    (gold-v3 audit: 85% of sampled facts had no country tag, so the cap was
+    effectively ~7× target_share).
     """
-    global _TOTAL_RETURNED
+    global _TOTAL_RETURNED, _TOTAL_RETURNED_TAGGED
     with _QUOTA_LOCK:
         _TOTAL_RETURNED += 1
         if country:
             _COUNTRY_USAGE[country] += 1
+            _TOTAL_RETURNED_TAGGED += 1
+
+
+# v2.3 fix #17 — post-sample assertion guard. Audit run #3 showed South Africa
+# at 3.14× its fact-base share even after _COUNTRY_QUOTA_HARD_CAP_RATIO was
+# tightened to 1.2 in v2.2. Root cause: sample_fact_pairs, sample_fact_groups,
+# sample_fact_clusters and sample_confusable_facts *recorded* usage post-hoc
+# but never *checked* the cap on candidates — so the cap was effectively
+# disabled for 4 of 5 sampler paths. The helpers below centralise the
+# "check-then-record" boundary so every path gates admission on the same rule.
+#
+# The guard logs (at WARNING) when a sampler returns a batch that would push
+# a single country over 1.2× its base share. This is a defence in depth for
+# future sampler additions: even if a future path forgets to check the gate,
+# the warning lights up before the audit run does.
+
+
+def _cap_admits(country: str | None) -> bool:
+    """Return True if this country can accept one more fact under the hard cap.
+
+    Wraps ``_country_quota_score``: the gate only blocks admission when the
+    score is 0.0 (strict over-quota). Weighted under-capping is applied inside
+    ``sample_facts`` itself, not here — all other paths use a strict
+    admit/deny boundary because they can't easily be re-weighted.
+    """
+    return _country_quota_score(country) > 0.0
+
+
+def _cap_admit_and_record(country: str | None) -> bool:
+    """Atomically check the hard cap AND record usage if admitted.
+
+    Returns True iff the country was accepted (and the counter incremented).
+    Used by every sampler path that isn't ``sample_facts`` (which has its own
+    weighted gate).
+    """
+    if not _cap_admits(country):
+        return False
+    _record_country_use(country)
+    return True
+
+
+def _assert_batch_under_cap(
+    path: str,
+    countries: list[str | None],
+) -> None:
+    """Post-sample defence-in-depth audit — log when a sampler path returns a
+    batch whose country mix is already over the 1.2× hard cap. Uses the
+    COUNTRY-TAGGED denominator to match the audit D3 contract. This fires at
+    WARNING level so anomalies show up in the generator logs without breaking
+    the run. Only runs after a meaningful sample (>= _QUOTA_GRACE_N
+    country-tagged facts).
+    """
+    with _QUOTA_LOCK:
+        total_tagged = _TOTAL_RETURNED_TAGGED
+        usage = dict(_COUNTRY_USAGE)
+    if total_tagged < _QUOTA_GRACE_N:
+        return
+    base = _country_base_distribution()
+    if not base:
+        return
+    for c, n in usage.items():
+        target_share = base.get(c)
+        if target_share is None:
+            continue
+        observed = n / total_tagged
+        cap = _COUNTRY_QUOTA_HARD_CAP_RATIO * target_share
+        if observed > cap + 1e-9:
+            logger.warning(
+                f"[D3 quota] {path}: country {c!r} at {observed:.3%} of "
+                f"{total_tagged} country-tagged facts (cap {cap:.3%} = "
+                f"{_COUNTRY_QUOTA_HARD_CAP_RATIO}x {target_share:.3%} base)"
+            )
 
 
 _QUOTA_GRACE_N = 10  # cap is not enforced until at least N facts have been returned
+# Minimum absolute number of admissions a country must be allowed before the
+# cap fires. Prevents long-tail countries (shares < 1%) from being locked out
+# after their very first admission at low totals. At audit scale (N >> 1000)
+# the 1.2× ratio dominates and this floor never binds.
+_MIN_CAP_COUNT = 3
 
 
 def _country_quota_score(country: str | None) -> float:
@@ -515,14 +614,19 @@ def _country_quota_score(country: str | None) -> float:
 
     - Returns 1.0 if the country is unknown or the base distribution couldn't
       be computed (no down-weighting if we have no signal).
-    - Returns 0.0 if the country has already reached its 1.5× hard cap, i.e.
-      ``used >= 1.5 × target_share × total_returned`` AND
-      ``total_returned >= _QUOTA_GRACE_N``. The grace period prevents the
-      cap tautologically firing at small-N (the very first sample would
-      otherwise always be 100% of the total and trip the cap).
+    - Returns 0.0 if the country has already reached its 1.2× hard cap, i.e.
+      ``used >= 1.2 × target_share × total_country_tagged_returned`` AND
+      ``total_country_tagged_returned >= _QUOTA_GRACE_N``. The grace period
+      prevents the cap tautologically firing at small-N (the very first
+      sample would otherwise always be 100% of the total and trip the cap).
     - Otherwise returns ``min(1.0, target_share / max(used_share, eps))`` so
       countries at or below target share keep a weight of 1.0 and over-quota
       countries are progressively penalised.
+
+    v2.3 fix #17: the denominator is ``_TOTAL_RETURNED_TAGGED`` (facts with
+    a country entity), NOT ``_TOTAL_RETURNED`` (all returned). This matches
+    the audit D3 definition — when 85% of returned facts have no country
+    tag, using the all-samples denominator made the cap ~7× too loose.
     """
     if not country:
         return 1.0
@@ -536,20 +640,29 @@ def _country_quota_score(country: str | None) -> float:
 
     with _QUOTA_LOCK:
         used = _COUNTRY_USAGE.get(country, 0)
-        total = _TOTAL_RETURNED
+        total_tagged = _TOTAL_RETURNED_TAGGED
 
-    # Hard cap: country has already reached 1.5× its target share. Apply only
+    # Hard cap: country has already reached 1.2× its target share. Apply only
     # once we've accumulated enough samples that the cap is meaningful — at
     # tiny totals (e.g. the first few samples) every category trivially
-    # exceeds 1.5× by virtue of being 100% of the total.
-    if total >= _QUOTA_GRACE_N:
-        cap_count = _COUNTRY_QUOTA_HARD_CAP_RATIO * target_share * total
+    # exceeds 1.2× by virtue of being 100% of the total.
+    #
+    # ``_MIN_CAP_COUNT`` floors the cap at an absolute minimum so countries
+    # with tiny base shares (e.g. Uruguay at 0.4%) can still be admitted at
+    # least once per ~300-fact batch instead of being hard-banned after their
+    # first admission. At full-run scale (total_tagged >= 1000) the ratio
+    # dominates and the floor is inactive.
+    if total_tagged >= _QUOTA_GRACE_N:
+        cap_count = max(
+            _MIN_CAP_COUNT,
+            _COUNTRY_QUOTA_HARD_CAP_RATIO * target_share * total_tagged,
+        )
         if used >= cap_count:
             return 0.0
 
-    if total == 0:
+    if total_tagged == 0:
         return 1.0
-    used_share = used / total
+    used_share = used / total_tagged
     eps = 1e-6
     weight = min(1.0, target_share / max(used_share, eps))
     return weight
@@ -686,6 +799,12 @@ def sample_facts(
         logger.debug(f"Filtered {iconic_filtered} iconic-only facts (v2.2 fix #11)")
     if capped:
         logger.debug(f"Skipped {capped} facts capped by country quota")
+
+    # v2.3 fix #17 — post-sample assertion guard (defence in depth).
+    _assert_batch_under_cap("sample_facts", [
+        _extract_country_from_entities(f.get("entities")) for f in results
+    ])
+
     logger.debug(f"Sampled {len(results)} facts for domain={domain}")
     return results
 
@@ -947,6 +1066,7 @@ def sample_fact_pairs(
 
     pairs: list[tuple[dict, dict]] = []
     seen_ids: set[str] = set()
+    capped = 0
 
     for affinity, reason, row, dim, auto_type in scored:
         if len(pairs) >= count:
@@ -976,13 +1096,43 @@ def sample_fact_pairs(
             "_dimension": dim,
             "_matched_entity_name": row["b_entity"],
         }
-        # Record country usage for both facts in the pair so the per-country
-        # quota in sample_facts/sample_confusable_facts stays in sync across
-        # strategies sharing the same generation run.
-        _record_country_use(_extract_country_from_entities(fact_a.get("entities")))
-        _record_country_use(_extract_country_from_entities(fact_b.get("entities")))
+        # v2.3 fix #17 — enforce the 1.2x hard cap BEFORE accepting the pair.
+        # We admit both facts atomically: if admitting the first would fit
+        # but admitting the second would not, roll back the first. This keeps
+        # the country quota honest across all generator strategies.
+        country_a = _extract_country_from_entities(fact_a.get("entities"))
+        country_b = _extract_country_from_entities(fact_b.get("entities"))
+        if not _cap_admit_and_record(country_a):
+            capped += 1
+            continue
+        if not _cap_admit_and_record(country_b):
+            # Roll back the A admission so the counters stay consistent.
+            with _QUOTA_LOCK:
+                global _TOTAL_RETURNED, _TOTAL_RETURNED_TAGGED
+                _TOTAL_RETURNED -= 1
+                if country_a:
+                    _TOTAL_RETURNED_TAGGED -= 1
+                    if _COUNTRY_USAGE.get(country_a, 0) > 0:
+                        _COUNTRY_USAGE[country_a] -= 1
+                        if _COUNTRY_USAGE[country_a] == 0:
+                            del _COUNTRY_USAGE[country_a]
+            capped += 1
+            continue
         pairs.append((fact_a, fact_b))
         seen_ids.update({a_id, b_id})
+
+    if capped:
+        logger.debug(
+            f"sample_fact_pairs: skipped {capped} pairs blocked by country cap"
+        )
+
+    # Defence-in-depth: log a warning if the returned batch already exceeds
+    # the hard cap (shouldn't happen with the admit-and-record gate, but the
+    # guard surfaces any future sampler regression).
+    _assert_batch_under_cap("sample_fact_pairs", [
+        _extract_country_from_entities(f.get("entities"))
+        for pair in pairs for f in pair
+    ])
 
     logger.debug(
         f"Sampled {len(pairs)} entity-matched fact pairs for domain={domain}"
@@ -1062,6 +1212,7 @@ def sample_fact_groups(
 
     # Build groups: pick facts with distinct entity names within each bucket
     groups: list[list[dict]] = []
+    capped = 0
     for key, facts in classified.items():
         if len(facts) < group_size:
             continue
@@ -1088,12 +1239,51 @@ def sample_fact_groups(
                 f["_comparison_context"] = context
                 f["_auto_comparison_type"] = auto_type
                 f["_matched_entity_name"] = f["ename"]
+
+            # v2.3 fix #17 — hard-cap admission BEFORE emitting the group.
+            # All N facts in a group are admitted atomically; if any single
+            # country-cap check fails, the whole group is rejected and the
+            # already-incremented counters are rolled back.
+            admitted_countries: list[str | None] = []
+            ok = True
+            for f in selected:
+                c = _extract_country_from_entities(f.get("entities"))
+                if _cap_admit_and_record(c):
+                    admitted_countries.append(c)
+                else:
+                    ok = False
+                    break
+            if not ok:
+                # Roll back any partial admissions for this group.
+                with _QUOTA_LOCK:
+                    global _TOTAL_RETURNED, _TOTAL_RETURNED_TAGGED
+                    for c in admitted_countries:
+                        _TOTAL_RETURNED -= 1
+                        if c:
+                            _TOTAL_RETURNED_TAGGED -= 1
+                            if _COUNTRY_USAGE.get(c, 0) > 0:
+                                _COUNTRY_USAGE[c] -= 1
+                                if _COUNTRY_USAGE[c] == 0:
+                                    del _COUNTRY_USAGE[c]
+                capped += 1
+                continue
             groups.append(selected)
+
+    if capped:
+        logger.debug(
+            f"sample_fact_groups: skipped {capped} groups blocked by country cap"
+        )
 
     groups.sort(
         key=lambda g: sum(len(f["fact_text"]) for f in g),
         reverse=True,
     )
+
+    # Post-sample assertion guard.
+    _assert_batch_under_cap("sample_fact_groups", [
+        _extract_country_from_entities(f.get("entities"))
+        for group in groups[:count] for f in group
+    ])
 
     logger.debug(
         f"Sampled {min(len(groups), count)} fact groups (size={group_size}) for domain={domain}"
@@ -1223,9 +1413,39 @@ def sample_fact_clusters(
                     f"Cluster accepted — category purity {purity:.2f} "
                     f"(top={top_cat}, counts={_C(classified)})"
                 )
+            # v2.3 fix #17 — admit the whole cluster under the 1.2x cap
+            # atomically. If any fact's country would push it over, reject
+            # the whole cluster and roll back partial admissions.
+            admitted_countries: list[str | None] = []
+            ok = True
             for f in cluster:
-                _record_country_use(_extract_country_from_entities(f.get("entities")))
+                c = _extract_country_from_entities(f.get("entities"))
+                if _cap_admit_and_record(c):
+                    admitted_countries.append(c)
+                else:
+                    ok = False
+                    break
+            if not ok:
+                with _QUOTA_LOCK:
+                    global _TOTAL_RETURNED, _TOTAL_RETURNED_TAGGED
+                    for c in admitted_countries:
+                        _TOTAL_RETURNED -= 1
+                        if c:
+                            _TOTAL_RETURNED_TAGGED -= 1
+                            if _COUNTRY_USAGE.get(c, 0) > 0:
+                                _COUNTRY_USAGE[c] -= 1
+                                if _COUNTRY_USAGE[c] == 0:
+                                    del _COUNTRY_USAGE[c]
+                logger.debug(
+                    "sample_fact_clusters: cluster rejected by country cap"
+                )
+                continue
             clusters.append(cluster)
+
+    _assert_batch_under_cap("sample_fact_clusters", [
+        _extract_country_from_entities(f.get("entities"))
+        for cluster in clusters for f in cluster
+    ])
 
     logger.debug(f"Sampled {len(clusters)} cohesive fact clusters for domain={domain}")
     return clusters
@@ -1390,12 +1610,30 @@ def sample_confusable_facts(
 
     # Sort by score descending — dimension-matched distractors first
     candidates.sort(key=lambda x: x[0], reverse=True)
-    confusable = [c for _, c in candidates[:count]]
 
-    # Track per-country usage so distractor sampling participates in the
-    # session-level country quota too.
-    for f in confusable:
-        _record_country_use(_extract_country_from_entities(f.get("entities")))
+    # v2.3 fix #17 — walk the ranked candidate list, admitting one at a time
+    # under the 1.2x cap. Unlike pairs/groups/clusters which are atomic, each
+    # distractor is independent, so we simply skip a candidate whose country
+    # is already over quota and keep looking.
+    confusable: list[dict] = []
+    capped = 0
+    for score, cand in candidates:
+        if len(confusable) >= count:
+            break
+        c = _extract_country_from_entities(cand.get("entities"))
+        if _cap_admit_and_record(c):
+            confusable.append(cand)
+        else:
+            capped += 1
+
+    if capped:
+        logger.debug(
+            f"sample_confusable_facts: skipped {capped} distractors blocked by country cap"
+        )
+
+    _assert_batch_under_cap("sample_confusable_facts", [
+        _extract_country_from_entities(f.get("entities")) for f in confusable
+    ])
 
     logger.debug(
         f"Sampled {len(confusable)} confusable facts for target={target_fact['id']} "
