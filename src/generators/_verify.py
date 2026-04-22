@@ -266,8 +266,14 @@ You are verifying a multiple-choice wine question. Choose the option most \
 DIRECTLY supported by the provided source fact. Do not use outside knowledge. \
 If the fact does not directly support any option, answer N.
 
-Output STRICT JSON with ONLY a single-letter `chosen` key: \
-{"chosen": "A" | "B" | "C" | "D" | "N"}."""
+Respond with ONLY this JSON object — no prose, no prefix, no explanation. \
+Start your response with the `{` character. \
+Format: {"chosen": "A"} (or "B", "C", "D", "N").
+
+Example valid responses:
+{"chosen": "A"}
+{"chosen": "N"}
+"""
 
 
 def _build_template_verifier_prompt(
@@ -312,7 +318,12 @@ def verify_template_answer_with_gemini(
         system=_TEMPLATE_VERIFIER_SYSTEM,
         model=_TEMPLATE_VERIFIER_MODEL,
         temperature=0.0,
-        max_tokens=40,
+        # v2.3 fix: Gemini 3.1 Pro opens with "Here is my answer…" prose and
+        # runs out of 40 tokens before emitting JSON; measured ~96% reject
+        # rate on audit_pilot_v4. Bumped to 256 so the model can finish its
+        # lead-in AND emit the JSON. Downstream JSON extraction in
+        # _llm_client already handles prose-wrapped JSON.
+        max_tokens=256,
         json_mode=True,
     )
 
