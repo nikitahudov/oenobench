@@ -901,6 +901,317 @@ TEMPLATES: list[dict] = [
     },
     # T-BIZ-EXPORT-01 deleted (v2.2 fix #8a) — "largest export market" is
     # superlative and rarely reducible to a single fact's ranking.
+
+    # ════════════════════════════════════════════════════════════════════
+    # v2.3 Phase F fix #15 — Registry expansion: comprehension + application
+    # ════════════════════════════════════════════════════════════════════
+    # Gold-v3 audit surfaced 100% `cognitive_dim="recall"` in production.
+    # The expansion below adds 8 `comprehension` templates (require inferring
+    # a non-name attribute from the fact's entities) and 4 `application`
+    # templates (require applying the fact's rule to a novel scenario).
+    #
+    # Every new template:
+    #   * has `requires_fact_specific=True` and `verifiable_from_single_fact=True`
+    #   * has `selection_weight >= 1.0`
+    #   * has 4-6 paraphrase variants (γ-4 requirement)
+    #   * uses only entity types that actually occur in the fact DB: region,
+    #     country, grape, producer, ava, appellation, state, county, pest_disease,
+    #     technique, process, compound, wine_style. No `soil`/`climate`/`aroma`
+    #     entries since those types are not present in the fact-base
+    #     (verified via SELECT count(*) FROM facts WHERE entities @> '[{"type":"soil"}]'::jsonb).
+    #
+    # Comprehension templates (8) — inference not pure lookup
+    # ──────────────────────────────────────────────────────
+
+    # T-REG-COMP-COUNTRY-01 — region→country. Requires reading the fact to
+    # locate the country since regions (e.g. "Barolo", "Piemonte") don't
+    # wear the country name on their surface. Comprehension because the
+    # student must connect region context to national boundary.
+    {
+        "id": "T-REG-COMP-COUNTRY-01",
+        "patterns": [
+            "Based on the fact, in which country is the {region} wine region located?",
+            "According to the source fact, which country hosts the {region} wine region?",
+            "Per the fact, the {region} wine region is situated in which country?",
+            "The fact places the {region} wine region in which country?",
+            "Given the fact, in which country would a traveller find the {region} wine region?",
+        ],
+        "domain": "wine_regions",
+        "difficulty_range": ["2", "3"],
+        "cognitive_dim": "comprehension",
+        "question_type": "multiple_choice",
+        "correct_field": "country",
+        "distractor_strategy": "same_type",
+        "required_entities": ["region", "country"],
+        "explanation_template": "The fact locates {region} in {country}.",
+        "requires_fact_specific": True,
+        "verifiable_from_single_fact": True,
+        "selection_weight": 1.1,
+    },
+    # T-REG-COMP-AVA-STATE-01 — AVA→state. 261 matching facts; requires
+    # reading the fact to pin the AVA to a US state.
+    {
+        "id": "T-REG-COMP-AVA-STATE-01",
+        "patterns": [
+            "According to the fact, in which US state is the {ava} AVA located?",
+            "Based on the source fact, the {ava} AVA is found in which state?",
+            "Per the fact, which state hosts the {ava} AVA?",
+            "The fact assigns the {ava} AVA to which US state?",
+            "Given the fact, in which state would a grower registering under the {ava} AVA be operating?",
+        ],
+        "domain": "wine_regions",
+        "difficulty_range": ["2", "3"],
+        "cognitive_dim": "comprehension",
+        "question_type": "multiple_choice",
+        "correct_field": "state",
+        "distractor_strategy": "same_type",
+        "required_entities": ["ava", "state"],
+        "explanation_template": "The {ava} AVA is located in {state}.",
+        "requires_fact_specific": True,
+        "verifiable_from_single_fact": True,
+        "selection_weight": 1.2,
+    },
+    # T-REG-COMP-AVA-COUNTY-01 — AVA→county. Parallel to state-level but
+    # county is finer-grained; 288 matching facts.
+    {
+        "id": "T-REG-COMP-AVA-COUNTY-01",
+        "patterns": [
+            "Based on the fact, in which county is the {ava} AVA located?",
+            "According to the source fact, the {ava} AVA is situated in which county?",
+            "Per the fact, which county contains the {ava} AVA?",
+            "The fact assigns the {ava} AVA to which county?",
+            "Given the fact, the {ava} AVA falls within which county?",
+        ],
+        "domain": "wine_regions",
+        "difficulty_range": ["3", "4"],
+        "cognitive_dim": "comprehension",
+        "question_type": "multiple_choice",
+        "correct_field": "county",
+        "distractor_strategy": "same_type",
+        "required_entities": ["ava", "county"],
+        "explanation_template": "The {ava} AVA lies within {county}.",
+        "requires_fact_specific": True,
+        "verifiable_from_single_fact": True,
+        "selection_weight": 1.2,
+    },
+    # T-GRP-COMP-COUNTRY-01 — grape→country. 2458 matching facts. Comp
+    # because the fact usually gives the region; country is inferable from
+    # the region context the fact supplies.
+    {
+        "id": "T-GRP-COMP-COUNTRY-01",
+        "patterns": [
+            "According to the fact, in which country is {grape} described as being grown?",
+            "Based on the source fact, {grape} is cultivated in which country?",
+            "Per the fact, which country hosts cultivation of {grape}?",
+            "The fact indicates that {grape} is grown in which country?",
+            "Given the fact, a producer working with {grape} would be operating in which country?",
+        ],
+        "domain": "grape_varieties",
+        "difficulty_range": ["2", "3"],
+        "cognitive_dim": "comprehension",
+        "question_type": "multiple_choice",
+        "correct_field": "country",
+        "distractor_strategy": "same_type",
+        "required_entities": ["grape", "country"],
+        "explanation_template": "The fact shows {grape} grown in {country}.",
+        "requires_fact_specific": True,
+        "verifiable_from_single_fact": True,
+        "selection_weight": 1.1,
+    },
+    # T-GRP-COMP-REGION-01 — grape→region. Core variant: many facts in the
+    # corpus follow "X is grown in Y region" or "Y region permits X".
+    {
+        "id": "T-GRP-COMP-REGION-01",
+        "patterns": [
+            "According to the fact, in which wine region is {grape} cultivated?",
+            "Based on the source fact, {grape} is grown in which wine region?",
+            "Per the fact, which wine region is linked to the cultivation of {grape}?",
+            "The fact indicates cultivation of {grape} in which region?",
+            "Given the fact, which region is a documented home for {grape}?",
+        ],
+        "domain": "grape_varieties",
+        "difficulty_range": ["2", "3"],
+        "cognitive_dim": "comprehension",
+        "question_type": "multiple_choice",
+        "correct_field": "region",
+        "distractor_strategy": "same_type",
+        "required_entities": ["grape", "region"],
+        "explanation_template": "The fact documents {grape} cultivation in {region}.",
+        "requires_fact_specific": True,
+        "verifiable_from_single_fact": True,
+        "selection_weight": 1.1,
+    },
+    # T-PRD-COMP-COUNTRY-01 — producer→country. 574 matching facts.
+    {
+        "id": "T-PRD-COMP-COUNTRY-01",
+        "patterns": [
+            "Based on the fact, in which country is the producer {producer} based?",
+            "According to the source fact, {producer} operates in which country?",
+            "Per the fact, the wine estate {producer} is located in which country?",
+            "The fact places {producer} in which country?",
+            "Given the fact, an importer ordering direct from {producer} would be sourcing from which country?",
+        ],
+        "domain": "producers",
+        "difficulty_range": ["2", "3"],
+        "cognitive_dim": "comprehension",
+        "question_type": "multiple_choice",
+        "correct_field": "country",
+        "distractor_strategy": "same_type",
+        "required_entities": ["producer", "country"],
+        "explanation_template": "The fact identifies {producer} as based in {country}.",
+        "requires_fact_specific": True,
+        "verifiable_from_single_fact": True,
+        "selection_weight": 1.1,
+    },
+    # T-GRP-COMP-APPELLATION-01 — appellation context from grape. 230 matching
+    # facts. A variant of T-GRP-AUTH-APPELLATION-01 but comprehension-framed:
+    # the student is asked to read the fact's listing and identify an
+    # appellation that includes the grape.
+    {
+        "id": "T-GRP-COMP-APPELLATION-01",
+        "patterns": [
+            "According to the fact, which appellation is described as permitting {grape}?",
+            "Based on the source fact, {grape} is an authorised variety in which appellation?",
+            "Per the fact, the appellation that includes {grape} in its permitted list is which of the following?",
+            "The fact identifies {grape} among the permitted varieties of which appellation?",
+            "Given the fact, a bottle of {grape}-based wine labelled under the listed appellation would come from which of these?",
+        ],
+        "domain": "grape_varieties",
+        "difficulty_range": ["2", "3"],
+        "cognitive_dim": "comprehension",
+        "question_type": "multiple_choice",
+        "correct_field": "appellation",
+        "distractor_strategy": "same_type",
+        "required_entities": ["grape", "appellation"],
+        "explanation_template": "The fact lists {grape} as permitted in {appellation}.",
+        "requires_fact_specific": True,
+        "verifiable_from_single_fact": True,
+        "selection_weight": 1.1,
+    },
+    # T-VIT-COMP-PEST-GRAPE-01 — pest_disease→grape. 6 matching facts;
+    # small but distinct cognitive dimension. Comprehension because the
+    # fact typically names a pest alongside a grape without explicitly
+    # saying "this grape suffers from that pest".
+    {
+        "id": "T-VIT-COMP-PEST-GRAPE-01",
+        "patterns": [
+            "According to the fact, which grape variety is cited alongside {pest_disease}?",
+            "Based on the source fact, {pest_disease} is discussed in connection with which grape?",
+            "Per the fact, which grape is noted as relevant to a {pest_disease} observation?",
+            "The fact associates {pest_disease} with which grape variety?",
+            "Given the fact, an integrated-pest-management plan targeting {pest_disease} would concern which grape?",
+        ],
+        "domain": "viticulture",
+        "difficulty_range": ["3", "4"],
+        "cognitive_dim": "comprehension",
+        "question_type": "multiple_choice",
+        "correct_field": "grape",
+        "distractor_strategy": "same_type",
+        "required_entities": ["grape", "pest_disease"],
+        "explanation_template": "The fact cites {grape} alongside {pest_disease}.",
+        "requires_fact_specific": True,
+        "verifiable_from_single_fact": True,
+        "selection_weight": 1.0,
+    },
+
+    # Application templates (4) — apply fact rule to novel scenario
+    # ───────────────────────────────────────────────────────────
+
+    # T-REG-APP-VARIETAL-LABEL-01 — application scenario: a winemaker is
+    # considering labelling under an appellation; student must read the
+    # fact's authorised-grape list and pick the matching variety that
+    # would satisfy the rule. Uses `{grape, appellation}`.
+    {
+        "id": "T-REG-APP-VARIETAL-LABEL-01",
+        "patterns": [
+            "A winemaker plans to label a varietal wine under the {appellation} AOC. Per the fact, which grape would satisfy the authorised-variety rule?",
+            "A producer intends to release a varietal wine as {appellation}. Based on the fact, which grape variety is permitted for this release?",
+            "An importer wishes to source a single-varietal {appellation} wine. Per the fact, which grape should they look for on the label?",
+            "A regulator is auditing labelling under {appellation}. Which grape, per the fact, is among the permitted varieties for this appellation?",
+            "A sommelier is assembling a flight of {appellation} wines and needs to include a permitted varietal. According to the fact, which grape qualifies?",
+        ],
+        "domain": "wine_regions",
+        "difficulty_range": ["2", "3"],
+        "cognitive_dim": "application",
+        "question_type": "multiple_choice",
+        "correct_field": "grape",
+        "distractor_strategy": "same_type",
+        "required_entities": ["grape", "appellation"],
+        "explanation_template": "The fact shows {grape} authorised under {appellation}.",
+        "requires_fact_specific": True,
+        "verifiable_from_single_fact": True,
+        "selection_weight": 1.1,
+    },
+    # T-GRP-APP-REGION-PLANT-01 — application: a vigneron considers where
+    # to plant a variety; answer comes from the fact's documented region.
+    # Uses `{grape, region}`.
+    {
+        "id": "T-GRP-APP-REGION-PLANT-01",
+        "patterns": [
+            "A vigneron is considering planting {grape} in a region with an established track record. Per the fact, which region is documented as a home for this variety?",
+            "An advisor is recommending a region for a new {grape} planting. Based on the fact, which region's cultivation of this grape is documented?",
+            "A wine merchant looking for authentic {grape}-based wines consults the fact. Which region should they target?",
+            "A new producer seeks advice on a proven region for {grape}. According to the fact, which wine region fits?",
+            "A viticulture consultant maps established sites for {grape}. Per the fact, which region is listed?",
+        ],
+        "domain": "grape_varieties",
+        "difficulty_range": ["2", "3"],
+        "cognitive_dim": "application",
+        "question_type": "multiple_choice",
+        "correct_field": "region",
+        "distractor_strategy": "same_type",
+        "required_entities": ["grape", "region"],
+        "explanation_template": "The fact documents {region} as a home for {grape}.",
+        "requires_fact_specific": True,
+        "verifiable_from_single_fact": True,
+        "selection_weight": 1.1,
+    },
+    # T-REG-APP-AVA-SOURCING-01 — application: an importer needs to verify
+    # AVA→state for labelling or sourcing compliance. Uses `{ava, state}`.
+    {
+        "id": "T-REG-APP-AVA-SOURCING-01",
+        "patterns": [
+            "An importer purchasing {ava} AVA wines is confirming the US state of origin for customs paperwork. Per the fact, which state should appear on the form?",
+            "A buyer is routing a shipment of {ava} AVA wine. Based on the fact, which US state is the origin?",
+            "A sommelier updating their map of US AVAs must assign {ava} to a state. According to the fact, which state is it?",
+            "A retailer lists {ava} AVA wines on its website under state. Per the fact, which state should be used?",
+            "A critic reviewing {ava} AVA wines wants to verify the state of origin. The fact identifies which state?",
+        ],
+        "domain": "wine_regions",
+        "difficulty_range": ["2", "3"],
+        "cognitive_dim": "application",
+        "question_type": "multiple_choice",
+        "correct_field": "state",
+        "distractor_strategy": "same_type",
+        "required_entities": ["ava", "state"],
+        "explanation_template": "The {ava} AVA is in {state}, per the fact.",
+        "requires_fact_specific": True,
+        "verifiable_from_single_fact": True,
+        "selection_weight": 1.1,
+    },
+    # T-PRD-APP-SOURCING-01 — application: an importer/sommelier needs the
+    # producer→country mapping for sourcing logistics. Uses `{producer, country}`.
+    {
+        "id": "T-PRD-APP-SOURCING-01",
+        "patterns": [
+            "A buyer plans to import wines directly from the estate {producer}. Per the fact, which country's export procedures should they follow?",
+            "A sommelier adding {producer} to a by-country wine list consults the fact. Which country should the entry list?",
+            "A retailer preparing a country-of-origin label for {producer} wines checks the fact. Which country applies?",
+            "An importer drafting a purchase order for {producer} needs the country of origin. Per the fact, which country is it?",
+            "A wine writer placing {producer} on a country-by-country map turns to the fact. Which country is specified?",
+        ],
+        "domain": "producers",
+        "difficulty_range": ["2", "3"],
+        "cognitive_dim": "application",
+        "question_type": "multiple_choice",
+        "correct_field": "country",
+        "distractor_strategy": "same_type",
+        "required_entities": ["producer", "country"],
+        "explanation_template": "The fact identifies {producer} as operating in {country}.",
+        "requires_fact_specific": True,
+        "verifiable_from_single_fact": True,
+        "selection_weight": 1.1,
+    },
 ]
 
 # v2.2 fix #8a — set `verifiable_from_single_fact: True` as the default on
@@ -1598,6 +1909,146 @@ def _weighted_template_order(
     return ordered
 
 
+# ─── v2.3 fix #13 — Per-template diversity cap ────────────────────────────
+#
+# Gold-v3 + audit_pilot_v3 showed that `T-PRD-TF-REGION-01` held 28% of all
+# 107 template questions in the DB and its paraphrase variants filled 100%
+# of the 12 gold-v3 template slots. Only 11 of 38 templates ever fired.
+#
+# Remediation: a session-scoped counter caps any single `template_id` at
+# 15% of the per-domain quota. When the cap is reached the template is
+# excluded from the candidate list for subsequent picks. If the candidate
+# list goes empty after exclusion we emit a `loguru.warning` and allow the
+# capped template through anyway (throughput-safety fallback).
+#
+# The counter is kept on the module so callers (tests, CLI) can introspect
+# it via :func:`get_template_id_counts` / :func:`reset_template_id_counts`.
+
+_TEMPLATE_ID_COUNTS: dict[str, int] = {}
+_TEMPLATE_CAP_FRACTION: float = 0.15
+
+
+def get_template_id_counts() -> dict[str, int]:
+    """Return a copy of the current per-template session counter (v2.3 fix #13)."""
+    return dict(_TEMPLATE_ID_COUNTS)
+
+
+def reset_template_id_counts() -> None:
+    """Reset the per-template session counter. Used by CLI + tests."""
+    _TEMPLATE_ID_COUNTS.clear()
+
+
+def _increment_template_count(template_id: str) -> None:
+    """Bump the session counter for ``template_id`` by one."""
+    _TEMPLATE_ID_COUNTS[template_id] = _TEMPLATE_ID_COUNTS.get(template_id, 0) + 1
+
+
+def _template_cap(domain_quota: int) -> int:
+    """Return the integer per-template cap for a given per-domain quota.
+
+    15% of the quota, rounded down but never less than 1 so cap logic
+    still applies for tiny dry-runs (count=5).
+    """
+    cap = int(domain_quota * _TEMPLATE_CAP_FRACTION)
+    return max(cap, 1)
+
+
+def _templates_under_cap(
+    candidate_templates: list[dict],
+    domain_quota: int,
+) -> list[dict]:
+    """Filter out templates that have already hit the diversity cap."""
+    cap = _template_cap(domain_quota)
+    under = [
+        t for t in candidate_templates
+        if _TEMPLATE_ID_COUNTS.get(t["id"], 0) < cap
+    ]
+    return under
+
+
+def generate_with_diversity_cap(
+    domain: str,
+    target: int,
+    facts: list[dict],
+    *,
+    templates: list[dict] | None = None,
+    use_embeddings: bool = False,
+    allow_cap_overflow: bool = True,
+) -> list[dict]:
+    """Run the template-selection loop end-to-end with the v2.3 diversity cap.
+
+    This is the programmatic equivalent of the selection + fill portion of
+    the CLI's ``main()``, extracted so tests can drive it without network
+    calls or DB writes. Returns the list of filled-question dicts (exactly
+    what ``fill_template`` returns). Side-effect: updates
+    :data:`_TEMPLATE_ID_COUNTS`.
+
+    The cap is 15% of ``target`` (rounded down, minimum 1). Behavior when
+    all templates hit the cap is controlled by ``allow_cap_overflow``:
+      * ``True`` (default, matches CLI behavior) — a single warning is
+        logged and the last-picked template continues past the cap so
+        throughput doesn't crash.
+      * ``False`` — generation stops cleanly at the cap; useful for tests
+        that want strict cap enforcement.
+    """
+    if templates is None:
+        templates = [t for t in TEMPLATES if t["domain"] == domain]
+    if not templates:
+        return []
+
+    templates = _weighted_template_order(list(templates))
+    cap = _template_cap(target)
+    generated: list[dict] = []
+
+    for template in templates:
+        if len(generated) >= target:
+            break
+        if _TEMPLATE_ID_COUNTS.get(template["id"], 0) >= cap:
+            remaining_under_cap = _templates_under_cap(
+                [t for t in templates if t["id"] != template["id"]],
+                target,
+            )
+            if remaining_under_cap:
+                continue
+            if not allow_cap_overflow:
+                # Strict mode: every template is at cap — stop cleanly.
+                logger.info(
+                    f"All templates for domain={domain} at cap; stopping "
+                    f"at {len(generated)}/{target} (strict mode)."
+                )
+                break
+            logger.warning(
+                f"All templates for domain={domain} at cap; "
+                f"{template['id']} continuing past cap."
+            )
+
+        matching = find_matching_facts(template, facts)
+        random.shuffle(matching)
+        for fact in matching:
+            if len(generated) >= target:
+                break
+            if _TEMPLATE_ID_COUNTS.get(template["id"], 0) >= cap:
+                remaining_under_cap = _templates_under_cap(
+                    [t for t in templates if t["id"] != template["id"]],
+                    target,
+                )
+                if remaining_under_cap:
+                    break
+                if not allow_cap_overflow:
+                    break
+                # Single warning per template in the loop; don't re-log.
+
+            result = fill_template(
+                template, fact, facts, use_embeddings=use_embeddings
+            )
+            if result is None:
+                continue
+            _increment_template_count(result["_template_id"])
+            generated.append(result)
+
+    return generated
+
+
 # ─── CLI ──────────────────────────────────────────────────────────────────
 
 
@@ -1663,6 +2114,11 @@ def main(
 
     use_embeddings = not no_embeddings
 
+    # v2.3 fix #13 — reset the per-template session counter per CLI invocation so
+    # repeated runs don't share cap state across processes. The counter is
+    # per-domain-quota-aware via ``_template_cap``.
+    reset_template_id_counts()
+
     for dom in domains:
         target = count if not run_all else DOMAIN_TARGETS.get(dom, 100) // 4
         templates_for_domain = [
@@ -1682,14 +2138,60 @@ def main(
             continue
 
         generated = 0
+        # v2.3 fix #13 — filter out cap-exceeded templates each iteration. If the
+        # whole candidate list empties out we log a warning and fall back to the
+        # full (capped) list so throughput doesn't crash.
+        cap = _template_cap(target)
         for template in templates_for_domain:
             if generated >= target:
                 break
+            # Cap check: skip templates that are already at/over the cap.
+            if _TEMPLATE_ID_COUNTS.get(template["id"], 0) >= cap:
+                # If EVERY candidate is over the cap we fall through and use
+                # this one anyway (logged). Otherwise skip — the outer loop
+                # will pick up an uncapped template next.
+                remaining_under_cap = _templates_under_cap(
+                    [
+                        t for t in templates_for_domain
+                        if t["id"] != template["id"]
+                    ],
+                    target,
+                )
+                if remaining_under_cap:
+                    logger.debug(
+                        f"Template {template['id']} hit cap "
+                        f"({_TEMPLATE_ID_COUNTS[template['id']]}/{cap}); skipping."
+                    )
+                    continue
+                logger.warning(
+                    f"All templates for domain={dom} hit the 15% diversity cap; "
+                    f"falling back to {template['id']} to preserve throughput."
+                )
             matching = find_matching_facts(template, facts)
             random.shuffle(matching)
             for fact in matching:
                 if generated >= target:
                     break
+                # v2.3 fix #13 — re-check the cap inside the facts loop so a
+                # single template doesn't blow past 15% from one candidate
+                # pool. The outer if-block picked this template when at least
+                # one slot was still available; if we've now filled them, stop
+                # and let the next template take over.
+                if _TEMPLATE_ID_COUNTS.get(template["id"], 0) >= cap:
+                    remaining_under_cap = _templates_under_cap(
+                        [
+                            t for t in templates_for_domain
+                            if t["id"] != template["id"]
+                        ],
+                        target,
+                    )
+                    if remaining_under_cap:
+                        break
+                    # No other uncapped templates — fall through with a warning.
+                    logger.warning(
+                        f"All templates for domain={dom} at cap; "
+                        f"{template['id']} continuing past cap."
+                    )
                 result = fill_template(
                     template, fact, facts, use_embeddings=use_embeddings
                 )
@@ -1734,6 +2236,7 @@ def main(
                             mark = "*" if opt["id"] == result["correct_answer"] else " "
                             click.echo(f"          {mark} {opt['id']}. {opt['text']}")
                     generated += 1
+                    _increment_template_count(result["_template_id"])  # v2.3 fix #13
                     continue
 
                 qid = mint_question_id(dom, result["difficulty"])
@@ -1770,6 +2273,7 @@ def main(
                     generated += 1
                     generated_ids.append(q_uuid)
                     used_facts.add(result["_fact_id"])
+                    _increment_template_count(result["_template_id"])  # v2.3 fix #13
 
         total_generated += generated
         logger.info(f"Domain {dom}: generated {generated}/{target} questions")
