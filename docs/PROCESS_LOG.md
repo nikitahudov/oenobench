@@ -645,3 +645,105 @@ Verifier costs ~$0.0017–$0.0024 per accepted Llama/Qwen question (well under t
 
 ### Next steps (canonical)
 See `docs/PATH_TO_10K.md` for the 5-phase v2.2 → 10k production plan: gold re-grade (parallel) → 6 v2.2 fixes via 3 worktree teams → audit run #3 → sign-off → full 10k run. Total ~3-4 days, ~$110.
+
+---
+
+## 2026-04-22 — Phase 2f: Gold-v3 sign-off + v2.3 plan
+
+### What was done
+Audit run #3 already-landed last session (`audit_pilot_v3`, 331 Qs, $8.51). Domain expert returned `data/reports/gold_sheet_v3_scored.csv` (59/60 rows scored). This session: imported the scored CSV, recomputed LLM-judge↔human κ across 119 combined gold rows (v1+v2+v3), computed per-generator and per-strategy pass-rate cross-tabs from the audit findings, diagnosed two user-flagged concerns (template pattern-monopoly, Gemini allocation), and drafted the v2.3 plan (`docs/PATH_TO_10K.md` Phase F, `docs/GENERATION_IMPROVEMENT_PLAN.md` §13–§14).
+
+### Sources & inputs
+- `data/reports/gold_sheet_v3_scored.csv` (user, pushed by 2026-04-22 commit a235848)
+- `audit_runs` row id `0bfe85dc-4fdc-4500-b274-a4b05d982e20` (audit_pilot_v3)
+- `audit_findings` table (1990 rows for run #3)
+- `generation_metadata` + `questions` join (107 template questions currently in DB)
+- `facts` table (for corrupt Bordeaux fact triage)
+
+### Methodology
+1. Re-encoded `gold_sheet_v3_scored.csv` from cp1252 (Excel export) → UTF-8 to allow `import_gold_sheet` to parse the en-dash characters in source-fact quotes.
+2. Ran `python3 -m src.qa.orchestrator import-gold --csv-path … --reviewer nikita` (upserted 59 labels) then `build-reports --run-id 0bfe85dc-…` which refreshed `docs/QUALITY_AUDIT_REPORT.md` §6 Gold Calibration with κ for all 5 audited rubrics on n=119.
+3. Computed per-generator and per-strategy pass rates by pivoting `audit_findings (run_id, agent_id, severity) × generation_metadata.generator` via ad-hoc SQL (same aggregation method as AUDIT_RUN_2_COMPARISON.md).
+4. Diagnosed template diversity by querying `(gm.template_id, q.question_type, count(*))` — found 11 template_ids firing, top template T-PRD-TF-REGION-01 holding 28% of template questions.
+5. Queried `facts` for known-broken patterns: `fact_text ILIKE '% classified Bordeaux estate in Château %' OR fact_text ILIKE '%align=%' OR fact_text ILIKE '%&nbsp;%'` → 43 corrupt facts; 14 template questions traced to them.
+
+### Quality controls
+- 59/60 gold rows scored (1 row left blank by reviewer, imported as missing label).
+- Latin1 → UTF-8 re-encode verified by re-reading the file and checking line count unchanged.
+- κ computation cross-checked against the auto-generated `docs/QUALITY_AUDIT_REPORT.md` §6 numbers — my standalone script matched the orchestrator output within rounding.
+
+### Quantitative results
+
+**Gold-v3 per-rubric pass rates (59 scored rows):**
+
+| rubric | pass% |
+|---|---:|
+| answer_correct | 92% |
+| distractors_plausible | 90% |
+| not_ambiguous | 92% |
+| source_faithful | 93% |
+| needs_source | 93% |
+| no_vague_language | 90% |
+| difficulty_match | **69%** |
+| cognitive_match | 92% |
+
+Overall perfect 8/8: 66.1% (up from 45.8% in gold-v2).
+
+**κ on 119 combined gold rows (v1+v2+v3) vs LLM-judge agents:**
+
+| rubric | agent | κ |
+|---|---|---:|
+| answer_correct | B1_TriJudgeAnswer | 0.466 |
+| source_faithful | A3_FactEcho | 0.304 |
+| distractors_plausible | C2_CategoryLeak | 0.166 |
+| no_vague_language | A1_LexicalHygiene | -0.113 |
+| needs_source | B2_ClosedBookSolvability | -0.099 |
+
+Only B1 approaches trustworthy; B2 is actively misleading (κ < 0).
+
+**Per-generator audit pass rate (avg across 6 question-level agents, n=audit_pilot_v3):**
+
+| gen | avg pass | A1 | A3 | B1 | B2 | C2 | C4 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| gemini | **70.5** | 93 | **81** | 93 | 23 | 96 | 37 |
+| chatgpt | 66.7 | 95 | 55 | 97 | 11 | 100 | 42 |
+| claude | 66.7 | 90 | 51 | 93 | 29 | 100 | 37 |
+| llama | 64.4 | 98 | 38 | 92 | 25 | 97 | 35 |
+| qwen | 63.3 | 79 | 60 | 89 | 20 | 96 | 37 |
+| template_only | 63.1 | 100 | 14 | 71 | 43 | 100 | 50 |
+
+**Template diversity audit:**
+
+| metric | value |
+|---|---|
+| template questions in DB | 107 |
+| distinct `template_id`s firing | 11 of 38 registered |
+| top template share (T-PRD-TF-REGION-01) | 30 / 107 = 28% |
+| top-3 template share | 56% |
+| legacy templates (v2.2 §8a purge-from-code but not DB) | ~32 / 107 |
+| templates with `cognitive_dim` > recall | 0 / 107 |
+| templates with corrupt Bordeaux source fact | 14 / 107 |
+
+### Decisions & trade-offs
+- **Gemini allocation: 2400 → 2800.** Quantitative leader on pass rate and on A3; subjective user preference corroborates. Balanced from Qwen (-300, lowest A1) and Llama (-100, lowest A3). Gemini corpus share rises 24% → 28%, still under the 35% ceiling. Self-preference risk monitored via D1 after Phase F.
+- **Why not go to 3000?** 30% would put Gemini uncomfortably close to the cap; it's also the B2 judge-panel member, so a 3rd of the corpus being author=Gemini makes evaluator-author decorrelation harder. 2800 is the conservative bump.
+- **B2 gate retired.** κ=-0.10 means the signal is useless as a gate; kept as a warn-level ranked defect. Replaced with a human spot-check on `needs_source` during Phase E.
+- **Template diversity cap at 15%.** 10% would starve common producer-region templates; 20% wouldn't have prevented the gold-v3 100% monopoly. 15% is the minimum that meaningfully breaks the current 28% concentration without harming throughput.
+- **Template registry expansion over outright template-strategy elimination.** Dropping to 0% would push more through Llama/Qwen (each verifier-gated, each thin on A1/A3). Expanding to 50+ templates with comprehension+application tier lets templates earn their 10% share.
+
+### Issues encountered & resolutions
+1. **Gold CSV encoding.** Excel exports CSVs as cp1252 with en-dash bytes 0x96, 0x97; `import_gold_sheet` opens with `encoding="utf-8"` which raises `UnicodeDecodeError`. Fixed ad-hoc by re-encoding the file before import. Follow-up in a future PR: change `_corpus.import_gold_sheet` to open with `encoding="utf-8-sig", errors="surrogateescape"` or sniff the encoding.
+2. **`wc -l` on gold CSV reports 254 rows** (newlines inside quoted multi-fact source cells). Actual row count via `csv.DictReader` is 60. Used the latter for all counts.
+3. **Bordeaux scraper data contamination.** 43 "classified Bordeaux estate in Château X" facts originate from misreading the Saint-Émilion Grand Cru Classé Wikipedia table: the parser pairs each row's name with the NEXT row's name instead of the table's `region` column. Full fix in Phase F §14.3 Sampler team. Short-term: fact delete + question cascade delete during v2.3.
+
+### Human review notes
+- Gold-v3 notes column: 22 rows with free-text. 18 of those are difficulty corrections ("actual difficulty should be 3"), 3 are "completely incorrect" (all trace to corrupt Bordeaux facts on template strategy), 1 flags distractor-composition ("distractors should include different incorrect grape varieties").
+- User flagged template pattern homogeneity and Gemini preference in the same session that produced this entry → addressed by §13 (Gemini) + §14 (template diversity) in the plan.
+
+### Next steps (canonical)
+See `docs/PATH_TO_10K.md` Phase F. Three parallel worktrees:
+- **Template team:** fixes 13 (per-template cap), 14a/b (legacy purge + Bordeaux fact scrub), 15 (registry expansion with comprehension+application tier).
+- **Sampler team:** fix 14c/d (Bordeaux scraper table-parser fix + rescrape), fix 17 (D3 cap enforcement — the 1.2× cap from v2.2 isn't being enforced; investigate where).
+- **Audit team:** fix 16 (C4 difficulty calibration refresh from gold-v3's 18 directional fails).
+
+Then audit_pilot_v4 + gold_sheet_v4 → sign-off → Phase E 10k run.

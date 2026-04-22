@@ -40,11 +40,21 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 OVERALL_TARGET = 10_000
 
-# v2.1 allocation (post-gold-calibration). See docs/GENERATION_IMPROVEMENT_PLAN.md
-# §0. Template share cut from 25% → 10% per the gold review's distractor /
-# difficulty / source-faithful findings; the freed slots flow to the three
-# verifiable LLMs (Claude/ChatGPT/Gemini @ 24% each) with a small bump for
-# Llama/Qwen (whose output is gated by the new independent verifier).
+# v2.3 allocation (post-gold-v3 calibration, 2026-04-22). See
+# docs/GENERATION_IMPROVEMENT_PLAN.md §0 and §13.
+#
+# Rationale: gold-v3 + audit_pilot_v3 show Gemini is the overall pass-rate
+# leader (70.5% avg across 6 question-level agents vs 66.7% for Claude/ChatGPT)
+# AND dominant on A3 FactEcho (81% pass vs 60% next best). Human review of 59
+# gold-v3 rows corroborates (Gemini matches Claude/ChatGPT on avg rubric score,
+# 75% perfect 8/8). Bump Gemini from 2400 → 2800 (+400); balance from the two
+# verifier-gated tails: Qwen 1100 → 800 (-300, worst A1 score), Llama 700 → 600
+# (-100, worst A3 score). Corpus cap stays under the 35% ceiling (Gemini 31%).
+#
+# Strategy allocation unchanged — template 10% share is defensible after v2.2
+# radical overhaul (see §6). The template inventory has a separate diversity
+# problem (one T/F pattern at 28% share, 27 of 38 registered templates never
+# fire) addressed by §13 not by rebalancing strategies.
 STRATEGY_TARGETS = {
     "fact_to_question": 4500,
     "template": 1000,
@@ -55,13 +65,13 @@ STRATEGY_TARGETS = {
 
 # LLM-based strategies share 9,000 questions across 5 generators (template
 # strategy contributes the remaining 1,000 deterministically). No model may
-# exceed 35% of the corpus; current cap is 24%.
+# exceed 35% of the corpus; current max is Gemini at 31%.
 GENERATOR_TARGETS = {
     "claude": 2400,
     "chatgpt": 2400,
-    "gemini": 2400,
-    "qwen": 1100,
-    "llama": 700,
+    "gemini": 2800,
+    "qwen": 800,
+    "llama": 600,
 }
 
 # Maps strategy name to the module invoked via `python -m src.generators.<module>`

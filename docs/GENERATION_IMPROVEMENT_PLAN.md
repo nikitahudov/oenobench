@@ -1,8 +1,8 @@
-# OenoBench Generation Improvement Plan (v2 — post-gold-calibration)
+# OenoBench Generation Improvement Plan (v2.3 — post-gold-v3)
 
-**Source audit:** Run `e8eba8bb-cb49-42cd-9e32-c741c987043e` (`audit_pilot_v1`, 472 Qs, $8.49).
-**Gold review:** 60 questions hand-graded by domain expert; see `docs/GOLD_CALIBRATION_ANALYSIS.md`.
-**Generated:** 2026-04-19 (v2 supersedes the auto-generated v1).
+**v2.3 source audit:** Run `0bfe85dc-4fdc-4500-b274-a4b05d982e20` (`audit_pilot_v3`, 331 Qs, $8.51).
+**v2.3 gold review:** 119 combined gold rows (v1 + v2 + v3); κ recomputed, see §5 and `docs/QUALITY_AUDIT_REPORT.md` §6.
+**Generated:** 2026-04-19 · **Last major update:** 2026-04-22 (v2.3: Gemini bump §13 + template diversity §14 added after Phase D sign-off).
 
 This plan combines:
 1. The original audit defects (verbatim copying, world-knowledge leakage, country skew, etc.).
@@ -13,57 +13,48 @@ The whole list is ranked by impact-per-effort. Implement defects 0–3 in one it
 
 ---
 
-## 0 · Reweighted generator allocation (REVISED v2.1)
+## 0 · Reweighted generator allocation (ACTIVE — v2.3)
 
-The original plan distributed LLM questions equally across the five generators. The gold review shows quality is **not** uniform — and a deeper template-strategy audit (see new §6) reveals templates have systemic structural defects despite their 100% answer-correctness.
+v2.1 distributed LLM work evenly across the three "verifiable" LLMs (Claude/ChatGPT/Gemini @ 2,400 each) with Llama/Qwen verifier-gated. Gold-v3 + audit_pilot_v3 show Gemini is the overall quality leader and the clear winner on our highest-priority post-v2.1 defect (A3 FactEcho). v2.3 bumps Gemini modestly and pulls balance from the verifier-gated tails. See §13 for the full analysis.
 
-| Generator | Gold-review answer_correct | Other major issues | Action |
-|---|---:|---|---|
-| **Claude Opus 4.7** | 100% | none material | scale up |
-| **ChatGPT 5.4** | 100% | none material | scale up |
-| **Gemini 3.1 Pro** | 100% | none material | scale up |
-| **Qwen 3 235B** | 71% | wrong-key generation | scale down + verify |
-| **Llama 3.1 405B** | 60% | wrong-key generation | scale down + verify |
-| Template (deterministic) | 100% | distractor 33%, difficulty 42%, source-faithful 50%, A4 AUC 0.96 — see §6 | **scale down sharply** |
+### Active allocation (v2.3, in `src/generators/orchestrator.py`)
 
-### Proposed final-corpus allocation (v2.1)
-
-| Generator | v1 % | v2 % | **v2.1 %** | v1 count | v2 count | **v2.1 count** | Notes |
-|---|---:|---:|---:|---:|---:|---:|---|
-| Template | 25.0 | 25.0 | **10.0** | 2,500 | 2,500 | **1,000** | Cut from 25% to 10% per gold review — see §6 overhaul |
-| Claude | 15.0 | 20.0 | **24.0** | 1,500 | 2,000 | **2,400** | Absorb template share |
-| ChatGPT | 15.0 | 20.0 | **24.0** | 1,500 | 2,000 | **2,400** | Absorb template share |
-| Gemini | 10.0 | 20.0 | **24.0** | 1,000 | 2,000 | **2,400** | Absorb template share — best-rated by domain expert |
-| Qwen | 17.5 | 9.0 | **11.0** | 1,750 | 900 | **1,100** | Slight bump; still gated by verifier |
-| Llama | 17.5 | 6.0 | **7.0** | 1,750 | 600 | **700** | Slight bump; still gated by verifier |
-| **TOTAL** | 100.0 | 100.0 | **100.0** | 10,000 | 10,000 | **10,000** | Max 24% any model (under the 35% ceiling) |
+| Generator | v2.1 count | **v2.3 count** | Share | Reason |
+|---|---:|---:|---:|---|
+| Template | 1,000 | 1,000 | 10% | Held — §6 overhaul + §14 diversity plan handle template quality |
+| Claude | 2,400 | **2,400** | 24% | Held — strong across the board |
+| ChatGPT | 2,400 | **2,400** | 24% | Held — strong, but watch D1 self-pref warn |
+| Gemini | 2,400 | **2,800** | **28%** | +400 — leader on avg pass rate (70.5%) and dominant on A3 FactEcho (81%) |
+| Qwen | 1,100 | **800** | 8% | -300 — lowest A1 LexicalHygiene pass (79%); verifier catches wrong-keys but quality tail is thin |
+| Llama | 700 | **600** | 6% | -100 — lowest A3 FactEcho pass (38%); verifier-gated |
+| **TOTAL** | 10,000 | **10,000** | 100% | Max any model = 28% (Gemini), under 35% ceiling |
 
 Rationale:
-- The three high-quality LLMs each go to 24% (just under the 25% mark, well under the 35% cap), giving 72% of questions to verifiably-correct generators.
-- Template share drops from 2,500 → 1,000. Templates retained as a deterministic floor for L1-recall coverage of well-defined entities (regions, grapes, producers); the §6 overhaul fixes the structural defects so the remaining 1,000 are actually defensible.
-- Llama and Qwen get a small bump (combined 18% → 1,800 questions) absorbing some of the template cut, since their output goes through the verifier and surviving questions match the quality of the other LLMs.
-- All allocations encoded in `src/generators/orchestrator.py:GENERATOR_TARGETS` and `STRATEGY_TARGETS["template"]`.
+- Gold-v3 per-generator 8/8 perfect rate: Llama 78%, Gemini 75%, ChatGPT 67%, Claude 67%, Qwen 50%, template 58%. Avg rubric score: chatgpt/claude 7.58, Gemini 7.50, Qwen 7.33, Llama 7.00, template 5.83.
+- Audit_pilot_v3 pass rate avg across 6 question-level agents: Gemini 70.5%, chatgpt 66.7%, claude 66.7%, llama 64.4%, qwen 63.3%, template 63.1%.
+- Gemini's A3 FactEcho pass rate (81%) is >20pp above the next best LLM — the verifier-free answer to the v2.1 #1 defect.
+- Llama cut is smaller than Qwen because Llama has the **lowest audit fail rate** (12.3% vs qwen 14.0%) — when it succeeds, Llama succeeds cleanly; when it fails, it fails catastrophically (90% of gold-v3 "completely incorrect" template-strategy fails came from llama or template). Cut Qwen harder because its failure mode is subtler (vague phrasing) — harder to catch post-hoc.
+- Corpus cap rises from 24% to 28%; still under the 35% ceiling. Self-preference risk on Gemini monitored via D1.
 
 ### Implementation
 ```python
-# src/generators/orchestrator.py
+# src/generators/orchestrator.py (v2.3 ACTIVE)
 STRATEGY_TARGETS = {
-    "fact_to_question":   4500,   # +500 vs v1
-    "template":           1000,   # -1500 vs v1
+    "fact_to_question":   4500,   # unchanged vs v2.1
+    "template":           1000,
     "comparative":        1500,
-    "scenario_synthesis": 1500,   # +500 vs v1
-    "distractor_mining":  1500,   # +500 vs v1
+    "scenario_synthesis": 1500,
+    "distractor_mining":  1500,
 }
 
-# Per-LLM targets (LLM strategies share 9,000 questions across 5 models)
 GENERATOR_TARGETS = {
     "claude":  2400,
     "chatgpt": 2400,
-    "gemini":  2400,
-    "qwen":    1100,
-    "llama":    700,
+    "gemini":  2800,   # +400 vs v2.1
+    "qwen":     800,   # -300
+    "llama":    600,   # -100
 }
-# Sum = 9,000 = template (1,000) total to 10,000.
+# Sum = 9,000 + template 1,000 = 10,000.
 ```
 
 ---
@@ -374,3 +365,125 @@ If any gate fails twice in a row, escalate to the deferred LLM agents (C1, B3, B
 **Estimated total effort (parallelised via the agent-team architecture in `docs/IMPLEMENTATION_AGENT_ARCHITECTURE.md`):** ~3 days wall-clock with 4 parallel teams.
 
 **Estimated cost of audit run #2 + final 10k:** ~$10 (audit) + ~$80 (10k generation with verification step) + ~$1 (template paraphrase pass) = **~$91**.
+
+---
+
+## 13 · Gemini reallocation (v2.3 — post-gold-v3 analysis)
+
+**Prompt:** User observation, 2026-04-22 — "I quite often like the gemini generated questions. Please analyze if we should increase the gemini allocation in the overall pool."
+
+### Evidence
+
+Three data sources all point the same direction.
+
+**13.1 Audit_pilot_v3 (331 Qs, 6 question-level agents, no humans):**
+
+| agent | chatgpt | claude | **gemini** | llama | qwen |
+|---|---:|---:|---:|---:|---:|
+| A1 LexicalHygiene | 95 | 90 | 93 | 98 | 79 |
+| **A3 FactEcho** | 55 | 51 | **81** | 38 | 60 |
+| B1 TriJudgeAnswer | 97 | 93 | 93 | 92 | 89 |
+| B2 ClosedBookSolvability | 11 | 29 | 23 | 25 | 20 |
+| C2 CategoryLeak | 100 | 100 | 96 | 97 | 96 |
+| C4 DifficultyAudit | 42 | 37 | 37 | 35 | 37 |
+| **Avg pass rate** | **66.7** | **66.7** | **70.5** | 64.4 | 63.3 |
+
+Gemini leads on the avg pass rate and dominates the highest-priority post-v2.1 defect (A3 FactEcho: 81% pass vs 60% for the next-best LLM). The only rubric where Gemini noticeably lags is A1 (93% vs ChatGPT 95%) — noise-level.
+
+**13.2 Gold v3 human review (59 scored questions, 8 rubrics):**
+
+| generator | n | perfect 8/8 | avg /8 |
+|---|---:|---:|---:|
+| llama | 9 | 78% | 7.00 |
+| **gemini** | 8 | **75%** | **7.50** |
+| chatgpt | 12 | 67% | 7.58 |
+| claude | 12 | 67% | 7.58 |
+| template_only | 12 | 58% | 5.83 |
+| qwen | 6 | 50% | 7.33 |
+
+Gemini (n=8, small) is runner-up on perfect 8/8, and matches ChatGPT/Claude on average rubric score. Llama's higher 8/8 rate is polar: Llama tends to produce either clean questions or "completely incorrect" ones (failure mode caught by the verifier, but still burns budget).
+
+**13.3 Subjective:** User reports preferring Gemini output qualitatively. Consistent with the quantitative signal.
+
+### Decision
+
+Bump Gemini 2,400 → 2,800 (+400 questions, +17% share within LLM allocation). Balance:
+- Qwen 1,100 → 800 (−300): worst A1 pass rate (79%); phrasing-quality tail is long.
+- Llama 700 → 600 (−100): worst A3 FactEcho (38%); kept in corpus for generator-family diversity but reduced to minimise verifier workload.
+- Claude/ChatGPT: unchanged (each 2,400 / 24%). Bumping either would put a single model > 30% — tolerable but reduces signal for D1 self-preference analysis.
+
+Final per-model share: Claude 24 · ChatGPT 24 · **Gemini 28** · Qwen 8 · Llama 6 · Template 10. Max any model = 28%; ceiling still 35%.
+
+### Risks
+
+- **Self-preference inflation.** Gemini is the B2 judge panel's 3rd member. Raising Gemini author share to 28% widens the worst-case window where Gemini judges its own work. Mitigation: run D1 self-pref audit with 5 judges after Phase F; drop to 2,600 if D1 |Δ| exceeds 0.07.
+- **Small gold-v3 sample for Gemini (n=8).** Confidence interval on 75% perfect is wide. Mitigation: Phase F gold-v4 should re-sample Gemini at n≥15.
+- **Llama catastrophic drop (9 → 6%)** could hurt generator-family diversity for the NeurIPS Self-Preference Score narrative. If a reviewer challenges "is Llama still meaningfully represented?" the answer is: 600 questions × 4 LLM strategies ≈ 150/strategy, enough for per-strategy evaluation cells with n ≥ 20 at 4-way splits.
+
+Implementation: already applied in `src/generators/orchestrator.py` as part of this commit.
+
+---
+
+## 14 · Template diversity — pattern-monopoly fix (v2.3)
+
+**Prompt:** User observation, 2026-04-22 — "template generation has improved significantly. However, all the template questions have similar pattern like 'true or false: producer X is located in region Y'. I think we should increase the diversity of the template patterns."
+
+### Evidence
+
+Gold-v3 sampled 12 template questions, and 12/12 were the same pattern (T/F producer→region). Investigation of the 107-question template DB population reveals a more general issue:
+
+| Symptom | Observed |
+|---|---|
+| Distinct `template_id`s firing | **11 of 38** registered templates |
+| Top template share (`T-PRD-TF-REGION-01`) | **30 / 107 = 28%** |
+| Top-3 template share | **60 / 107 = 56%** (T-PRD-TF-REGION-01, T-PRD-REGION-01, T-REG-COUNTRY-01) |
+| Legacy templates (deleted from registry per v2.2 §8a, still in DB) | ~32 / 107 (T-REG-COUNTRY-01, T-GRP-REGION-01, T-GRP-ORIGIN-01, T-REG-GRAPE-01) |
+| Templates with `cognitive_dim=comprehension` or higher | **0 / 107** (registry has 5, none fire) |
+| Templates with broken source fact (Bordeaux "estate in Château X") | 14 / 107 |
+
+### Root causes
+
+1. **No per-template cap in `fill_template()`.** The sampler picks the template whose `required_entities` slots match the current fact best; one common structure (producer → location) matches a huge fraction of producer facts, so it wins disproportionately.
+2. **Registry expansion stalled.** The v2.2 radical overhaul (§6 + §8a) pruned broken superlative templates but didn't add replacements above `recall`. Result: a thinner registry than pre-v2.2, same monopoly dynamics.
+3. **v2.2 §8a purged the CODE but not the DATA.** Templates the code no longer knows about are still in the DB because `fix #8a` deleted registry entries without a cleanup pass on existing generated questions.
+4. **Upstream fact contamination.** 43 facts of the form "Château X is a classified Bordeaux estate in Château Y" (where Y is also a château, mis-parsed from a Wikipedia classified-list table) feed template T-PRD-TF-REGION-01 and produce obviously-broken "Château is located in Château" questions. This is a data-pipeline bug, not a template bug — but it concentrates in the template strategy.
+
+### Fixes (v2.3, three tiers)
+
+**14.1 Immediate (ship in Phase F, together with §13 allocation):**
+
+- **Hard cap in `fill_template()`:** maintain a session counter on `template_id`; if any template's usage hits 15% of the per-strategy quota (i.e. 150 of 1000), force the selector to choose from the remaining templates. Second-choice must differ by template_id prefix (`T-PRD-*` → `T-REG-*` etc.) to break sub-domain concentration too.
+- **Purge legacy templates:** `DELETE FROM questions USING generation_metadata gm WHERE q.id = gm.question_id AND gm.template_id IN (<deleted-list>)` plus cascading delete of `question_facts`, `generation_metadata`. Also purge the ~14 questions from Bordeaux-corrupted facts.
+- **Fix Bordeaux scraper:** `src/scrapers/bordeaux.py` table-cell iteration is off-by-one on the Saint-Émilion classified-growths page; column indexing assumes a leading rank column that isn't always present. Regression test: after re-running the scraper, `select count(*) from facts where fact_text like '% is a classified Bordeaux estate in Château %' = 0`.
+
+**14.2 Medium-term (Phase F, Template team worktree):**
+
+- **Registry expansion:** add 10–12 new templates at `cognitive_dim=comprehension` (inference from the source fact, not entity recall) and 4–5 at `cognitive_dim=application` (apply fact rule to a novel scenario). Examples:
+  - T-REG-TF-SOIL-01 (comp.) "True or False: the {soil_type} soils of {region} are better suited for {variety} than Chardonnay." (requires fact to have `{soil, grape, region}` triple)
+  - T-GRP-TF-CLIMATE-01 (comp.) "True or False: {variety} is typically grown in {climate_descriptor} climates." (fact: `{variety, climate}`)
+  - T-REG-APP-BLEND-01 (app.) "A winemaker in {region} is blending {variety_A} and {variety_B}. Which one is traditionally the dominant partner?" (fact encodes ordinal blend ratios)
+  - T-WMK-APP-PROCESS-01 (app.) "For the style description '{style}', which maceration temperature is most appropriate?" (fact gives style→temp rule)
+
+- **Minimum distinct-template-id floor:** `fill_template()` must ensure ≥25 distinct templates fire across the 1,000-question quota (vs current 11). If any cell is starved, log a `TemplateStarvationWarning`.
+
+- **Opening phrase diversity within T/F templates:** the existing `γ-4 Phrasing diversification` has 4–6 paraphrase variants per template; gold-v3 showed all 3 T/F variants of the same template (`True or False:…` / `Decide True or False…` / `Indicate True or False…`) still read as "one pattern" to the reviewer. Add 3 more variants: interrogative (`Is it true that…?`), corrective (`Students sometimes say…; which is correct?`), and declarative (`The following statement is:…`). Ensure the variant hash picks across the full 7-variant space.
+
+**14.3 Long-term (post-v2.3, before NeurIPS submission):**
+
+- **Cognitive-dim quota per template strategy:** target 50% recall / 35% comprehension / 15% application. Parallel to domain targets but on the cognitive axis.
+- **A4 re-measurement on new templates:** POS-bigram detectability AUC stays a gate (< 0.85). Paraphrase post-pass (v2.2 §6.3e) should still fire on the expanded registry.
+
+### Verification gate
+
+Phase F audit run #4 (`audit_pilot_v4`) and gold-v4:
+- HHI on `template_id` distribution in the 120-template corpus slice: < 0.10 (v3 was ~0.13).
+- Distinct template_ids firing: ≥ 25 (v3 was 11).
+- Top template share: < 15% (v3 was 28%).
+- No template question's source fact contains `"classified Bordeaux estate in Château"` or HTML table markup.
+- Human gold-v4 spot-check (30 template Qs): pattern concentration subjectively acceptable (user sign-off).
+
+### Decision log
+
+- **Why not just drop template strategy to 0%?** The expanded comprehension/application registry (§14.2) turns templates into a controllable deterministic L2/L3 floor — something no LLM strategy guarantees. The fingerprint cost (A4 AUC) is manageable with paraphrase post-pass.
+- **Why cap at 15% and not 10%?** 10% of 1,000 = 100 questions; insufficient for some well-populated domains (e.g. any comparative-variety template on Rhône blends). 15% gives headroom without any single pattern dominating a gold sample.
+- **Why not measure by `question_type` instead of `template_id`?** question_type is too coarse (only MC/T-F); gold-v3's 12 templates were all T/F but from 3 paraphrases of ONE template — the diversity problem lives at the `template_id` level.

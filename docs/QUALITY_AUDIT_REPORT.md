@@ -123,6 +123,18 @@
   - WB-VIT-0127-L4  ·  B2_ClosedBookSolvability  ·  
     > During a controlled environmental study evaluating the resilience of juvenile white grapevines, researchers monitored specific physiological responses. Which simulated climatic str
 
+## 3.5 · Per-strategy gold pass rates
+
+Cross-tab of human-rated rubric pass percentages by generation strategy. Empty cells (`—`) mean no gold label was recorded for that (strategy, rubric) cell.
+
+| strategy | n | answer_correct | needs_source | no_vague_language | source_faithful | distractors_plausible |
+|---|---:|---:|---:|---:|---:|---:|
+| comparative | 12 | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |
+| distractor_mining | 12 | 91.7% | 91.7% | 83.3% | 91.7% | 91.7% |
+| fact_to_question | 11 | 90.9% | 100.0% | 90.9% | 100.0% | 100.0% |
+| scenario_synthesis | 12 | 100.0% | 100.0% | 100.0% | 100.0% | 83.3% |
+| template | 12 | 75.0% | 75.0% | 75.0% | 75.0% | 75.0% |
+
 ## 4 · Per-generator deep dive
 
 ### chatgpt
@@ -155,6 +167,19 @@
 - Authored question count: **14**
 - Total fails: 18, warns: 13
 
+## 4.5 · Per-generator gold pass rates
+
+Cross-tab of human-rated rubric pass percentages by generator model. Use this to compare quality across the 5 LLM generators (plus `template_only`) and decide allocation.
+
+| generator | n | answer_correct | needs_source | no_vague_language | source_faithful | distractors_plausible |
+|---|---:|---:|---:|---:|---:|---:|
+| chatgpt | 12 | 100.0% | 100.0% | 100.0% | 100.0% | 83.3% |
+| claude | 12 | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |
+| gemini | 8 | 87.5% | 100.0% | 87.5% | 100.0% | 100.0% |
+| llama | 9 | 88.9% | 88.9% | 88.9% | 88.9% | 88.9% |
+| qwen | 6 | 100.0% | 100.0% | 83.3% | 100.0% | 100.0% |
+| template_only | 12 | 75.0% | 75.0% | 75.0% | 75.0% | 75.0% |
+
 ## 5 · Cross-cutting findings
 
 ### Template detectability (A4)
@@ -167,15 +192,17 @@
 
 ## 6 · Gold calibration
 
-- Human-reviewed items: **60**
+- Human-reviewed items: **119**
 
 | Rubric | Agent | Human pass% | LLM pass% | Agreement | κ | n |
 |---|---|---:|---:|---:|---:|---:|
-| answer_correct | B1 TriJudgeAnswer (majority_matches_key) | — | — | — | — | 0 |
-| needs_source | B2 ClosedBookSolvability (NOT closed-book correct) | — | — | — | — | 0 |
-| no_vague_language | A1 LexicalHygiene (no regex match) | — | — | — | — | 0 |
-| source_faithful | A3 FactEcho (LCS < 0.6) | — | — | — | — | 0 |
-| distractors_plausible | C2 CategoryLeak (no leaked distractor) | — | — | — | — | 0 |
+| answer_correct | B1 TriJudgeAnswer (majority_matches_key) | 91.5% | 94.9% | 93.2% | **0.466** | 59 |
+| needs_source | B2 ClosedBookSolvability (NOT closed-book correct) | 93.2% | 18.6% | 15.3% | **-0.099** | 59 |
+| no_vague_language | A1 LexicalHygiene (no regex match) | 89.8% | 89.8% | 79.7% | **-0.113** | 59 |
+| source_faithful | A3 FactEcho (LCS < 0.6) | 93.2% | 88.1% | 88.1% | **0.304** | 59 |
+| distractors_plausible | C2 CategoryLeak (no leaked distractor) | 89.8% | 94.9% | 88.1% | **0.166** | 59 |
+
+- ⚠ κ below 0.6 — downweight these LLM signals when interpreting strategy rollups: `answer_correct` (κ=0.466), `needs_source` (κ=-0.099), `no_vague_language` (κ=-0.113), `source_faithful` (κ=0.304), `distractors_plausible` (κ=0.166).
 
 ## 7 · Limitations & deferred checks
 
@@ -204,4 +231,4 @@ SELECT agent_id, severity, count(*) FROM audit_findings WHERE run_id = '0bfe85dc
 SELECT * FROM v_question_audit_summary WHERE id IN (SELECT question_id FROM audit_findings WHERE run_id = '0bfe85dc-4fdc-4500-b274-a4b05d982e20');
 ```
 
-_Generated 2026-04-21T02:54:14.500970_
+_Generated 2026-04-22T20:35:49.017431_

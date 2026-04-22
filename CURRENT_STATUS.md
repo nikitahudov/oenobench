@@ -1,17 +1,21 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** April 20, 2026
-**Project phase:** Phase 2e — Audit run #2 complete; v2.1 fixes graded; v2.2 plan ready (`docs/PATH_TO_10K.md`)
+**Last updated:** April 22, 2026
+**Project phase:** Phase 2f — Audit run #3 + gold-v3 sign-off complete; 2 hard gates still failing + 2 user-flagged quality issues → v2.3 plan active in `docs/PATH_TO_10K.md` Phase F.
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ## Latest cliff notes (start here next session)
 
-- **Audit run #2 complete** (`audit_pilot_v2`, 292 Qs, $7.64). Run #1 vs #2 comparison: `docs/AUDIT_RUN_2_COMPARISON.md`.
-- v2.1 fix grades: A3 paraphrase guard ✓ (35%→5.8% fail), Llama/Qwen verifier ✓ (caught wrong-keys live), D1 self-pref ✓ (warn→PASS), D3 country quota partial (4.46×→3.38× still > 1.5× gate), A4 detectability ✗ (AUC 0.96 unchanged), B2 leakage ✗ (recalibration backfired 30%→38%), C4 newly-promoted surfaced 71% difficulty mislabeling.
-- **Go/No-Go BLOCKED** — 6 gates failing.
-- **Next session start point:** `docs/PATH_TO_10K.md` (v2.2 plan: Phase A user gold re-grade, Phase B 3 worktree teams for 6 v2.2 fixes, Phase C audit run #3, Phase D sign-off, Phase E full 10k production).
-- **User pending:** re-grade `data/reports/gold_sheet_v2.csv` (48 Qs, multi-fact column 11 — fix #4 from v2.1 plan).
-- **Open question:** start Phase B immediately in parallel with the gold re-grade (saves ~1 day wall-clock), or wait for the re-grade first.
+- **Audit run #3 complete** (`audit_pilot_v3`, 331 Qs, $8.51). v2.2 fixes mostly landed: A3 35%→4.8%, C4 36%→3.6%, C2 3→0, D3 4.46×→3.14× (still failing). A4 held-out AUC unsampled (only 1 template survived the LLM-paraphrase filter).
+- **Gold-v3 scored** (59/60 rows, imported 2026-04-22). Overall perfect 8/8: **66.1%** (up from 45.8% in gold-v2). Weakest rubric: `difficulty_match` at 69%. κ on 119 combined rows: only B1 `answer_correct` has usable signal (κ=0.47); B2 `needs_source` κ=-0.10 is worse than chance → B2 leakage gate retired.
+- **Phase D sign-off: Go/No-Go STILL BLOCKED** on 5 gates: per-generator answer_correct (template 75%, llama 89%, gemini 88%); template 7-rubric clean-pass (58%); difficulty_match (69% vs 80% gate); D3 country ratio (3.14× vs 1.5×); B1 (91% vs 95%).
+- **User-flagged in Phase D (2026-04-22):**
+  1. Template generation is pattern-monopolised — 28% of templates use one `template_id` (T-PRD-TF-REGION-01), 11/38 registered templates fire.
+  2. Gemini questions are subjectively preferred; data confirms (70.5% avg pass rate, dominant on A3 FactEcho at 81%).
+- **Shipped in this commit:**
+  - Gemini allocation bump: 2400 → 2800 in `src/generators/orchestrator.py`, balanced from Qwen (1100 → 800) and Llama (700 → 600). Plan rationale in `docs/GENERATION_IMPROVEMENT_PLAN.md` §13.
+  - v2.3 Phase F plan covering fixes #12–#18: template pattern cap, legacy purge, Bordeaux fact scrub, registry expansion (comprehension+application tier), D3 cap enforcement, C4 recalibration, B2 gate retirement. See `docs/PATH_TO_10K.md` Phase F.
+- **Next session start point:** Phase F Template team (fixes 13, 14a/b, 15) — diversify template registry, purge legacy templates, fix Bordeaux scraper table parsing. Parallel: Sampler team on D3 enforcement + Bordeaux rescrape.
 
 ---
 

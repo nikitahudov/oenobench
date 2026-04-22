@@ -1,10 +1,10 @@
 # Path to the Full 10k Generation
 
-**Generated:** 2026-04-20
-**Status:** v2.2 plan, immediately follows audit run #2 (`3c6e27ce-…`) and gold-v2 re-grade (48/48 scored).
-**Pre-reads:** `docs/GENERATION_IMPROVEMENT_PLAN.md` (v2.1), `docs/AUDIT_RUN_2_COMPARISON.md` (what worked / what didn't), `data/reports/gold_sheet_v2_scored.csv` (human gold, 48 questions × 8 rubrics).
+**Generated:** 2026-04-20 · **Updated:** 2026-04-22 (Phase D sign-off done → v2.3 added)
+**Status:** Phase C audit #3 + Phase D gold-v3 sign-off complete → **2 of 14 gates still failing → v2.3 iteration required before Phase E.**
+**Pre-reads:** `docs/GENERATION_IMPROVEMENT_PLAN.md`, `docs/QUALITY_AUDIT_REPORT.md` (audit_pilot_v3 + 119-row gold κ), `data/reports/gold_sheet_v3_scored.csv` (59/60 scored).
 
-This document is the single source of truth for the work between today and the production 10,000-question generation run. Five phases (A–E), ~3-4 days wall-clock, ~$105 cost, ~3 hours human time.
+This document is the single source of truth for the work between today and the production 10,000-question generation run. Phases A–E (v2.2) followed by Phase F (v2.3) target the two remaining blockers plus two user-flagged quality concerns: template pattern-monopoly and Gemini reallocation.
 
 ---
 
@@ -218,13 +218,129 @@ NeurIPS deadline: May 15. Comfortable margin (3+ weeks).
 
 ---
 
-## Execution status (2026-04-20)
+## Execution status (2026-04-22)
 
-- **Phase A — done.** `gold_sheet_v2_scored.csv` merged; human findings folded into fixes #8–#11.
-- **Phase B — in flight.** 4 parallel worktree teams spawned simultaneously:
-  - **Template team** (fix #8) — radical overhaul, ~2-day task
-  - **Generator team** (fixes #1, #5) — paraphrase default + C4 generation-time gate
-  - **Audit team** (fixes #2, #9, #10) — B2 threshold + ChatGPT comparative prompt fix + C4 calibration
-  - **Sampler team** (fixes #3, #4, #6, #7, #11) — D3 cap, A1 calibration, β-2 walk-back, C2 triage, FTQ iconic-entity filter
+- **Phase A — done** (2026-04-20). Gold v2 merged; v2.2 fixes 8–11 derived.
+- **Phase B — done** (2026-04-20→21). All 4 worktree teams shipped: fixes #1–#11 merged. Commits 547086e, 60490ae, 0078371, 64130f8, d352871.
+- **Phase C — done** (2026-04-21, run `0bfe85dc-…`, 331 Qs, $8.51). Most v2.2 expected outcomes hit: C4 fail rate 36% → 3.6%, C2 fails 3 → 0, A3 fails 35% → 4.8%. B2 fails stayed at 66% (threshold recalibration less effective than hoped), A4 AUC unsampled (only 1 template survived filter).
+- **Phase D — done** (2026-04-22, this update). Gold v3 (`gold_sheet_v3_scored.csv`, 59 rows) imported and κ recomputed across 119 combined labels. Per-generator and per-template analysis below (§D.1–D.3).
+- **Phase E — BLOCKED** on 2 hard gates + 2 user-flagged quality concerns → v2.3.
 
-Phase C kicks off once all 4 teams merge. If Template team lags (expected: it is L-sized, the others are S/M), audit run #3 either blocks on it or fires first without template, then re-fires the template slice.
+---
+
+## Phase D · Gold-v3 sign-off (findings, 2026-04-22)
+
+### D.1 · Gate status after run #3 + gold v3
+
+| Gate | Target | Observed | Status |
+|---|---|---|---|
+| Per-generator `answer_correct` ≥ 95% (human) | 95% | chatgpt 100%, claude 100%, qwen 100%, **gemini 88%, llama 89%, template 75%** | ✗ (3 cells) |
+| Template-specific `answer_correct` ≥ 95% | 95% | **75% (9/12)** — 3 catastrophic still come from broken source facts | ✗ |
+| Template 7-rubric clean-pass ≥ 70% | 70% | 58% (7/12) perfect 8/8; 75% if `difficulty_match` excluded | ✗ |
+| Overall perfect 8/8 rate | — | **66.1%** (39/59) — up from 45.8% in gold v2 | — |
+| A1 fail rate < 1% | <1% | 4.8% | ✗ |
+| A3 fail rate < 2% (single-fact) | <2% | 4.8% overall; 50% on template strategy alone | marginal ✗ |
+| A4 AUC < 0.85 | <0.85 | unsampled (n=1 template post-filter) | ⚠ |
+| B1 majority-matches-key ≥ 95% | 95% | 91.8% audit; 91.5% human | ✗ |
+| B2 leakage < 15% | <15% | 66% | ✗ (threshold recalibration debated) |
+| C2 category-leak fail count = 0 | 0 | 0 | ✓ |
+| D1 self-pref \|Δ\| < 0.07 | <0.07 | 0.06 (ChatGPT) warn | ~✓ |
+| D3 max country ratio < 1.5 | <1.5 | 3.14× (South Africa) | ✗ |
+| `difficulty_match` ≥ 80% (human) | 80% | **69%** — biggest single rubric weakness | ✗ |
+| `distractor_plausibility` ≥ 75% | 75% | 90% | ✓ |
+
+**Hard blockers for Phase E: template correctness (75%), difficulty calibration (69%), country skew (D3), B2 leakage.** B2's gate deserves reconsideration because human κ shows LLM-judge needs_source signal is noise (§D.2).
+
+### D.2 · LLM-judge ↔ human κ on 119 combined gold rows
+
+| Rubric | Agent | human pass% | LLM pass% | agreement | κ |
+|---|---|---:|---:|---:|---:|
+| `answer_correct` | B1_TriJudgeAnswer | 91.5% | 94.9% | 93.2% | **0.466** |
+| `distractors_plausible` | C2_CategoryLeak | 89.8% | 94.9% | 88.1% | 0.166 |
+| `source_faithful` | A3_FactEcho | 93.2% | 88.1% | 88.1% | 0.304 |
+| `no_vague_language` | A1_LexicalHygiene | 89.8% | 89.8% | 79.7% | -0.113 |
+| `needs_source` | B2_ClosedBookSolvability | 93.2% | 18.6% | 15.3% | **-0.099** |
+
+Only B1 carries a usable signal (κ ≈ 0.47, approaching but still below the 0.6 gate). **B2 is actively misleading** — it flags 75% of human-acceptable questions as failures. Every other LLM-judge signal must be treated as noisy proxy, not a gate.
+
+**Implications for Phase E sign-off:** hard gates trigger on human spot-check (not LLM-judge). LLM-judge agents stay for triage / broad signal only. The B2 ≥15% leakage gate is **dropped** in v2.3 and replaced with a tighter human sample during production audit.
+
+### D.3 · Per-generator and per-strategy pass rates
+
+From audit_pilot_v3 (331 Qs, all 6 question-level agents):
+
+| Generator | Avg pass rate | A1 | A3 FactEcho | B1 | B2 | C2 | C4 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **gemini** | **70.5%** | 93 | **81** | 93 | 23 | 96 | 37 |
+| chatgpt | 66.7 | 95 | 55 | 97 | 11 | 100 | 42 |
+| claude | 66.7 | 90 | 51 | 93 | 29 | 100 | 37 |
+| llama | 64.4 | 98 | 38 | 92 | 25 | 97 | 35 |
+| qwen | 63.3 | 79 | 60 | 89 | 20 | 96 | 37 |
+| template_only | 63.1 | 100 | 14 | 71 | 43 | 100 | 50 |
+
+**Gemini is the overall pass-rate leader, decisively dominant on A3 FactEcho (81% vs 60% next).** Human gold-v3 corroborates: Gemini 75% perfect-8/8 (matching Llama, beating Claude/ChatGPT at 67%) with avg 7.50/8. → Reallocation rationale in §13 of the improvement plan.
+
+By strategy (pass rate avg across 6 agents):
+
+| Strategy | Pass% | Top weakness |
+|---|---:|---|
+| distractor_mining | 70.3 | — |
+| comparative | 65.5 | B2 (32%), C4 (37%) |
+| fact_to_question | 65.4 | B2 (9%), C4 (35%) |
+| template | 63.1 | A3 (14%), B1 (71%) |
+| scenario_synthesis | 62.3 | B2 (12%), A3 (46%) |
+
+### D.4 · User-flagged findings
+
+**Template pattern-monopoly** (user observation 2026-04-22 — confirmed):
+
+- 107 template questions in DB, but only **11 distinct `template_id`s** fire — registry has 38.
+- Dominant template `T-PRD-TF-REGION-01` accounts for **30/107 (28%)** of all templates; its 3 paraphrase variants occupied all 12 gold-v3 template slots (100% of the sample was one pattern).
+- All 107 templates carry `cognitive_dim=recall`; registry defines 5 `comprehension` templates that never fire.
+- ~32 of 107 templates use `template_id`s that v2.2 fix #8a marked for deletion (`T-REG-COUNTRY-01`, `T-GRP-REGION-01`, `T-GRP-ORIGIN-01`) but were never purged from DB.
+- **14 templates were generated from 43 corrupt Bordeaux "classified estate in Château X" source facts** (the Bordeaux scraper misread classified-list table columns). This is what produced the 3 "Completely incorrect: Chateau name used as region" human fails.
+
+**Gemini performance** (user observation 2026-04-22 — confirmed):
+
+See §D.3. Gemini leads overall quality metrics and is dominant on the highest-priority post-v2.1 defect (A3 FactEcho). Reallocation shipped to `orchestrator.py` in this commit; details in GENERATION_IMPROVEMENT_PLAN.md §13.
+
+---
+
+## Phase F · v2.3 fixes (before Phase E 10k run)
+
+Six fixes, partitionable across 3 worktree teams. All address Phase D blockers.
+
+| # | Fix | File(s) | Effort | Owner team |
+|---|---|---|---|---|
+| 12 | **Gemini allocation bump** (2400 → 2800) balanced from qwen (1100 → 800) and llama (700 → 600). Already shipped in this commit's orchestrator edit. | `src/generators/orchestrator.py` | S ✅ | — |
+| 13 | **Template diversity cap** — hard cap any single `template_id` at 15% of template strategy output; `T-PRD-TF-REGION-01` currently holds 28%. Add to `fill_template()` selection loop a running counter keyed on `template_id`; when cap hit, skip and resample a different template. Increase minimum distinct-template-id floor to 20 (vs observed 11). | `template_generator.py` | S | Template |
+| 14 | **Legacy template purge + Bordeaux fact scrub** — (a) DELETE templates with `template_id IN ('T-REG-COUNTRY-01','T-GRP-REGION-01','T-GRP-ORIGIN-01','T-REG-GRAPE-01')` from questions (n≈32). (b) DELETE the 43 broken `'... classified Bordeaux estate in Château ...'` and `'%align=%'`/`'%&nbsp;%'` facts, and the ~14 template questions derived from them. (c) Patch `src/scrapers/bordeaux.py` table-cell parser so it never re-creates these facts. (d) Re-run `bordeaux.py --all` to backfill correctly-parsed data. | `bordeaux.py`, ad-hoc SQL | M | Sampler |
+| 15 | **Template registry expansion — comprehension / application tier** — add 10–12 new templates at `cognitive_dim=comprehension` (requires inference from fact, not entity recall) and 4–5 at `cognitive_dim=application` (requires applying fact rule to novel scenario). Seed from facts whose `entities` JSONB has multiple non-name fields (soil+climate, aging+vessel, etc.). Target 50+ registered templates, ≥25 firing. | `template_generator.py` TEMPLATES | M | Template |
+| 16 | **Difficulty re-calibration pass #2** — gold v3 showed 18 directional difficulty fails (15 labelled-too-easy-by-1). Fold these into `_c4_call_llm` calibration few-shot and tighten threshold: reject generation on ≥1-level mismatch at L3/L4 (was ≥2); keep ≥2 at L1/L2 to preserve throughput. | `team_c_probes.py` | S | Audit |
+| 17 | **D3 hard-cap enforcement pass** — v2.2 set the cap to 1.2× but run #3 still showed 3.14× for South Africa. Investigate whether the cap is (a) not being consulted, (b) being consulted after over-sampling already happened, or (c) South Africa is genuinely a multi-country entity category. Fix the detected failure mode. | `_fact_sampler.py` | S | Sampler |
+| 18 | **B2 gate retirement** — drop the "B2 leakage < 15%" gate from Phase E Go/No-Go. Keep B2 as a ranked defect signal only (warn threshold) since κ = -0.10 with humans. Add a compensating human gate: **needs_source ≥ 85% on a 30-Q production spot-check**. | `docs/PATH_TO_10K.md` §Phase E | S ✅ | this commit |
+
+### Recommended team partition (3 parallel worktrees)
+
+- **Template team** — fixes 13, 14 (a,b), 15. Owns `template_generator.py` inventory + cap logic.
+- **Sampler team** — fixes 14 (c,d), 17. Owns `bordeaux.py` fact-parser fix + D3 cap enforcement.
+- **Audit team** — fix 16. Owns `team_c_probes.py` C4 calibration.
+
+Fixes 12 and 18 are already applied in this commit.
+
+**Wall-clock:** ~2 days parallel, ~4 days sequential. **Cost:** ~$2 (Bordeaux rescrape + Gemini difficulty re-calibration dry-run).
+
+### Phase F verification
+
+Re-run `build-corpus --tag audit_pilot_v4 --per-strategy 120` + `run --teams A,B,C,D` + `export-gold --size 60 --out gold_sheet_v4.csv`. Expected outcomes:
+
+- Template questions: `answer_correct` ≥ 95% (v2.3 target)
+- Template diversity: HHI on `template_id` < 0.10 (run #3 was ~0.13); ≥25 distinct templates fire; no single pattern > 15% share
+- No question references any corrupt Bordeaux "estate in Château" fact
+- `difficulty_match` (human) ≥ 80%
+- D3 max country ratio < 1.5×
+- Gemini share of corpus ≈ 28–31%
+
+Human spot-check: 30 Qs per strategy → sign off Phase E.
+
+---
