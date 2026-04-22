@@ -82,45 +82,94 @@ Return JSON:
 
 
 # ─── C4 — difficulty re-classifier (single Gemini call per question) ─────────
+#
+# v2.3 fix #16 — Rebuilt after gold-v3 human review showed difficulty_match
+# rubric failing at 31% (18/59). Rubric now anchors levels to *observable*
+# properties of the question (inference-vs-recall, entity obscurity, number of
+# facts needed) rather than target-audience language. Few-shot cases are
+# drawn from gold-v3 miscalibrations: one each of L1-correct, L2→L3 miss,
+# L3→L2 miss, L4-correct. The full 14-case pool lives in
+# `src/qa/agents/team_c_probes._C4_GOLD_V3_FEWSHOT`.
 
 C4_SYSTEM = """You are a wine certification exam designer. Your job is to rate
 how difficult a multiple-choice question would be for a wine certification
 candidate (target audience: WSET Level 3 / Court of Master Sommeliers
 Certified candidates working toward Diploma / Master).
 
-Use this rubric strictly:
-  1 — Beginner. Recall of well-known basics any wine enthusiast would answer.
-      Examples: "Which country is Champagne in?", "Which grape is the main red of Burgundy?"
-  2 — Intermediate. Recall or simple application requiring formal study.
-      Examples: classic appellation rules, common grape-region pairings, basic vinification facts.
-  3 — Advanced. Requires study beyond the major regions: lesser-known appellations,
-      specific regulations, viticultural / winemaking details. Most enthusiasts would miss it.
-  4 — Expert. Specialist knowledge: obscure sub-regions, niche producers, technical viticulture
-      / oenology, regional regulation specifics. Even Diploma-level candidates struggle.
+Use this rubric. Each level is anchored to **observable properties** of the
+question, not just who the target student is:
 
-CALIBRATION RULE (v2.2 fix #10): Most questions asking about a SPECIFIC small
-producer or obscure appellation should be rated L3 or higher — NOT L2. If the
-question's entity is not one a WSET-3 student would routinely encounter in
-textbook study, default to L3 unless the question is trivially phrased.
+  1 — Beginner. Direct recall of a named entity that literally appears in the
+      source fact, where the entity is a famous household name (country-level
+      wine region, globally known producer, globally known grape). One fact is
+      enough; no inference is required.
+      Examples: "Which country is Champagne in?",
+                "Which region houses Château Margaux?"
 
-CALIBRATION EXAMPLES (from human re-grade of audit run #2):
-  Q: "In what year was the Wine Association of Nova Scotia established?"
-     → difficulty 3 (obscure regional body — not L2 recall)
-  Q: "Which Israeli wine producer set up a facility in Barkan Industrial Park?"
-     → difficulty 3 (obscure specific producer — not L2 recall)
-  Q: "True or False: the producer Force Majeure Vineyards sits within the
-      United States wine region." → difficulty 3 (small WA producer, not L1)
+  2 — Intermediate. Requires pairing two fields from the fact (e.g. mapping a
+      château to its appellation) OR mapping one field to its typical
+      textbook value (e.g. principal grape of a mainstream appellation). The
+      work is simple recall + one-step lookup.
+      Examples: "True/False: Château Sociando-Mallet is in the Médoc.",
+                "Which entity was created in 2003 from a BATF restructuring?"
+
+  3 — Advanced. Requires one of: (a) inference beyond what is literally in the
+      fact — applying a rule, generalising from a pattern, or combining two
+      facts; (b) an entity that is specific but not famous (small AVA,
+      secondary appellation, regional body, niche producer a WSET-3 student
+      would meet only in focused study). Most enthusiasts would miss it.
+      Examples: "Cautín, a tiny Chilean zone, belongs to which broader
+                 viticultural region?" (obscure entity),
+                "Which AVA permits Bordeaux reds but not Rhône whites?"
+                  (rule application across two fact fields),
+                "Compliance lookup for two California AVAs." (two-fact combo)
+
+  4 — Expert. Multi-step reasoning OR an entity so obscure it appears in
+      fewer than five mentions across the fact base (hybrid-grape genealogy,
+      specialist viticulture parameters, microregions, historical details
+      rarely covered in Diploma curricula).
+      Examples: "Which Seibel hybrid, named for Adhémar, is still grown in
+                 the northeastern US?",
+                "Which grape was crossed with Aramon du Gard to create
+                 Rayon d'Or?"
+
+OBSERVABLE-PROPERTY CHECKLIST — apply before you commit to a level:
+  - How many facts must be combined to answer?   1 fact → L1/L2 candidate.
+                                                   ≥ 2 facts → L3/L4 candidate.
+  - Is inference beyond the literal fact needed?  Yes → at least L3.
+  - Is the question's central entity globally
+    famous (named in introductory textbooks)?    Yes → lean L1/L2.
+                                                  No, it is a specific small
+                                                  producer or micro-region →
+                                                  lean L3. Truly obscure /
+                                                  hybrid / technical → L4.
+  - Is the question a plain True/False on a
+    single named fact?                           Cap at L2 unless the entity
+                                                  is truly obscure.
+
+CALIBRATION EXAMPLES (selected from gold-v3 human re-grade, 2026-04-22):
+
   Q: "Which region houses the producer Château Margaux?"
-     → difficulty 1 (famous producer, textbook recall — not L3)
+     Options: [A) Bordeaux, B) Burgundy, C) Rhône, D) Loire]
+     → difficulty 1. World-famous named entity, direct recall from one fact.
+
+  Q: "Cautín, a small wine-producing zone with only a few hectares under vine,
+      is located at the far southern end of Chile. Within which broad Chilean
+      viticultural region does it fall?"
+     Options: [A) Aconcagua, B) Austral, C) Central Valley, D) Coquimbo]
+     → difficulty 3. Labelled L2 by generator but this is L2→L3 miss: Cautín
+     is obscure, not a textbook entity, requires specialist region knowledge.
+
+  Q: "True or False: Château Sociando-Mallet is located in the Médoc
+      wine region."
+     Options: [A) True, B) False]
+     → difficulty 2. Labelled L3 by generator but this is L3→L2 miss: plain
+     True/False on a classed-growth estate-to-appellation mapping is L2.
+
   Q: "Which grape was crossed with Aramon du Gard to create Rayon d'Or,
-      the second parent of Vidal blanc?" → difficulty 4 (deep viticultural
-      history — not L2)
-  Q: "Which Italian wine region is directly expressed through the terroir
-      captured in Trentodoc wines?" → difficulty 1 (famous — not L2)
-  Q: "A winemaker in Tuscany is monitoring Sangiovese vineyards in late
-      September..." → difficulty 3 (standard viticulture reasoning — not L4)
-  Q: "Which individual played a key role in securing Wine of Origin status
-      for a South African region in 2005?" → difficulty 3 (not L2 recall)
+      the second parent of Vidal blanc?"
+     → difficulty 4. Hybrid-grape genealogy — deep specialist knowledge, few
+     fact-base mentions, fits expert tier.
 
 Output STRICT JSON. No prose outside the JSON object."""
 
@@ -134,12 +183,14 @@ C4_TEMPLATE = """## Question
 {correct_answer}
 
 ## Your task
-Rate the difficulty 1-4 using the rubric in the system prompt. Briefly justify.
+Rate the difficulty 1-4 using the rubric in the system prompt. Walk through
+the observable-property checklist (number of facts, inference required,
+entity fame, True/False shape) before committing. Briefly justify.
 
 Return JSON:
 {{
   "difficulty": 1 | 2 | 3 | 4,
-  "rationale": "one short sentence"
+  "rationale": "one short sentence grounded in the observable properties"
 }}"""
 
 
