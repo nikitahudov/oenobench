@@ -69,6 +69,76 @@ BORDEAUX_REGION_KEYWORDS = {
     "castillon", "francs", "1855 classification", "nouvelle-aquitaine",
 }
 
+# ── v2.3 fix #14c — defensive region validators ───────────────────────────
+# Added 2026-04-22 after audit gold-v3 traced 3 human-flagged "completely
+# incorrect" template questions back to Saint-Émilion classified-growths
+# table being mis-parsed. Two failure modes:
+#   (a) Multi-column tables where every cell is a château name — the previous
+#       code treated cell[0] as name and cell[1] as "commune/region", so each
+#       row emitted "Château X is a classified Bordeaux estate in Château Y".
+#   (b) Wikitext cell-attribute syntax ('colspan="2" align="center" | 178 g/L')
+#       leaking through `clean_wiki_value` and into the region slot.
+#
+# `_REGION_IS_CHATEAU_RE` and `_MARKUP_LEAK_RE` act as a final gate on every
+# candidate commune before a classification fact is emitted.
+
+_REGION_IS_CHATEAU_RE = re.compile(r"^\s*ch(?:â|a)teau\b", re.IGNORECASE)
+_MARKUP_LEAK_RE = re.compile(r"(?:\b(?:align|colspan|rowspan|bgcolor|valign|style)\s*=|&nbsp;|\|)", re.IGNORECASE)
+
+# Article titles where table rows list classified estates in one or more
+# parallel columns (NOT estate→commune pairs). For these, every cell in a
+# data row is a château name at the same classification level; the commune
+# is fixed by the article (here, Saint-Émilion).
+_MULTICOL_ESTATE_TABLE_REGIONS = {
+    "Classification of Saint-Émilion wine": "Saint-Émilion",
+    "Classification of Saint-Emilion wine": "Saint-Émilion",
+}
+
+
+_CELL_CRUFT_RE = re.compile(r"(?:&nbsp;|&amp;|\u00a0)+", re.IGNORECASE)
+
+
+def _sanitize_cell(text: str) -> str:
+    """Strip residual HTML entities (`&nbsp;`, non-breaking space) and
+    collapse whitespace. ``clean_wiki_value`` in ``_wiki_helpers`` doesn't
+    touch named entities, so they leak into cell text and would otherwise
+    show up in emitted fact texts and entity names.
+    """
+    if not text:
+        return ""
+    cleaned = _CELL_CRUFT_RE.sub(" ", text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _is_chateau_cell(text: str) -> bool:
+    """True if a cell clearly names a château-style estate.
+
+    Used to detect the multi-column "row of sibling estates" layout that the
+    Saint-Émilion classification article uses.
+    """
+    return bool(_REGION_IS_CHATEAU_RE.match(_sanitize_cell(text) or ""))
+
+
+def _region_is_valid(commune: str) -> bool:
+    """Gate keeper for fact_text = '<name> is a classified Bordeaux estate in <commune>'.
+
+    Rejects commune values that are themselves château names (the off-by-one
+    bug) or that contain leftover wikitext/HTML markup (e.g. ``align="center"``
+    or ``&nbsp;``). Returns True when the value is safe to emit.
+    """
+    if not commune:
+        return False
+    cleaned = commune.strip()
+    if not cleaned:
+        return False
+    if _REGION_IS_CHATEAU_RE.match(cleaned):
+        return False
+    if _MARKUP_LEAK_RE.search(cleaned):
+        return False
+    return True
+
+
 # Key Wikipedia articles to scrape
 KEY_ARTICLES = [
     "Bordeaux wine",
@@ -108,6 +178,168 @@ WIKIPEDIA_CATEGORIES = [
 # ─── Wikipedia Scraping ──────────────────────────────────────────────────────
 
 
+_HEADER_CELL_VALUES = {
+    "name", "château", "chateau", "estate", "wine", "property",
+    "appellation", "commune", "classification", "growth",
+    "premier grand cru classé", "premier grand cru classé 'a'",
+    "premier grand cru classé 'b'", "grand cru classé",
+    "premier cru", "second cru", "third cru", "fourth cru", "fifth cru",
+    "premier grand cru", "grand cru", "premier grand cru classe",
+    "premier grand cru classe 'a'", "premier grand cru classe 'b'",
+    "grand cru classe",
+}
+
+
+def _is_header_cell(text: str) -> bool:
+    """Return True for cells that are clearly table headers, not data."""
+    if not text:
+        return True
+    normalised = text.strip().lower().strip("'\" ")
+    if not normalised:
+        return True
+    if normalised in _HEADER_CELL_VALUES:
+        return True
+    # Any row whose first cell is an unbulleted classification title
+    if normalised.startswith(("premier grand cru", "grand cru classé",
+                              "grand cru classe", "premier cru classé",
+                              "premier cru classe")):
+        return True
+    return False
+
+
+def _facts_from_classification_table(
+    rows: list[list[str]],
+    title: str,
+    source_id: str,
+    seen: set[str],
+) -> list[dict]:
+    """Build classification facts from wikitext table rows.
+
+    v2.3 fix #14c — Saint-Émilion uses a multi-column layout where every
+    data-row cell is a château name at the same classification level. The
+    prior code ``name=row[0], commune=row[1]`` produced off-by-one facts like
+    "Château Pavie is a classified Bordeaux estate in Château Figeac" (9 of
+    13 rows affected, plus 9 more with table-attribute markup leaking into
+    the commune slot).
+
+    Behaviour per article layout:
+      * ``title`` in ``_MULTICOL_ESTATE_TABLE_REGIONS`` — treat each cell as a
+        sibling château name; set commune to the fixed region for that
+        article (e.g. "Saint-Émilion").
+      * Otherwise — fall back to the legacy two-column ``name | commune``
+        layout, but apply ``_region_is_valid`` so no row where the commune
+        is itself a château or carries HTML markup is ever emitted.
+    """
+    out: list[dict] = []
+    is_multicol = title in _MULTICOL_ESTATE_TABLE_REGIONS
+    # Non-château Saint-Émilion classified estates (Clos, domaines, etc.)
+    # whose cells should still be treated as sibling producers in the
+    # multi-column layout.
+    _NON_CHATEAU_CLASSIFIED = (
+        "clos ", "domaine ", "la mondotte", "le dôme", "le dome",
+        "pavillon ", "vieux ",
+    )
+
+    for row in rows:
+        if not row:
+            continue
+        # A single-cell row is a section header (e.g. "Grand Cru Classé") —
+        # never a data row in these tables.
+        if len(row) == 1:
+            continue
+
+        # Sanitize every cell up front so residual &nbsp; / non-breaking
+        # spaces don't leak into producer names or commune strings.
+        sanitized_row = [_sanitize_cell(c) for c in row]
+
+        # Multi-column estate layout: every data row lists sibling classified
+        # estates (mostly "Château X", occasionally "Clos Y" or "La Mondotte").
+        # We enter this branch whenever the article is known to use this
+        # layout AND at least one cell looks like a classified-estate name.
+        if is_multicol and any(
+            _is_chateau_cell(cell)
+            or cell.lower().startswith(_NON_CHATEAU_CLASSIFIED)
+            for cell in sanitized_row
+        ):
+            commune = _MULTICOL_ESTATE_TABLE_REGIONS[title]
+            for name in sanitized_row:
+                if not name or _is_header_cell(name):
+                    continue
+                if len(name) < 3 or len(name) > 80:
+                    continue
+                # Drop obvious non-estate cells (numbers, stray markup) —
+                # classified estates either start with Château/Clos/Domaine
+                # or are one of the handful of known one-off names.
+                lname = name.lower()
+                is_estate_name = (
+                    _is_chateau_cell(name)
+                    or any(lname.startswith(pfx) for pfx in _NON_CHATEAU_CLASSIFIED)
+                )
+                if not is_estate_name:
+                    continue
+                if not _region_is_valid(commune):
+                    continue
+                # Defensive: estate names themselves must not leak markup.
+                if _MARKUP_LEAK_RE.search(name):
+                    continue
+                fact_text = f"{name} is a classified Bordeaux estate in {commune}."
+                key = fact_text.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append({
+                    "fact_text": fact_text,
+                    "domain": classify_domain(fact_text),
+                    "subdomain": "bordeaux",
+                    "source_id": source_id,
+                    "entities": [
+                        {"type": "producer", "name": name},
+                        {"type": "region", "name": commune},
+                    ],
+                    "confidence": 0.9,
+                    "tags": ["bordeaux", "wikipedia", "classification"],
+                })
+            continue
+
+        # Legacy two-column "name | commune" layout.
+        name = sanitized_row[0] if sanitized_row else ""
+        commune = sanitized_row[1] if len(sanitized_row) > 1 else ""
+        if not name or _is_header_cell(name):
+            continue
+        if len(name) < 3 or len(name) > 80:
+            continue
+        if not commune or len(commune) >= 40:
+            continue
+        if commune.startswith(("–", "—", "-")):
+            continue
+        # v2.3 fix #14c defensive gate: drop off-by-one château-as-region
+        # pairings and any row whose commune contains table-markup leakage.
+        if not _region_is_valid(commune):
+            continue
+        # Estate names must also be markup-free.
+        if _MARKUP_LEAK_RE.search(name):
+            continue
+        fact_text = f"{name} is a classified Bordeaux estate in {commune}."
+        key = fact_text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "fact_text": fact_text,
+            "domain": classify_domain(fact_text),
+            "subdomain": "bordeaux",
+            "source_id": source_id,
+            "entities": [
+                {"type": "producer", "name": name},
+                {"type": "region", "name": commune},
+            ],
+            "confidence": 0.9,
+            "tags": ["bordeaux", "wikipedia", "classification"],
+        })
+
+    return out
+
+
 def _scrape_wikipedia_articles(session, source_id: str) -> list[dict]:
     """Scrape key Bordeaux wine articles from Wikipedia using atomic extraction."""
     facts = []
@@ -136,37 +368,16 @@ def _scrape_wikipedia_articles(session, source_id: str) -> list[dict]:
                     })
 
         if wikitext:
-            # Parse tables from classification articles
+            # Parse tables from classification articles. v2.3 fix #14c:
+            # delegate to _facts_from_classification_table so the multi-column
+            # Saint-Émilion layout (rows of sibling château cells) and stray
+            # table-attribute leakage (align=, colspan=, &nbsp;) can't produce
+            # "<Château A> is a classified Bordeaux estate in <Château B>"
+            # or markup-contaminated region entities.
             rows = parse_wikitext_tables(wikitext)
-            for row in rows:
-                if len(row) >= 2:
-                    name = row[0].strip()
-                    commune = row[1].strip() if len(row) > 1 else ""
-                    if not name or name.lower() in (
-                        "name", "château", "chateau", "estate", "wine",
-                        "property", "appellation", "commune",
-                    ):
-                        continue
-                    if len(name) < 3 or len(name) > 80:
-                        continue
-                    if commune and len(commune) < 40 and not commune.startswith(("–", "—", "-")):
-                        fact_text = f"{name} is a classified Bordeaux estate in {commune}."
-                        domain = classify_domain(fact_text)
-                        key = fact_text.lower()
-                        if key not in seen:
-                            seen.add(key)
-                            facts.append({
-                                "fact_text": fact_text,
-                                "domain": domain,
-                                "subdomain": "bordeaux",
-                                "source_id": source_id,
-                                "entities": [
-                                    {"type": "producer", "name": name},
-                                    {"type": "region", "name": commune},
-                                ],
-                                "confidence": 0.9,
-                                "tags": ["bordeaux", "wikipedia", "classification"],
-                            })
+            facts.extend(
+                _facts_from_classification_table(rows, title, source_id, seen)
+            )
 
             # Parse infobox data
             infobox = parse_infobox(wikitext)
