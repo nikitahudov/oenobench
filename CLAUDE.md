@@ -194,32 +194,33 @@ All significant work on this project must be documented in `docs/PROCESS_LOG.md`
 
 All other planned scrapers have been implemented and rebuilt with genuine data provenance.
 
-## Current Status (as of April 19, 2026)
+## Current Status (as of April 23, 2026)
 
-**Phase:** 2d — Audit run #1 complete; **regeneration BLOCKED** by 3 critical defects.
+**Phase:** 2g — v2.3 §5b+§5c shipped (B2 generation-side leakage fix + judge recalibration). Ready for audit run #4.
 
 - Phase 1 (Data Collection): ✅ 38,104 facts from 35 genuine scrapers
 - Phase 2 (Question Generation Pipeline): ✅ 5 strategies built and iteratively tuned
 - Phase 2c (Quality Audit Framework): ✅ 9 agents across 4 teams under `src/qa/`
-- Phase 2d (Audit run #1): ✅ 472-Q pilot audited at $8.49 / 3,207 LLM calls
+- Phase 2d–2f (Audit runs #1–#3 + gold-v1–v3 sign-off): ✅
+- Phase 2g (v2.3 §5b/§5c fixes): ✅ Three parallel worktree teams merged; 269/269 tests pass
 
-### Audit run #1 — defect leaderboard
+### Phase 2g shipped (2026-04-23)
 
-| Rank | Defect | Agent | Severity |
-|---:|---|---|---|
-| 1 | Verbatim source copying in question + correct option | A3 FactEcho | 35% fail, 38% warn |
-| 2 | Question solvable from world knowledge alone | B2 ClosedBookSolvability | 30% fail, 32% warn |
-| 3 | Key disagrees with judge consensus | B1 TriJudgeAnswer | 5% fail, 12% warn |
-| 4 | Templates statistically distinguishable (AUC 0.96) | A4 TemplateFingerprint | 64% fail/warn |
-| 5 | Vague / marketing / blend-as-variety phrasing | A1 LexicalHygiene | 3% fail, 3% warn |
-| 6 | Wine-category distractor leak | C2 CategoryLeak | 1% fail, 2% warn |
-| 7 | Country over-representation 4.46× | D3 SkewAudit | FAIL |
-| 8 | Position / length bias in MC options | A2 BiasStats | FAIL on at least one cell |
-| 9 | ChatGPT shows ~12pp self-preference advantage | D1 SelfPreference | warn |
+| Area | Change | Artifact |
+|---|---|---|
+| Generation iconic filter | `data/iconic_entities.yaml` 60 → 188 entries, 4 new categories | Team α merge |
+| Multi-fact bundle filter | `_bundle_has_non_iconic_anchor` integrated into `sample_fact_pairs/groups/clusters/confusable_facts` | Team α merge |
+| Vague regex | +11 generator-side patterns, +7 audit-side patterns | Teams α + γ |
+| Strategy prompts | `AVOID WORLD-KNOWLEDGE SOLVABILITY` + `HARD RULES` across 10 templates | Team α merge |
+| B2 threshold | v3.0 (majority ≥4/5) → **v3.1.0** (L≤2 FAIL iff 5/5 + conf≥0.80; L≥3 WARN-only) | Team β merge |
+| A3 rubric narrative | `source_faithful` → `verbatim_copy` (v1.1.0, logic unchanged) | Team γ merge |
+| C2 rubric narrative | `CategoryLeak` → `wine_category_leak` (v1.1.0, logic unchanged) | Team γ merge |
+| Gold report remap | `_HUMAN_ONLY_AGENT` sentinel for semantic `source_faithful`; `GOLD_RUBRICS` extended additively | Team γ merge |
+| Sampler strategy wiring | Four `sample_facts()` call sites now pass `strategy=…` (was dormant since v2.2) | Coordinator fixup |
 
-Reports written: `docs/QUALITY_AUDIT_REPORT.md` and `docs/GENERATION_IMPROVEMENT_PLAN.md`. Gold-sheet at `data/reports/gold_sheet.csv` is in flight for human reviewer; once imported via `import-gold` the next run will compute LLM-judge↔human Cohen's κ per rubric.
+Reports: `docs/QUALITY_AUDIT_REPORT.md`, `docs/GENERATION_IMPROVEMENT_PLAN.md`, `docs/PROCESS_LOG.md` (Phase 2g entry).
 
-See `CURRENT_STATUS.md` for full per-scraper details, fact counts, and the regeneration Go/No-Go gate.
+See `CURRENT_STATUS.md` for detailed phase tracking and the regeneration Go/No-Go gate.
 
 ## Documentation Maintenance — MANDATORY
 
@@ -376,16 +377,14 @@ See `config/postgres/init.sql` for full schema with enums, indexes, views, and t
 
 ## What to Work On Next
 
-The audit produced a prioritised defect list. Start at the top:
+Phase 2g fixes are merged and green. The immediate sequence:
 
-1. **A3 FactEcho fix (S, blocks rank 1).** Add a "paraphrase, never copy >5 consecutive words verbatim" instruction to every LLM strategy in `src/generators/_prompts.py`; add a post-LLM rejector in `src/generators/_schemas.py` that fails any question with LCS ratio >0.6 against any linked source fact.
-2. **B2 leakage fix (M, blocks rank 2).** Modify generation prompts to push toward fact-specific terminology (away from famous-entity references that are world-knowledge solvable). Re-target leaky question difficulty up.
-3. **D3 country quota (M, blocks rank 7).** Add per-country sampling cap to `src/generators/_fact_sampler.sample_facts` (or weight inverse to country frequency).
-4. **A4 template diversification, A1 vague-regex extension, C2 wine-category sampling pre-filter** — bundle into the same iteration.
-5. Re-run `python -m src.qa.orchestrator build-corpus --tag audit_pilot_v2 --per-strategy 120` then `run --teams A,B,C,D` and verify the Go/No-Go checklist in `docs/GENERATION_IMPROVEMENT_PLAN.md` now passes.
-6. **Only then** start the full 10k generation run.
+1. **Run audit #4.** `python -m src.qa.orchestrator build-corpus --tag audit_pilot_v4 --per-strategy 120 --seed 42` then `run --teams A,B,C,D`. Target: B2 fail rate drops from 66% → ≤15%; new `verbatim_copy` and `wine_category_leak` rubric columns should populate.
+2. **Export gold-v4** (60 Qs, 12/strategy) via `export-gold` and hand to the domain expert for rubric scoring on all 10 rubrics (including the two new ones). Import via `import-gold` once returned.
+3. **Verify Go/No-Go** against the revised checklist in `docs/GENERATION_IMPROVEMENT_PLAN.md` (§Regeneration Go/No-Go — κ targets + per-generator 95% answer_correct spot-check).
+4. **Only then** kick off the full 10k generation run (`python -m src.generators.orchestrator generate-all`, ~$80).
 
-See `CURRENT_STATUS.md` for detailed phase tracking, `docs/GENERATION_IMPROVEMENT_PLAN.md` for the full ranked defect list and Go/No-Go gates.
+See `CURRENT_STATUS.md` for detailed phase tracking, `docs/GENERATION_IMPROVEMENT_PLAN.md` for the full ranked defect list and Go/No-Go gates, and `docs/PROCESS_LOG.md` 2026-04-23 for the Phase 2g methodology details.
 
 ## Important Links
 

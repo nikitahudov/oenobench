@@ -747,3 +747,61 @@ See `docs/PATH_TO_10K.md` Phase F. Three parallel worktrees:
 - **Audit team:** fix 16 (C4 difficulty calibration refresh from gold-v3's 18 directional fails).
 
 Then audit_pilot_v4 + gold_sheet_v4 → sign-off → Phase E 10k run.
+
+---
+
+## 2026-04-23 — Phase 2g: B2 leakage + judge recalibration (v2.3 §5b + §5c execution)
+
+### What was done
+Shipped the two still-pending v2.3 defects against audit run #3's blockers: (a) B2 ClosedBookSolvability 66% fail rate on `audit_pilot_v3` and (b) LLM-judge κ < 0.6 on every gold-v3 rubric. Three parallel agent worktrees (Team α / β / γ per `docs/IMPLEMENTATION_AGENT_ARCHITECTURE.md`) with disjoint file ownership, merged to `main` with one coordinator fixup for a dormant `strategy=` parameter. All 269 tests pass on merged main.
+
+### Sources & inputs
+- `audit_findings` rows for run `0bfe85dc-4fdc-4500-b274-a4b05d982e20` (B2 fail sample for iconic-list harvest)
+- `data/reports/gold_sheet_v3_scored.csv` (vague-phrase harvest for A1 regex extension)
+- `docs/GOLD_CALIBRATION_ANALYSIS.md` (κ rationale for B2 threshold change)
+- `docs/GENERATION_IMPROVEMENT_PLAN.md` §5b / §5c / §14 (the executed plan)
+
+### Methodology
+**Team α — Generation-side B2 fix.** Expanded `data/iconic_entities.yaml` from 60 → 188 entries across 9 categories (classified growths all 5 tiers, Burgundy Grand Crus, iconic producers Bordeaux right-bank + Spain/Portugal, famous generic appellations). Added `_bundle_has_non_iconic_anchor` helper in `_fact_sampler.py` and integrated into `sample_fact_pairs`, `sample_fact_groups`, `sample_fact_clusters`, `sample_confusable_facts` so multi-fact strategies reject iconic-only bundles. Extended `_VAGUE_PATTERNS` with 11 phrasings (e.g. `world[- ]class`, `highly prized`, `distinguished by its`). Added `AVOID WORLD-KNOWLEDGE SOLVABILITY` hard-rule block + numbered `INFERENCE OVER RECALL (HARD RULES)` to all 10 strategy templates in `_prompts.py` (FTQ, COMP + 3 variants, SCEN, DIST + 3 variants). Max prompt length growth ~20%.
+
+**Team β — B2 threshold recalibration (v3.1.0).** Replaced the v3.0.0 majority-of-5 rule with: L≤2 FAIL iff 5/5 keyed AND `cb_confidence_mean ≥ 0.80`; WARN at ≥4/5; L≥3 WARN only (never FAIL on closed-book alone). Added `cb_confidence_mean` payload field. Bumped `B2_VERSION` to `v3.1.0`. Renamed misnamed test file `test_team_d_recalibration.py` → `test_team_b_recalibration.py` via `git mv` + updated 6 legacy cases to v3.1 semantics + added 5 new v3.1 cases.
+
+**Team γ — Audit rubric reframing.** Extended A1 vague regex with 7 audit-side patterns (e.g. `celebrated for`, `notable for`, `sought-after`). Renamed A3 and C2 rubric narratives (no logic change): A3 payload `rubric_measured="verbatim_copy"` (v1.1.0); C2 payload `rubric_measured="wine_category_leak"` (v1.1.0). Remapped `GOLD_RUBRIC_TO_PROXY` in `build_audit_report.py` with a `_HUMAN_ONLY_AGENT` sentinel so `source_faithful` (semantic) is rendered human-only while the new `verbatim_copy` rubric proxies to A3. Extended `GOLD_RUBRICS` in `_corpus.py` additively — old gold sheets still import cleanly.
+
+**Coordinator fixup.** Team α flagged that no caller of `sample_facts(strategy=…)` was passing the argument, leaving the v2.2 single-fact iconic filter dormant. Wired `strategy="fact_to_question"` / `"template"` / `"distractor_mining"` at four call sites (`fact_to_question.py:240,364`, `template_generator.py:2135`, `distractor_miner.py:80`).
+
+### Quality controls
+- Smoke assertions: `_load_iconic_entities()` returns 188; `Napa Valley`-only fact = iconic-only; `Chateau Leoville-Las-Cases + Cabernet` fact = NOT iconic-only (has non-iconic entity).
+- All 4 strategy templates contain `AVOID WORLD-KNOWLEDGE` block; all 3 version bumps (`B2=v3.1.0`, `A3=v1.1.0`, `C2=v1.1.0`) observable from module imports.
+- `GOLD_RUBRICS` registry contains both new additive entries.
+- `pytest tests/` — **269/269 pass** (32 s).
+
+### Quantitative results
+| Deliverable | Before | After |
+|---|---|---|
+| Iconic entities | 60 | 188 |
+| Vague regex patterns | baseline | +11 generator-side, +7 audit-side |
+| Hardened strategy templates | 0 | 10 of 10 |
+| B2 FAIL rule (L≤2) | ≥4/5 keyed | 5/5 keyed AND conf ≥ 0.80 |
+| B2 FAIL rule (L≥3) | 5/5 keyed | never (WARN only) |
+| Gold rubrics in registry | 8 | 10 |
+
+### Decisions & trade-offs
+- **B2 at L≥3: never FAIL.** At hard difficulty, closed-book leakage signal is dominated by judge priors (well-read LLMs) rather than test-taker solvability. Demoting to WARN-only preserves observability without gating.
+- **A3 payload rename, not new agent.** Adding a new agent for semantic faithfulness would require a new LLM-judge call per question (~$0.005 × 10k ≈ $50). Renaming is free; new semantic agent deferred to post-Phase-F if κ gains don't materialize.
+- **Sentinel `_HUMAN_ONLY_AGENT` row for `source_faithful`.** Keeps the rubric visible in the report with `—` for LLM columns, reminding readers that semantic faithfulness is a human-only signal until a new agent lands.
+- **4 call sites for `strategy=`.** Could have defaulted the param inside `sample_facts` based on caller module introspection, but explicit is better than magic — the four 1-line edits are self-documenting.
+
+### Issues encountered & resolutions
+1. **Team β's B2 test file misnamed.** `tests/qa/test_team_d_recalibration.py` was actually a Team-B file (its docstring described δ-2's B2 deliverable). Resolved via `git mv` to `test_team_b_recalibration.py`.
+2. **`sample_facts(strategy=…)` dormant.** Team α could not fix from its worktree because the four call sites live in files owned by other teams. Coordinator merged first, then wired the parameter in a single fixup commit.
+3. **Plan mode inheritance.** Team β initially interpreted the coordinator's plan-mode context as inherited and wrote a plan file instead of executing. Resolved via SendMessage authorization.
+
+### Human review notes
+User approved the plan at `/home/winebench/.claude/plans/linear-scribbling-scott.md` and requested auto-mode + parallel Agent Teams. No wine-domain facts changed in this phase.
+
+### Next steps
+1. **Audit run #4.** `python -m src.qa.orchestrator build-corpus --tag audit_pilot_v4 --per-strategy 120 && run --teams A,B,C,D`. Expected: B2 fail rate drops from 66% to ~10–15%; D3 stays <1.5; new A3 `verbatim_copy` and C2 `wine_category_leak` columns populate in the report.
+2. **Gold-v4 export** (60 Qs, 12/strategy) → human grading → import → recompute κ on every rubric including the two new ones.
+3. **Go/No-Go verification** per `docs/GENERATION_IMPROVEMENT_PLAN.md` Regeneration Checklist.
+4. **Unblock full 10k run** if gates clear.

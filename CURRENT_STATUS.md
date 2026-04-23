@@ -1,21 +1,20 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** April 22, 2026
-**Project phase:** Phase 2f — Audit run #3 + gold-v3 sign-off complete; 2 hard gates still failing + 2 user-flagged quality issues → v2.3 plan active in `docs/PATH_TO_10K.md` Phase F.
+**Last updated:** April 23, 2026
+**Project phase:** Phase 2g — v2.3 §5b+§5c shipped (B2 generation-side leakage fix + judge recalibration). Ready for audit run #4.
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ## Latest cliff notes (start here next session)
 
-- **Audit run #3 complete** (`audit_pilot_v3`, 331 Qs, $8.51). v2.2 fixes mostly landed: A3 35%→4.8%, C4 36%→3.6%, C2 3→0, D3 4.46×→3.14× (still failing). A4 held-out AUC unsampled (only 1 template survived the LLM-paraphrase filter).
-- **Gold-v3 scored** (59/60 rows, imported 2026-04-22). Overall perfect 8/8: **66.1%** (up from 45.8% in gold-v2). Weakest rubric: `difficulty_match` at 69%. κ on 119 combined rows: only B1 `answer_correct` has usable signal (κ=0.47); B2 `needs_source` κ=-0.10 is worse than chance → B2 leakage gate retired.
-- **Phase D sign-off: Go/No-Go STILL BLOCKED** on 5 gates: per-generator answer_correct (template 75%, llama 89%, gemini 88%); template 7-rubric clean-pass (58%); difficulty_match (69% vs 80% gate); D3 country ratio (3.14× vs 1.5×); B1 (91% vs 95%).
-- **User-flagged in Phase D (2026-04-22):**
-  1. Template generation is pattern-monopolised — 28% of templates use one `template_id` (T-PRD-TF-REGION-01), 11/38 registered templates fire.
-  2. Gemini questions are subjectively preferred; data confirms (70.5% avg pass rate, dominant on A3 FactEcho at 81%).
-- **Shipped in this commit:**
-  - Gemini allocation bump: 2400 → 2800 in `src/generators/orchestrator.py`, balanced from Qwen (1100 → 800) and Llama (700 → 600). Plan rationale in `docs/GENERATION_IMPROVEMENT_PLAN.md` §13.
-  - v2.3 Phase F plan covering fixes #12–#18: template pattern cap, legacy purge, Bordeaux fact scrub, registry expansion (comprehension+application tier), D3 cap enforcement, C4 recalibration, B2 gate retirement. See `docs/PATH_TO_10K.md` Phase F.
-- **Next session start point:** Phase F Template team (fixes 13, 14a/b, 15) — diversify template registry, purge legacy templates, fix Bordeaux scraper table parsing. Parallel: Sampler team on D3 enforcement + Bordeaux rescrape.
+- **Phase 2g (2026-04-23) — two remaining v2.3 defects shipped via 3 parallel worktree teams:**
+  - **Team α (generation-side B2):** `data/iconic_entities.yaml` expanded 60 → 188 entries; `_fact_sampler.py` widened iconic filter to multi-fact strategies via `_bundle_has_non_iconic_anchor`; 11 new vague-regex patterns; `AVOID WORLD-KNOWLEDGE SOLVABILITY` + numbered `HARD RULES` blocks across all 10 strategy prompts.
+  - **Team β (judge recalibration):** `B2_VERSION v3.1.0` — L≤2 FAIL iff 5/5 keyed AND `cb_confidence_mean ≥ 0.80`; L≥3 WARN-only (never FAIL on closed-book alone). New `cb_confidence_mean` payload field.
+  - **Team γ (rubric reframing):** A3 rubric_measured=`verbatim_copy` (v1.1.0); C2 rubric_measured=`wine_category_leak` (v1.1.0); audit-report rubric remap with `_HUMAN_ONLY_AGENT` sentinel for semantic `source_faithful`; `GOLD_RUBRICS` extended with the two new entries.
+  - **Coordinator fixup:** wired `strategy="fact_to_question"` / `"template"` / `"distractor_mining"` at four `sample_facts()` call sites (single-fact iconic filter was dormant since v2.2).
+- **Test status:** 269/269 pytest pass on merged main.
+- **Audit run #3 (prior)**: `audit_pilot_v3`, 331 Qs, $8.51. v2.2 fixes landed. κ on 119 combined rows: only B1 `answer_correct` has usable signal (κ=0.47). B2 `needs_source` κ=-0.10 is now addressed by the v3.1.0 threshold change.
+- **Phase D sign-off: Go/No-Go STILL BLOCKED** on 5 gates pending audit run #4 re-measurement: per-generator answer_correct; template 7-rubric clean-pass; difficulty_match; D3 country ratio; B1.
+- **Next session start point:** Run audit_pilot_v4. `python -m src.qa.orchestrator build-corpus --tag audit_pilot_v4 --per-strategy 120 && run --teams A,B,C,D`. Expected: B2 fail rate drops from 66% to ~10–15%; new `verbatim_copy` + `wine_category_leak` rubric columns populate. Then export gold-v4 for human re-grading.
 
 ---
 
