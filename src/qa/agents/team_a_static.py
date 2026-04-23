@@ -48,6 +48,17 @@ A1_VERSION = "v1.0.0"
 
 # Additional patterns beyond `_VAGUE_PATTERNS` — picked to catch phrasings that
 # the fact-level filter doesn't look for but that LLM question-writers love.
+#
+# The audit-side list is intentionally stricter than the generator-side
+# (`src/generators/_fact_sampler._VAGUE_PATTERNS`): here we look at the final
+# generated question text and can flag phrasings the generator missed.
+# v2.3 Team γ — 2026-04-23: extended with 7 gold-sheet-observed phrasings
+# (is known for producing, highly prized, distinguished by its, celebrated for,
+# notable for, sought-after, one of the most) that were not already covered
+# by existing `_VAGUE_PATTERNS` / `_EXTRA_VAGUE` rules. Patterns omitted as
+# redundant: `renowned for` (subsumed by `renowned`), `world-class`
+# (already `world[- ]class`), `premier` / `prestigious` / `celebrated`
+# (already listed as bare tokens).
 _EXTRA_VAGUE = re.compile(
     r"\b("
     r"acclaimed|esteemed|storied|legendary|revered|beloved|celebrated|"
@@ -55,6 +66,14 @@ _EXTRA_VAGUE = re.compile(
     r"the wines of the region|jewel of|crown jewel|"
     r"pride of|heart and soul|unmistakable|quintessential|"
     r"unparalleled|unrivall?ed|world[- ]class|top[- ]tier|premier"
+    # ── v2.3 Team γ gold-sheet additions ──
+    r"|is known for producing"
+    r"|highly prized"
+    r"|distinguished by its"
+    r"|celebrated for"
+    r"|notable for"
+    r"|sought[- ]after"
+    r"|one of the most"
     r")\b",
     re.IGNORECASE,
 )
@@ -272,14 +291,33 @@ def run_a2_bias_stats(run_id: str, questions: list[dict]) -> list[dict]:
     return findings
 
 
-# ─── A3 — FactEcho ───────────────────────────────────────────────────────────
+# ─── A3 — FactEcho (measures verbatim copying) ───────────────────────────────
+#
+# A3 measures **verbatim copying** of the source fact into the question +
+# correct option (LCS ≥ 0.6 = FAIL). This is a plagiarism / string-similarity
+# check — it is distinct from the human rubric `source_faithful`, which
+# measures *semantic* faithfulness (does the question accurately represent
+# what the source fact says). The two can diverge on multi-fact strategies:
+# a question may be semantically faithful but still copy a long span, or may
+# paraphrase heavily yet misrepresent the fact.
+#
+# Gold-v3 calibration (2026-04-22) observed κ=0.304 when A3 was mapped to
+# `source_faithful`. As of v2.3 Team γ (2026-04-23), the audit report maps
+# A3 to a new rubric slot `verbatim_copy`; `source_faithful` remains a
+# human-only rubric until a dedicated semantic agent exists. The decision
+# rule and LCS threshold are unchanged — only the narrative framing and the
+# `payload["rubric_measured"]` tag are new in v1.1.0.
 
 A3_ID = "A3_FactEcho"
-A3_VERSION = "v1.0.0"
+A3_VERSION = "v1.1.0"  # v2.3 Team γ — narrative rename to verbatim_copy (no logic change)
 _A3_FAIL_LCS = 0.60
 _A3_FAIL_NGRAM = 8
 _A3_WARN_LCS = 0.40
 _A3_WARN_NGRAM = 6
+# Payload tag: which human rubric this agent's signal corresponds to. Read
+# by `src.qa.reports.build_audit_report` when rendering the gold-calibration
+# table, so the LLM-proxy row is paired with the *correct* human column.
+_A3_RUBRIC_MEASURED = "verbatim_copy"
 
 
 def run_a3_fact_echo(run_id: str, questions: list[dict]) -> list[dict]:
@@ -303,7 +341,10 @@ def run_a3_fact_echo(run_id: str, questions: list[dict]) -> list[dict]:
                 "agent_version": A3_VERSION,
                 "severity": SEVERITY_PASS,
                 "score": 0.0,
-                "payload": {"note": "no source fact linked"},
+                "payload": {
+                    "note": "no source fact linked",
+                    "rubric_measured": _A3_RUBRIC_MEASURED,
+                },
             })
             continue
 
@@ -338,6 +379,7 @@ def run_a3_fact_echo(run_id: str, questions: list[dict]) -> list[dict]:
                 "lcs_ratio": round(best_ratio, 4),
                 "longest_ngram": best_ngram,
                 "worst_source_snippet": worst_src,
+                "rubric_measured": _A3_RUBRIC_MEASURED,
             },
         })
     logger.info("A3: echo analysis complete over {} questions", len(findings))

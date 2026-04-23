@@ -222,11 +222,15 @@ GOLD_RUBRICS = [
     "answer_correct",         # the keyed answer is correct given the source
     "distractors_plausible",  # each distractor is plausibly wrong (not trivially eliminable)
     "not_ambiguous",          # only one defensible answer
-    "source_faithful",        # question content stays within source fact
+    "source_faithful",        # question content stays within source fact (semantic)
     "needs_source",           # not solvable purely from general world knowledge
     "no_vague_language",      # no marketing / "acclaimed" / "iconic" etc.
     "difficulty_match",       # difficulty label fits perceived hardness
     "cognitive_match",        # cognitive_dim label fits the cognitive demand
+    # v2.3 Team γ — new rubrics that align with narrow LLM-proxy signals.
+    # Kept additive so old gold sheets (run #1..#3) still import cleanly.
+    "verbatim_copy",          # question/correct-option copies source verbatim (LCS ≥ 0.6)
+    "wine_category_leak",     # a distractor's wine category differs from the correct option's
 ]
 
 

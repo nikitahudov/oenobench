@@ -1,8 +1,13 @@
 """Team C — Adversarial probes.
 
-C2 CategoryLeak — detects wine-category mismatches between the correct option
-and distractors (e.g. a red-wine question with a sparkling-wine option whose
-category is inferable from the stem). Applies to *all* strategies, not just
+C2 CategoryLeak — detects **wine-category distractor leaks only**
+(red vs white vs sparkling vs rosé / fortified mismatches between the correct
+option and its distractors, e.g. a red-wine question with a sparkling-wine
+distractor whose category is inferable from the stem). C2 does NOT measure
+full distractor plausibility — the human rubric `distractors_plausible` is
+broader, covering semantic plausibility and eliminability beyond wine
+category.  Mapped to the narrower `wine_category_leak` audit-report rubric
+(v2.3 Team γ, 2026-04-23). Applies to *all* strategies, not just
 distractor_mining.
 
 C4 DifficultyAudit — single Gemini call per question that re-rates the question
@@ -11,6 +16,7 @@ fail = ≥2 levels). Promoted from deferred status per `docs/GENERATION_IMPROVEM
 
 Deferred (still not implemented):
     C1 DistractorDifficulty  — LLM plausibility scoring of each distractor
+                               (the signal needed for full `distractors_plausible`)
     C3 SourceSwap            — replace fact with unrelated, re-judge
 """
 
@@ -33,7 +39,12 @@ from src.qa._findings import (
 from src.qa._prompts import C4_SYSTEM, C4_TEMPLATE, render_options
 
 C2_ID = "C2_CategoryLeak"
-C2_VERSION = "v1.0.0"
+C2_VERSION = "v1.1.0"  # v2.3 Team γ — narrative rename to wine_category_leak (no logic change)
+# Payload tag: which human rubric this agent's signal corresponds to. Read
+# by `src.qa.reports.build_audit_report` when rendering the gold-calibration
+# table. `wine_category_leak` is a strict subset of the broader human rubric
+# `distractors_plausible`; treat this as a necessary-but-not-sufficient proxy.
+_C2_RUBRIC_MEASURED = "wine_category_leak"
 
 C4_ID = "C4_DifficultyAudit"
 C4_VERSION = "v1.2.0"  # v2.3 fix #16 — gold-v3 calibration refresh + rubric anchored to observable properties
@@ -398,7 +409,10 @@ def run_c2_category_leak(run_id: str, questions: list[dict]) -> list[dict]:
                 "agent_version": C2_VERSION,
                 "severity": SEVERITY_PASS,
                 "score": None,
-                "payload": {"skipped": "< 2 options"},
+                "payload": {
+                    "skipped": "< 2 options",
+                    "rubric_measured": _C2_RUBRIC_MEASURED,
+                },
             })
             continue
 
@@ -445,6 +459,7 @@ def run_c2_category_leak(run_id: str, questions: list[dict]) -> list[dict]:
                 "correct_category": correct_cat,
                 "stem_mentions_category": stem_mentions_cat,
                 "leaked_distractors": leaked,
+                "rubric_measured": _C2_RUBRIC_MEASURED,
             },
         })
 

@@ -255,10 +255,25 @@ def _cross_cutting(by_agent: dict[str, list[dict]]) -> list[str]:
 #
 # Conventions:
 #   • answer_correct        — agree if B1 majority_matches_key is True
-#   • needs_source          — agree if B2 says NOT closed-book correct (i.e. judges couldn't solve without source)
+#   • needs_source          — agree if B2 says NOT closed-book correct
+#     (i.e. judges couldn't solve without source)
 #   • no_vague_language     — agree if A1 severity == pass (no regex match)
-#   • source_faithful       — agree if A3 lcs_ratio < 0.6 (i.e. not a verbatim copy)
-#   • distractors_plausible — agree if C2 has no leaked distractors
+#   • verbatim_copy         — agree if A3 lcs_ratio < 0.6 (i.e. NOT a verbatim
+#     copy). This is the string-similarity / plagiarism axis. [v2.3 Team γ]
+#   • source_faithful       — human-only rubric measuring **semantic**
+#     faithfulness; no dedicated LLM signal exists yet, so the row is rendered
+#     with `—` for LLM pass%. A3 is intentionally not remapped here —
+#     gold-v3 calibration showed verbatim-LCS ≠ semantic faithfulness. [v2.3 Team γ]
+#   • wine_category_leak    — agree if C2 has no leaked distractors. A strict
+#     subset of the broader human rubric `distractors_plausible`. [v2.3 Team γ]
+#   • distractors_plausible — broader human rubric. C2 is a *partial* proxy:
+#     it only detects cross-category leaks, not full distractor plausibility
+#     / eliminability. κ will be bounded above by the ceiling of that subset.
+#     Kept in the table with a caveat until C1 DistractorDifficulty lands.
+
+# Sentinel agent_id used for rubrics that have NO LLM proxy (rendered as "—"
+# columns in the calibration table).
+_HUMAN_ONLY_AGENT = "(human-only)"
 
 GOLD_RUBRIC_TO_PROXY: list[dict] = [
     {
@@ -280,17 +295,36 @@ GOLD_RUBRIC_TO_PROXY: list[dict] = [
         "extract": lambda payload: 0 if (payload.get("matches") or {}) else 1,
         "label": "A1 LexicalHygiene (no regex match)",
     },
+    # v2.3 Team γ — rubric narrative rename. A3 now maps to `verbatim_copy`
+    # (what it actually measures) rather than `source_faithful` (a broader
+    # semantic rubric). Gold-v3 showed κ=0.304 under the old pairing; the
+    # new pairing should recover higher κ because rubric definitions match.
     {
-        "rubric": "source_faithful",
+        "rubric": "verbatim_copy",
         "agent_id": "A3_FactEcho",
         "extract": lambda payload: 1 if (payload.get("lcs_ratio") or 0) < 0.6 else 0,
         "label": "A3 FactEcho (LCS < 0.6)",
     },
     {
+        "rubric": "source_faithful",
+        "agent_id": _HUMAN_ONLY_AGENT,
+        "extract": lambda payload: None,
+        "label": "(human-only — no LLM proxy)",
+    },
+    # v2.3 Team γ — C2 now maps to the narrower `wine_category_leak` rubric.
+    # The broader `distractors_plausible` row below keeps C2 as a *partial*
+    # proxy with a caveat in the caption.
+    {
+        "rubric": "wine_category_leak",
+        "agent_id": "C2_CategoryLeak",
+        "extract": lambda payload: 0 if (payload.get("leaked_distractors") or []) else 1,
+        "label": "C2 WineCategoryLeak (no leaked distractor)",
+    },
+    {
         "rubric": "distractors_plausible",
         "agent_id": "C2_CategoryLeak",
         "extract": lambda payload: 0 if (payload.get("leaked_distractors") or []) else 1,
-        "label": "C2 CategoryLeak (no leaked distractor)",
+        "label": "C2 WineCategoryLeak (partial — category leaks only)",
     },
 ]
 
@@ -337,6 +371,29 @@ def _gold_calibration(
     flagged_signals: list[str] = []
     for entry in GOLD_RUBRIC_TO_PROXY:
         rubric = entry["rubric"]
+
+        # Human-only rubrics (no LLM proxy exists) — show human pass% but
+        # render dashes for LLM / agreement / κ. v2.3 Team γ added the
+        # `_HUMAN_ONLY_AGENT` sentinel so `source_faithful` (which needs a
+        # semantic judge) still appears in the calibration table instead of
+        # being silently dropped.
+        if entry["agent_id"] == _HUMAN_ONLY_AGENT:
+            human_vals = [
+                1 if _human_labels(row).get(rubric) else 0
+                for row in labels.values()
+                if _human_labels(row).get(rubric) is not None
+            ]
+            if not human_vals:
+                table_rows.append(
+                    f"| {rubric} | {entry['label']} | — | — | — | — | 0 |"
+                )
+                continue
+            h_pass = round(100 * sum(human_vals) / len(human_vals), 1)
+            table_rows.append(
+                f"| {rubric} | {entry['label']} | {h_pass}% | — | — | — | {len(human_vals)} |"
+            )
+            continue
+
         rater_human: list[int] = []
         rater_judge: list[int] = []
         for qid, row in labels.items():
