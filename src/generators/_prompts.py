@@ -125,6 +125,19 @@ PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
 than 5 consecutive words verbatim from the source fact into the question or any \
 option. Synonyms, restructured clauses, and inversions are required.
 
+AVOID WORLD-KNOWLEDGE SOLVABILITY:
+- DO NOT phrase questions as recall on globally-famous entities (Château \
+Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
+Champagne houses, etc.). A well-read taster should not be able to answer \
+without the source fact.
+- DO lead questions with an OBSERVABLE ATTRIBUTE from the source fact (aging \
+months, soil type, yield limit, phenolic threshold, clone name, altitude, \
+specific varietal %, regulatory minimum, grape blend percentage) and ask the \
+test-taker to infer the entity.
+- If the only fact-specific content is a famous entity name with no \
+technical/regulatory/attribute detail, output instead: \
+{{"skip": true, "reason": "Iconic entity without fact-specific technical depth"}}
+
 FACT: {fact_text}
 SOURCE: {source_name}
 DOMAIN: {domain}
@@ -161,17 +174,15 @@ fascinating", "discover the excellence", "a must-visit destination"), DO NOT \
 generate a question. Instead, output: {{"skip": true, "reason": "Marketing content"}}
 - Only generate questions from facts that contain specific, verifiable information
 
-QUESTION STYLE — INFERENCE OVER RECALL:
-- Ask directly about the underlying knowledge, not about "what research shows" \
-or "what studies indicate"
-- The question should test wine knowledge, not reading comprehension of the fact
-- When possible, present observable evidence (tasting notes, vineyard conditions, \
-production data) and ask the test-taker to REASON BACKWARD to the underlying \
-knowledge, rather than asking about the fact directly
-- Example: instead of "What is the minimum aging for Barolo?", present a scenario \
-where a wine's characteristics must be matched to the correct appellation
-- Distractors should swap or reverse key attributes so that someone who confuses \
-similar entities picks the wrong answer
+QUESTION STYLE — INFERENCE OVER RECALL (HARD RULES):
+1. Never ask "Which famous X produces Y?" or "What is Château Z known for?" \
+when X, Y, or Z is a globally-famous entity.
+2. Lead with fact-specific attributes (numbers, clones, minimum aging, soil \
+type, yield cap, blend %), NOT with entity names.
+3. The test-taker must *need* the source fact to select the correct answer — \
+if a wine-reading generalist could answer without it, rewrite or skip.
+4. Distractors should swap or reverse the key fact-specific attribute so a \
+test-taker who confuses similar entities picks the wrong answer.
 
 OUTPUT FORMAT (JSON):
 {json_schema}
@@ -217,6 +228,19 @@ PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
 than 5 consecutive words verbatim from the source fact into the question or any \
 option. Synonyms, restructured clauses, and inversions are required.
 
+AVOID WORLD-KNOWLEDGE SOLVABILITY:
+- DO NOT phrase questions as recall on globally-famous entities (Château \
+Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
+Champagne houses, etc.). A well-read taster should not be able to answer \
+without the source facts.
+- DO lead with an OBSERVABLE ATTRIBUTE from the facts (aging months, soil \
+type, yield limit, phenolic threshold, clone name, altitude, specific \
+varietal %, regulatory minimum, blend percentage) and ask the test-taker \
+to infer which entity it describes.
+- If both facts describe only iconic entities with no fact-specific \
+technical/regulatory/attribute detail, output instead: \
+{{"skip": true, "reason": "Iconic entities without fact-specific technical depth"}}
+
 ENTITY A: {entity_a}
 FACT A: {fact_a}
 
@@ -230,16 +254,17 @@ WHY THESE ARE COMPARABLE: {comparison_context}
 The question should exploit this specific relationship to test the ability \
 to distinguish between these similar entities.
 
-QUESTION DESIGN — INFERENCE OVER RECALL:
-- Do NOT simply ask "Which entity has attribute X?" — that is pure recall
-- Instead, present observable evidence or a practical situation where the \
-test-taker must APPLY knowledge of both entities to reach the answer
-- Example: instead of "Which DOCG requires longer aging?", present a scenario \
-where two wines are described and the taster must identify which is which \
-based on characteristics that follow from the facts
-- Distractors should reverse or swap the key distinguishing attributes between \
-the two entities — if the test-taker confuses the two, they pick the wrong answer
-- Keep the question concise — it should present evidence, not business padding
+QUESTION DESIGN — INFERENCE OVER RECALL (HARD RULES):
+1. Never ask "Which of these famous entities has attribute X?" — pure recall \
+on globally-famous entities is world-knowledge-solvable.
+2. Lead with fact-specific attributes, NOT entity names. Present the \
+attribute profile (minimum aging, blend %, soil signature, altitude, \
+production cap, etc.) and ask the test-taker to identify which entity it \
+matches.
+3. The test-taker must *need* BOTH source facts to reach the answer — if \
+they can solve it with only general wine knowledge, rewrite or skip.
+4. Distractors must reverse or swap the distinguishing attribute between the \
+two entities so confusing them selects the wrong answer.
 
 QUALITY REQUIREMENTS:
 - The question MUST be about a meaningful, knowledge-testing difference \
@@ -269,6 +294,18 @@ PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
 than 5 consecutive words verbatim from the source fact into the question or any \
 option. Synonyms, restructured clauses, and inversions are required.
 
+AVOID WORLD-KNOWLEDGE SOLVABILITY:
+- DO NOT phrase questions as recall on globally-famous entities (Château \
+Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
+Champagne houses, etc.). A well-read taster should not be able to answer \
+without the source facts.
+- DO lead with the OBSERVABLE VALUE of the {dimension} dimension (e.g. the \
+specific aging months, varietal %, altitude, yield cap) and ask the \
+test-taker to infer which entity matches.
+- If neither fact has fact-specific detail beyond naming an iconic entity, \
+output instead: \
+{{"skip": true, "reason": "Iconic entities without fact-specific technical depth"}}
+
 ENTITY A: {entity_a}
 FACT A: {fact_a}
 
@@ -282,15 +319,15 @@ The question should test the ability to distinguish between these two entities \
 based on how they DIFFER on the {dimension} dimension, despite their shared \
 context.
 
-QUESTION DESIGN — INFERENCE OVER RECALL:
-- Do NOT simply ask "Which entity has attribute X?" — that is pure recall
-- Instead, present observable evidence or a practical situation where the \
-test-taker must APPLY knowledge of both entities to reach the answer
-- Example: if two appellations differ on aging requirements, describe a wine's \
-characteristics and ask which appellation it likely comes from
-- Distractors should reverse or swap the key distinguishing attributes between \
-the two entities — if the test-taker confuses the two, they pick the wrong answer
-- Keep the question concise — evidence, not padding
+QUESTION DESIGN — INFERENCE OVER RECALL (HARD RULES):
+1. Never ask "Which of these famous entities has attribute X?" — pure recall \
+on iconic names is world-knowledge-solvable.
+2. Lead with the fact-specific {dimension} value, NOT entity names. Present \
+the value and ask the test-taker to identify which entity it corresponds to.
+3. The test-taker must *need* BOTH source facts — if general wine knowledge \
+suffices, rewrite or skip.
+4. Distractors must reverse or swap the {dimension} value between the two \
+entities so confusing them selects the wrong answer.
 
 QUALITY REQUIREMENTS:
 - The question MUST highlight a meaningful difference on the {dimension} dimension
@@ -319,6 +356,18 @@ PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
 than 5 consecutive words verbatim from the source fact into the question or any \
 option. Synonyms, restructured clauses, and inversions are required.
 
+AVOID WORLD-KNOWLEDGE SOLVABILITY:
+- DO NOT phrase questions as recall on globally-famous entities (Château \
+Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
+Champagne houses, etc.). A well-read taster should not be able to answer \
+without the source facts.
+- DO build the identification clue set from OBSERVABLE ATTRIBUTES (aging \
+months, soil type, yield limit, phenolic threshold, clone name, altitude, \
+varietal %, regulatory minimum, blend percentage) drawn from the facts.
+- If the facts provide only famous names with no fact-specific technical \
+detail, output instead: \
+{{"skip": true, "reason": "Iconic entities without fact-specific technical depth"}}
+
 {facts_block}
 
 SHARED CONTEXT: {comparison_context}
@@ -327,16 +376,15 @@ The question should describe characteristics or attributes that match \
 exactly ONE of the entities above, and the test-taker must identify \
 which entity is being described.
 
-QUESTION DESIGN — INFERENCE OVER RECALL:
-- Do NOT simply ask "Which entity has attribute X?" — that is pure recall
-- Instead, present a scenario, tasting note, or practical situation that \
-contains clues pointing to one specific entity
-- The description should require synthesizing multiple pieces of evidence, \
-not just matching a single keyword
-- Distractors: each wrong option should be a real entity that shares SOME \
-but not ALL of the described characteristics — a test-taker who knows only \
-partial information might pick the wrong one
-- Keep the question concise — present evidence, not background padding
+QUESTION DESIGN — INFERENCE OVER RECALL (HARD RULES):
+1. Never name the target entity in the question stem — the test-taker must \
+derive it from the clues.
+2. Lead with fact-specific attribute clues, NOT entity-recall prompts. Use \
+specific numbers, varietal compositions, soils, or regulations.
+3. The clue set must be answerable only by someone who knows the source \
+facts — if world knowledge alone suffices, rewrite or skip.
+4. Each distractor should be a real similar entity that matches SOME but \
+not ALL clues, so partial knowledge picks wrong.
 
 QUALITY REQUIREMENTS:
 - Exactly one entity must be the unambiguous correct answer given the facts
@@ -364,6 +412,18 @@ PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
 than 5 consecutive words verbatim from the source fact into the question or any \
 option. Synonyms, restructured clauses, and inversions are required.
 
+AVOID WORLD-KNOWLEDGE SOLVABILITY:
+- DO NOT phrase questions as recall on globally-famous entities (Château \
+Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
+Champagne houses, etc.). A well-read taster should not be able to answer \
+without the source facts.
+- DO lead with the OBSERVABLE NUMERIC VALUE from the facts (hectares, hl/ha, \
+% alcohol, aging months, etc.) and ask the test-taker to identify which \
+entity ranks highest/lowest on that dimension.
+- If the facts contain only famous names with no fact-specific numeric \
+value, output instead: \
+{{"skip": true, "reason": "Iconic entities without fact-specific numeric depth"}}
+
 {facts_block}
 
 SHARED CONTEXT: {comparison_context}
@@ -372,15 +432,15 @@ NUMERIC DIMENSION: {dimension}
 The question should ask which entity has the highest, lowest, largest, \
 smallest, earliest, or latest value for a specific measurable attribute.
 
-QUESTION DESIGN — INFERENCE OVER RECALL:
-- Frame the question as a practical decision or observation, not a trivia lookup
-- Example: instead of "Which region has the largest area?", ask "A producer \
-seeking the largest possible growing area within [country] would find the \
-most hectares available in which of these appellations?"
-- Distractors should be the other entities in the comparison — real entities \
-with real but different numeric values
-- Include the actual numeric values in the explanation so the ranking is clear
-- Keep the question concise
+QUESTION DESIGN — INFERENCE OVER RECALL (HARD RULES):
+1. Never ask "Which famous region has the largest X?" as pure recall — \
+frame as a practical decision or observation that *needs* the specific \
+numeric values in the facts.
+2. Lead with the fact-specific numeric values, NOT entity names.
+3. The test-taker must *need* the source facts to rank correctly — if \
+general wine knowledge gives the answer, rewrite or skip.
+4. Distractors are the other real entities from the comparison set, each \
+with its real but different numeric value.
 
 QUALITY REQUIREMENTS:
 - All entities must have comparable numeric measurements for the same attribute
@@ -435,6 +495,19 @@ PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
 than 5 consecutive words verbatim from the source fact into the question or any \
 option. Synonyms, restructured clauses, and inversions are required.
 
+AVOID WORLD-KNOWLEDGE SOLVABILITY:
+- DO NOT phrase questions as recall on globally-famous entities (Château \
+Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
+Champagne houses, etc.). A well-read taster should not be able to answer \
+without the source facts.
+- DO ground the scenario in OBSERVABLE ATTRIBUTES from the facts (aging \
+months, soil type, yield limit, phenolic threshold, clone name, altitude, \
+varietal %, regulatory minimum, blend percentage) and ask the test-taker \
+to infer the entity or decision.
+- If every provided fact is just an iconic entity reference with no \
+fact-specific technical/regulatory/attribute depth, output instead: \
+{{"skip": true, "reason": "Iconic entities without fact-specific technical depth"}}
+
 FACTS:
 {facts}
 
@@ -461,18 +534,15 @@ SCENARIO TYPE GUIDANCE:
 - service: A restaurant or retail professional advising a customer
 - viticulture: A grower deciding on planting, canopy, or harvest decisions
 
-QUESTION DESIGN — INFERENCE OVER RECALL:
-- Present observable evidence (tasting notes, harvest data, vineyard conditions, \
-lab results, regulatory documents, production records) and ask the test-taker \
-to REASON BACKWARD to the underlying wine knowledge
-- The question should be unsolvable without synthesizing ALL provided facts
-- Do NOT simply ask about the facts directly ("Which region produces X?"). \
-Instead, present clues that require deduction ("Given these observations about \
-two wines from the same estate, which varieties are they?")
-- Keep the scenario concise and natural — it exists to present evidence, not \
-to add unnecessary business framing or padding
-- Distractors should reverse or swap key relationships to test genuine \
-understanding, not just recall
+QUESTION DESIGN — INFERENCE OVER RECALL (HARD RULES):
+1. Never build a scenario around "which famous Y is this?" — pure recall on \
+iconic names is world-knowledge-solvable.
+2. Lead the scenario with fact-specific observations (numeric values, named \
+regulations, specific techniques), NOT entity names.
+3. The question must be unsolvable without synthesizing ALL provided facts — \
+if a wine-reading generalist could answer without them, rewrite or skip.
+4. Distractors must reverse or swap key relationships from the facts, so a \
+test-taker relying on general knowledge picks wrong.
 
 QUALITY REQUIREMENTS:
 - The scenario must feel authentic and professionally relevant
@@ -515,6 +585,19 @@ PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
 than 5 consecutive words verbatim from the source fact into the question or any \
 option. Synonyms, restructured clauses, and inversions are required.
 
+AVOID WORLD-KNOWLEDGE SOLVABILITY:
+- DO NOT phrase questions as recall on globally-famous entities (Château \
+Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
+Champagne houses, etc.). A well-read taster should not be able to answer \
+without the target fact.
+- DO lead with an OBSERVABLE ATTRIBUTE from the target fact (aging months, \
+soil type, yield limit, phenolic threshold, clone name, altitude, varietal \
+%, regulatory minimum, blend percentage) and ask the test-taker to infer \
+the correct entity.
+- If the target fact contains only an iconic entity reference with no \
+fact-specific technical/regulatory/attribute detail, output instead: \
+{{"skip": true, "reason": "Iconic entity without fact-specific technical depth"}}
+
 TARGET FACT (basis for the correct answer):
 {fact_text}
 
@@ -523,16 +606,14 @@ DISTRACTOR FACTS (mine these for plausible wrong options):
 
 CONFUSABILITY NOTE: {confusability_context}
 
-QUESTION DESIGN — INFERENCE OVER RECALL:
-- Do NOT simply ask "What is true about [target entity]?" — that is pure recall
-- Instead, present observable evidence or a situation where the test-taker must \
-APPLY knowledge to identify the correct entity or attribute
-- Example: instead of "At the foot of which mountain range does Stellenbosch lie?", \
-present a vineyard visit scenario with geological observations and ask which \
-region matches those conditions
-- The wrong options should use real details from the distractor facts in a way \
-that a student who confuses similar entities would find plausible
-- Keep the question concise — present evidence, not padding
+QUESTION DESIGN — INFERENCE OVER RECALL (HARD RULES):
+1. Never ask "What is true about [famous entity]?" — pure recall on \
+iconic names is world-knowledge-solvable.
+2. Lead with fact-specific attributes from the target fact, NOT entity names.
+3. The test-taker must *need* the target fact — if general wine knowledge \
+alone solves it, rewrite or skip.
+4. Each distractor uses a real attribute value from a different but similar \
+entity, so partial knowledge finds the distractor plausible.
 
 Create a question where:
 - The correct answer is based on the TARGET FACT
@@ -565,6 +646,17 @@ PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
 than 5 consecutive words verbatim from the source fact into the question or any \
 option. Synonyms, restructured clauses, and inversions are required.
 
+AVOID WORLD-KNOWLEDGE SOLVABILITY:
+- DO NOT phrase questions as recall on globally-famous entities (Château \
+Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
+Champagne houses, etc.). A well-read taster should not be able to answer \
+without the target fact.
+- DO lead with the specific {dimension} VALUE from the target fact and ask \
+the test-taker to identify which entity it matches.
+- If the target fact has only an iconic entity with no fact-specific \
+{dimension} detail, output instead: \
+{{"skip": true, "reason": "Iconic entity without fact-specific {dimension} depth"}}
+
 TARGET FACT (basis for the correct answer):
 {fact_text}
 
@@ -578,15 +670,14 @@ All facts above discuss the {dimension} dimension for similar entities. The \
 wrong options should SWAP attribute values between entities — a test-taker \
 who confuses these similar entities will pick the wrong one's value.
 
-QUESTION DESIGN — INFERENCE OVER RECALL:
-- Present observable evidence or a practical situation where the test-taker \
-must identify which entity matches specific {dimension} characteristics
-- Example: if facts discuss aging requirements for similar appellations, \
-describe a wine's maturity characteristics and ask which appellation's \
-requirements it satisfies
-- Wrong options use REAL {dimension} values from the distractor entities — \
-they are factually correct about a different entity, just wrong for the question
-- Keep the question concise — evidence, not padding
+QUESTION DESIGN — INFERENCE OVER RECALL (HARD RULES):
+1. Never ask "What is the {dimension} of [famous entity]?" — pure recall on \
+iconic names is world-knowledge-solvable.
+2. Lead with the {dimension} value from the target fact, NOT entity names.
+3. The test-taker must *need* the target fact's specific {dimension} value \
+to answer — general wine knowledge should not suffice.
+4. Each wrong option uses a real {dimension} value from a DIFFERENT entity, \
+so confusing entities selects the wrong value.
 
 QUALITY REQUIREMENTS:
 - The question MUST test knowledge of the {dimension} dimension specifically
@@ -613,6 +704,18 @@ PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
 than 5 consecutive words verbatim from the source fact into the question or any \
 option. Synonyms, restructured clauses, and inversions are required.
 
+AVOID WORLD-KNOWLEDGE SOLVABILITY:
+- DO NOT phrase questions as recall on globally-famous entities (Château \
+Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
+Champagne houses, etc.). A well-read taster should not be able to answer \
+without the target fact.
+- DO build the clue set from OBSERVABLE ATTRIBUTES in the target fact \
+(aging months, soil type, yield limit, phenolic threshold, clone name, \
+altitude, varietal %, regulatory minimum, blend percentage).
+- If the target fact has only an iconic entity reference with no \
+fact-specific technical detail to seed clues, output instead: \
+{{"skip": true, "reason": "Iconic entity without fact-specific technical depth"}}
+
 TARGET FACT (basis for the correct answer):
 {fact_text}
 
@@ -625,15 +728,15 @@ The distractors are about entities similar to the target but with different \
 distinguishing details. The test-taker must identify the correct entity \
 from multiple clues.
 
-QUESTION DESIGN — INFERENCE OVER RECALL:
-- Present a description, scenario, or set of observations derived from the \
-target fact — do NOT name the target entity in the question
-- The test-taker must reason from the clues to identify the correct entity
-- Wrong options are real, similar entities that share SOME but not ALL of \
-the described characteristics
-- A test-taker who knows only partial information about these entities \
-should find multiple options plausible
-- Keep the question concise — present evidence, not padding
+QUESTION DESIGN — INFERENCE OVER RECALL (HARD RULES):
+1. Never name the target entity in the stem — the test-taker must derive \
+it from the clues.
+2. Lead with fact-specific attribute clues from the target fact, NOT \
+entity-recall prompts.
+3. The test-taker must *need* the target fact's attributes — if world \
+knowledge alone picks the correct entity, rewrite or skip.
+4. Wrong options are real, similar entities that match SOME but not ALL \
+clues, so partial knowledge finds them plausible.
 
 QUALITY REQUIREMENTS:
 - The clues must be specific enough for an unambiguous correct answer
@@ -662,6 +765,17 @@ PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
 than 5 consecutive words verbatim from the source fact into the question or any \
 option. Synonyms, restructured clauses, and inversions are required.
 
+AVOID WORLD-KNOWLEDGE SOLVABILITY:
+- DO NOT phrase questions as recall on globally-famous entities (Château \
+Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
+Champagne houses, etc.). A well-read taster should not be able to answer \
+without the target fact.
+- DO lead with the fact-specific NUMERIC VALUE from the target fact and ask \
+the test-taker to infer the matching entity.
+- If the target fact has only an iconic entity with no fact-specific \
+numeric detail, output instead: \
+{{"skip": true, "reason": "Iconic entity without fact-specific numeric depth"}}
+
 TARGET FACT (basis for the correct answer):
 {fact_text}
 
@@ -674,16 +788,15 @@ NUMERIC DIMENSION: {dimension}
 All facts discuss measurable {dimension} values for similar entities. The \
 wrong options use REAL numeric values from the distractor entities.
 
-QUESTION DESIGN — INFERENCE OVER RECALL:
-- Frame as a practical decision or observation involving the numeric values, \
-not a trivia lookup
-- Example: instead of "How many hectares does X cover?", ask "A producer \
-evaluating vineyard options in [country] encounters these available areas — \
-which corresponds to [specific entity]?"
-- Wrong options must use the ACTUAL numeric values from distractor entities
-- Distractors are plausible because the values are in a similar range for \
-comparable entities
-- Keep the question concise
+QUESTION DESIGN — INFERENCE OVER RECALL (HARD RULES):
+1. Never ask "How many X does [famous entity] have?" — pure recall on iconic \
+names is world-knowledge-solvable.
+2. Lead with the specific numeric value from the target fact, NOT entity \
+names.
+3. The test-taker must *need* the target fact's specific value — if a \
+wine-reading generalist knows the value, rewrite or skip.
+4. Wrong options must use the ACTUAL numeric values from the distractor \
+entities, so confusing entities selects a real-but-wrong value.
 
 QUALITY REQUIREMENTS:
 - The numeric values must be genuinely comparable (same units, same type)
