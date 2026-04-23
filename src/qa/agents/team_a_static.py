@@ -48,6 +48,17 @@ A1_VERSION = "v1.0.0"
 
 # Additional patterns beyond `_VAGUE_PATTERNS` — picked to catch phrasings that
 # the fact-level filter doesn't look for but that LLM question-writers love.
+#
+# The audit-side list is intentionally stricter than the generator-side
+# (`src/generators/_fact_sampler._VAGUE_PATTERNS`): here we look at the final
+# generated question text and can flag phrasings the generator missed.
+# v2.3 Team γ — 2026-04-23: extended with 7 gold-sheet-observed phrasings
+# (is known for producing, highly prized, distinguished by its, celebrated for,
+# notable for, sought-after, one of the most) that were not already covered
+# by existing `_VAGUE_PATTERNS` / `_EXTRA_VAGUE` rules. Patterns omitted as
+# redundant: `renowned for` (subsumed by `renowned`), `world-class`
+# (already `world[- ]class`), `premier` / `prestigious` / `celebrated`
+# (already listed as bare tokens).
 _EXTRA_VAGUE = re.compile(
     r"\b("
     r"acclaimed|esteemed|storied|legendary|revered|beloved|celebrated|"
@@ -55,6 +66,14 @@ _EXTRA_VAGUE = re.compile(
     r"the wines of the region|jewel of|crown jewel|"
     r"pride of|heart and soul|unmistakable|quintessential|"
     r"unparalleled|unrivall?ed|world[- ]class|top[- ]tier|premier"
+    # ── v2.3 Team γ gold-sheet additions ──
+    r"|is known for producing"
+    r"|highly prized"
+    r"|distinguished by its"
+    r"|celebrated for"
+    r"|notable for"
+    r"|sought[- ]after"
+    r"|one of the most"
     r")\b",
     re.IGNORECASE,
 )
