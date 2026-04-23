@@ -148,7 +148,13 @@ def test_export_gold_sheet_query_uses_left_join_and_aggregation(monkeypatch, tmp
 
 
 def test_export_gold_sheet_column_count_unchanged(monkeypatch, tmp_path):
-    """Header column count is preserved (just the text column got swapped)."""
+    """Header column count tracks the canonical rubric list.
+
+    v2.3 Team γ added two narrow-proxy rubrics (`verbatim_copy`,
+    `wine_category_leak`) that map to the A3 / C2 LLM signals at correct
+    granularity. The header width grows accordingly; the rubric column
+    block still starts immediately after the 11 metadata columns.
+    """
     rows = [_singlefact_row()]
     monkeypatch.setattr(_corpus, "get_pg", lambda: _DummyConn(rows))
 
@@ -159,8 +165,13 @@ def test_export_gold_sheet_column_count_unchanged(monkeypatch, tmp_path):
         reader = csv.reader(fh)
         header = next(reader)
 
-    # 11 metadata columns + 8 rubrics + 1 notes = 20 columns total
-    assert len(header) == 20
+    # 11 metadata columns + len(GOLD_RUBRICS) rubric columns + 1 notes column
+    expected = 11 + len(_corpus.GOLD_RUBRICS) + 1
+    assert len(header) == expected
     # The rubric column indices must be unchanged (rubric block starts at col 11).
     rubric_idx = header.index("answer_correct")
     assert rubric_idx == 11
+    # v2.3 Team γ — new rubrics must appear in the emitted header so human
+    # reviewers can fill them in on the next gold sheet.
+    assert "verbatim_copy" in header
+    assert "wine_category_leak" in header
