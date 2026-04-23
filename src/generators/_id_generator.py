@@ -45,11 +45,17 @@ def mint_question_id(domain: str, difficulty: str) -> str:
 
     conn = get_pg()
     cur = conn.cursor()
+    # Use MAX(seq)+1 rather than COUNT(*)+1: any prior delete leaves gaps
+    # in the sequence, which would cause COUNT-based mints to collide with
+    # surviving rows higher up the sequence.
     cur.execute(
-        "SELECT COUNT(*) AS cnt FROM questions WHERE question_id LIKE %s",
+        """SELECT COALESCE(MAX(
+               CAST(SPLIT_PART(question_id, '-', 3) AS integer)
+           ), 0) AS max_seq
+           FROM questions WHERE question_id LIKE %s""",
         (f"WB-{code}-%",),
     )
-    seq = cur.fetchone()["cnt"] + 1
+    seq = cur.fetchone()["max_seq"] + 1
 
     qid = f"WB-{code}-{seq:04d}-L{difficulty}"
     logger.debug(f"Minted question ID: {qid}")
