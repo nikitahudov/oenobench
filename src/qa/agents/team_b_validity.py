@@ -21,7 +21,7 @@ from src.qa._judges import JUDGE_PANEL, judge_open_and_closed
 B1_ID = "B1_TriJudgeAnswer"
 B1_VERSION = "v1.0.0"
 B2_ID = "B2_ClosedBookSolvability"
-B2_VERSION = "v3.0.0"  # v2.2 fix #2 — difficulty-aware gating: ≥4/5 FAIL at L≤2
+B2_VERSION = "v3.1.0"  # gold-v3 κ recalibration: unanimous + high-conf FAIL at L≤2; L≥3 WARN-max
 
 
 def _coerce_options(q: dict) -> list[dict]:
@@ -181,17 +181,21 @@ def run_team_b(
             "cost_usd": sum(v.cost_usd for v in result.open_book),
         })
 
-        # ─── B2 — closed-book solvability (v3.0.0, v2.2 fix #2) ──────────────
-        # Difficulty-aware gating. The v2.0 rule (FAIL only if ALL 5 solve AND
-        # diff ≤ 2) was too permissive at L≤2 — gold-v2 showed genuine
-        # world-knowledge questions slipping through with 4/5 solving. The
-        # v3.0 rule hardens L≤2 and keeps L≥3 unchanged:
-        #   L ≤ 2:  FAIL if ≥4 of 5 solve it closed-book
-        #           WARN if 3 of 5 solve it
+        # ─── B2 — closed-book solvability (v3.1.0, gold-v3 κ recalibration) ──
+        # Gold-v3 (n=119) showed v3.0.0 B2 vs human κ = -0.099 on `needs_source`
+        # (humans flag ~7%; B2 flagged ~81%). Root cause: the wider 5-judge
+        # panel (Claude/GPT/Gemini/Llama/Qwen) with a ≥4/5 threshold lets the
+        # three expert judges out-vote the two proxy judges on textbook
+        # trivia. v3.1.0 demands unanimous (5/5) AND mean-confidence ≥ 0.80
+        # among keyed judges before FAIL at L≤2; at L≥3 the closed-book
+        # signal is demoted to informational-only (WARN ceiling) because
+        # expert-LLM priors dominate on hard recall questions. See
+        # docs/GENERATION_IMPROVEMENT_PLAN.md §5b and
+        # docs/GOLD_CALIBRATION_ANALYSIS.md §4.
+        #   L ≤ 2:  FAIL iff 5/5 keyed AND mean-conf ≥ 0.80
+        #           WARN if ≥4/5 keyed
         #           PASS otherwise
-        #   L ≥ 3:  FAIL if all 5 solve it (5/5)
-        #           WARN if ≥4 of 5 solve it
-        #           PASS otherwise
+        #   L ≥ 3:  WARN if 5/5 keyed; PASS otherwise (never FAIL on CB alone)
         cb_choices = [v.chosen for v in result.closed_book]
         cb_majority, cb_count = _majority(cb_choices)
         closed_book_correct = bool(cb_majority and cb_majority == claimed_key)
@@ -204,17 +208,18 @@ def run_team_b(
         cb_ratio = (cb_count / n_closed) if n_closed else 0.0
         # Counts of judges that picked the keyed answer (regardless of majority)
         cb_keyed_count = sum(1 for c in cb_choices if c == claimed_key)
+        # Mean confidence among judges who picked the keyed answer (0.0 if none)
+        _keyed_confs = [v.confidence for v in result.closed_book if v.chosen == claimed_key]
+        cb_confidence_mean = (sum(_keyed_confs) / len(_keyed_confs)) if _keyed_confs else 0.0
         if diff_int <= 2:
-            if closed_book_correct and cb_keyed_count >= 4:
+            if n_closed and cb_keyed_count == n_closed and cb_confidence_mean >= 0.80:
                 b2_severity = SEVERITY_FAIL
-            elif closed_book_correct and cb_keyed_count == 3:
+            elif closed_book_correct and cb_keyed_count >= 4:
                 b2_severity = SEVERITY_WARN
             else:
                 b2_severity = SEVERITY_PASS
-        else:  # diff_int >= 3
-            if closed_book_correct and n_closed and cb_keyed_count == n_closed:
-                b2_severity = SEVERITY_FAIL
-            elif closed_book_correct and cb_keyed_count >= 4:
+        else:  # diff_int >= 3 — closed-book signal is informational only
+            if n_closed and cb_keyed_count == n_closed:
                 b2_severity = SEVERITY_WARN
             else:
                 b2_severity = SEVERITY_PASS
@@ -238,6 +243,7 @@ def run_team_b(
                 "leakage_ratio": round(cb_ratio, 3),
                 "judges_keyed": cb_keyed_count,
                 "judges_total": n_closed,
+                "cb_confidence_mean": round(cb_confidence_mean, 3),
                 "difficulty": difficulty,
             },
             "llm_calls": len(result.closed_book),
