@@ -77,7 +77,7 @@ def _sample_target_and_distractors(
     Returns (target_fact, distractor_facts, distractor_type) or None.
     """
     # Get a random target fact with entities — must have rich wine content
-    targets = sample_facts(domain, 5, min_confidence=0.7, exclude_ids=exclude_ids)
+    targets = sample_facts(domain, 5, min_confidence=0.7, exclude_ids=exclude_ids, strategy="distractor_mining")
     target = None
     for t in targets:
         if _is_fact_rich(t["fact_text"]):

@@ -237,7 +237,7 @@ def _run_generate(
 
     while generated < count:
         batch_size = min(count - generated, 10)
-        facts = sample_facts(domain, batch_size, exclude_ids=used_fact_ids | run_used_ids)
+        facts = sample_facts(domain, batch_size, exclude_ids=used_fact_ids | run_used_ids, strategy="fact_to_question")
         if not facts:
             logger.warning("No more facts available for domain={}", domain)
             break
@@ -361,7 +361,7 @@ def _run_test(
     click.echo(f"\n=== Test Run: {domain} / {generator} / {question_type} ===\n")
 
     used = get_used_fact_ids()
-    facts = sample_facts(domain, 3, exclude_ids=used)
+    facts = sample_facts(domain, 3, exclude_ids=used, strategy="fact_to_question")
     if not facts:
         click.echo("No facts available for this domain.")
         return

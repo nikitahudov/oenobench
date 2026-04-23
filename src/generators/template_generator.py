@@ -2132,7 +2132,7 @@ def main(
         # γ-2 — high-weight fact-specific templates first
         templates_for_domain = _weighted_template_order(templates_for_domain)
 
-        facts = sample_facts(dom, count=target * 10, exclude_ids=used_facts)
+        facts = sample_facts(dom, count=target * 10, exclude_ids=used_facts, strategy="template")
         if not facts:
             logger.warning(f"No facts available for domain={dom}")
             continue
