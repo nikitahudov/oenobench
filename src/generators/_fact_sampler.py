@@ -30,8 +30,24 @@ _VAGUE_PATTERNS = re.compile(
     r"intriguing|fascinating|exceptional|extraordinary|outstanding|"
     r"best known|most famous|widely celebrated|greatly admired|"
     r"discover the|visit our|come and|join us|book now|must-visit|"
-    r"one of the (?:best|finest|greatest|most important)|"
-    r"is famous for its|is known for its quality)\b"
+    r"one of the (?:best|finest|greatest|most important|most)|"
+    r"is famous for its|is known for its quality|"
+    # ── v2.3 Phase F additions — harvested from human gold notes and
+    # audit-run-3 B2 leakage patterns. Only phrasings NOT already caught
+    # by the original superlative vocabulary above are listed here.
+    # "known/acclaimed for producing" — marketing phrasing around production
+    r"is known for producing|known for producing|acclaimed for producing|"
+    # "world-class" / "world class" — marketing superlative
+    r"world[- ]class|"
+    # "highly prized" / "highly sought(-after)" — value-judgement language
+    r"highly prized|highly sought[- ]after|sought[- ]after|"
+    # "distinguished by its" — precedes a marketing description
+    r"distinguished by its|"
+    # "celebrated for" — synonym of "famous for"
+    r"celebrated for|"
+    # "premier appellation" / "premier wine region" — branding, not technical
+    # (intentionally NOT bare "premier" — keeps "Premier Cru" usable)
+    r"premier appellation|premier wine region|premier growing region)\b"
     # ── Gold-sheet review additions (no_vague_language flagged rows) ──
     # Ambiguous demonstrative referents — "these wines", "this wine" with no
     # in-stem antecedent. v2.2 fix #4: removed 'producers' from the "these X"
@@ -399,6 +415,42 @@ def _fact_is_iconic_only(fact: dict) -> bool:
     return all(nm in iconic for nm in names)
 
 
+def _bundle_has_non_iconic_anchor(facts: list[dict]) -> bool:
+    """Return True iff ≥1 fact in the bundle has a non-iconic named entity.
+
+    Used by multi-fact strategies (comparative pairs, scenario clusters,
+    distractor groups) to guarantee the generated question is anchored in
+    at least one fact-specific, non-world-knowledge entity.
+
+    A bundle where EVERY fact is iconic-only is rejected: an LLM handed only
+    iconic facts will produce world-knowledge-solvable questions
+    ("Compare Château Margaux to Château Latour") — exactly the B2 failure
+    pattern we're fixing.
+
+    An entity-less fact (no entities field or empty entities) is treated as
+    non-iconic (it can't be world-knowledge-solvable via entity recall) and
+    therefore satisfies the anchor requirement.
+
+    Args:
+        facts: list of fact dicts (with an ``entities`` field).
+
+    Returns:
+        True if the bundle contains ≥1 non-iconic-only fact; False if EVERY
+        fact is iconic-only. An empty bundle returns False.
+    """
+    if not facts:
+        return False
+    iconic = _load_iconic_entities()
+    if not iconic:
+        # With no iconic list loaded, we can't reason about iconicity at all
+        # — treat every fact as an acceptable anchor (the filter is off).
+        return True
+    for fact in facts:
+        if not _fact_is_iconic_only(fact):
+            return True
+    return False
+
+
 # ── v2.2 fix #7 — Multi-category seed-fact filter ──────────────────────────
 # Root-cause per sampler predecessor: all 3 C2 category-leak audit failures
 # came from scenario_synthesis stems that explicitly compared wine categories
@@ -745,7 +797,7 @@ def sample_facts(
     candidates: list[tuple[float, dict]] = []
     quality_filtered = 0
     category_filtered = 0
-    iconic_filtered = 0
+    iconic_filtered_single = 0
     # v2.2 fix #11 — single-fact strategies (FTQ + template) drop iconic-only
     # facts to prevent world-knowledge-solvable questions.
     apply_iconic_filter = strategy in ("fact_to_question", "template")
@@ -760,7 +812,7 @@ def sample_facts(
                 continue
         fact_dict = dict(r)
         if apply_iconic_filter and _fact_is_iconic_only(fact_dict):
-            iconic_filtered += 1
+            iconic_filtered_single += 1
             continue
         candidates.append((1.0, fact_dict))
 
@@ -795,8 +847,11 @@ def sample_facts(
         logger.debug(f"Filtered {quality_filtered} vague/marketing facts")
     if category_filtered:
         logger.debug(f"Filtered {category_filtered} facts not matching wine_category={wine_category}")
-    if iconic_filtered:
-        logger.debug(f"Filtered {iconic_filtered} iconic-only facts (v2.2 fix #11)")
+    if iconic_filtered_single:
+        logger.debug(
+            f"Filtered {iconic_filtered_single} iconic-only facts "
+            f"(single-fact strategy — v2.2 fix #11)"
+        )
     if capped:
         logger.debug(f"Skipped {capped} facts capped by country quota")
 
@@ -1067,6 +1122,7 @@ def sample_fact_pairs(
     pairs: list[tuple[dict, dict]] = []
     seen_ids: set[str] = set()
     capped = 0
+    iconic_bundle_rejected = 0
 
     for affinity, reason, row, dim, auto_type in scored:
         if len(pairs) >= count:
@@ -1096,6 +1152,14 @@ def sample_fact_pairs(
             "_dimension": dim,
             "_matched_entity_name": row["b_entity"],
         }
+        # v2.3 Phase F — iconic anchor requirement. If BOTH facts in the pair
+        # are iconic-only, the comparative question is world-knowledge-solvable
+        # ("Compare Château Margaux to Château Latour") — reject. A pair with
+        # ≥1 non-iconic anchor fact is fine: the anchor fact supplies the
+        # fact-specific attribute the question must key on.
+        if not _bundle_has_non_iconic_anchor([fact_a, fact_b]):
+            iconic_bundle_rejected += 1
+            continue
         # v2.3 fix #17 — enforce the 1.2x hard cap BEFORE accepting the pair.
         # We admit both facts atomically: if admitting the first would fit
         # but admitting the second would not, roll back the first. This keeps
@@ -1124,6 +1188,11 @@ def sample_fact_pairs(
     if capped:
         logger.debug(
             f"sample_fact_pairs: skipped {capped} pairs blocked by country cap"
+        )
+    if iconic_bundle_rejected:
+        logger.debug(
+            f"sample_fact_pairs: rejected {iconic_bundle_rejected} iconic-only "
+            f"pairs (v2.3 Phase F — no non-iconic anchor)"
         )
 
     # Defence-in-depth: log a warning if the returned batch already exceeds
@@ -1213,6 +1282,7 @@ def sample_fact_groups(
     # Build groups: pick facts with distinct entity names within each bucket
     groups: list[list[dict]] = []
     capped = 0
+    iconic_bundle_rejected = 0
     for key, facts in classified.items():
         if len(facts) < group_size:
             continue
@@ -1239,6 +1309,14 @@ def sample_fact_groups(
                 f["_comparison_context"] = context
                 f["_auto_comparison_type"] = auto_type
                 f["_matched_entity_name"] = f["ename"]
+
+            # v2.3 Phase F — iconic anchor requirement. A group where EVERY
+            # fact is iconic-only produces a world-knowledge-solvable
+            # comparative question. Require ≥1 non-iconic fact to anchor the
+            # question on a fact-specific attribute.
+            if not _bundle_has_non_iconic_anchor(selected):
+                iconic_bundle_rejected += 1
+                continue
 
             # v2.3 fix #17 — hard-cap admission BEFORE emitting the group.
             # All N facts in a group are admitted atomically; if any single
@@ -1272,6 +1350,11 @@ def sample_fact_groups(
     if capped:
         logger.debug(
             f"sample_fact_groups: skipped {capped} groups blocked by country cap"
+        )
+    if iconic_bundle_rejected:
+        logger.debug(
+            f"sample_fact_groups: rejected {iconic_bundle_rejected} iconic-only "
+            f"groups (v2.3 Phase F — no non-iconic anchor)"
         )
 
     groups.sort(
@@ -1331,6 +1414,7 @@ def sample_fact_clusters(
     eligible = [row["subdomain"] for row in cur.fetchall()]
 
     clusters: list[list[dict]] = []
+    iconic_bundle_rejected = 0
     for sub in eligible:
         if len(clusters) >= count:
             break
@@ -1413,6 +1497,14 @@ def sample_fact_clusters(
                     f"Cluster accepted — category purity {purity:.2f} "
                     f"(top={top_cat}, counts={_C(classified)})"
                 )
+            # v2.3 Phase F — iconic anchor requirement. A cluster where EVERY
+            # fact is iconic-only produces a world-knowledge-solvable scenario
+            # ("A sommelier presents Château Margaux, Lafite, and Latour…").
+            # Require ≥1 non-iconic fact to anchor the scenario on a
+            # fact-specific attribute.
+            if not _bundle_has_non_iconic_anchor(cluster):
+                iconic_bundle_rejected += 1
+                continue
             # v2.3 fix #17 — admit the whole cluster under the 1.2x cap
             # atomically. If any fact's country would push it over, reject
             # the whole cluster and roll back partial admissions.
@@ -1441,6 +1533,12 @@ def sample_fact_clusters(
                 )
                 continue
             clusters.append(cluster)
+
+    if iconic_bundle_rejected:
+        logger.debug(
+            f"sample_fact_clusters: rejected {iconic_bundle_rejected} "
+            f"iconic-only clusters (v2.3 Phase F — no non-iconic anchor)"
+        )
 
     _assert_batch_under_cap("sample_fact_clusters", [
         _extract_country_from_entities(f.get("entities"))
@@ -1630,6 +1728,33 @@ def sample_confusable_facts(
         logger.debug(
             f"sample_confusable_facts: skipped {capped} distractors blocked by country cap"
         )
+
+    # v2.3 Phase F — iconic anchor requirement for distractor-mining. If BOTH
+    # the target and every distractor are iconic-only, the resulting MC
+    # question is world-knowledge-solvable (all four options are famous
+    # entities a well-read taster can recall). Require ≥1 non-iconic anchor
+    # in the target+distractor bundle — mirrors the bundle rule used by
+    # comparative/scenario sampling above.
+    bundle_for_anchor = [target_fact, *confusable]
+    if confusable and not _bundle_has_non_iconic_anchor(bundle_for_anchor):
+        logger.debug(
+            f"sample_confusable_facts: bundle all iconic-only for target="
+            f"{target_fact['id']} — rejecting distractors (v2.3 Phase F)"
+        )
+        # Roll back the country-quota admissions for the rejected distractors
+        # so the counters stay consistent with the audit D3 contract.
+        with _QUOTA_LOCK:
+            global _TOTAL_RETURNED, _TOTAL_RETURNED_TAGGED
+            for cand in confusable:
+                c = _extract_country_from_entities(cand.get("entities"))
+                _TOTAL_RETURNED -= 1
+                if c:
+                    _TOTAL_RETURNED_TAGGED -= 1
+                    if _COUNTRY_USAGE.get(c, 0) > 0:
+                        _COUNTRY_USAGE[c] -= 1
+                        if _COUNTRY_USAGE[c] == 0:
+                            del _COUNTRY_USAGE[c]
+        confusable = []
 
     _assert_batch_under_cap("sample_confusable_facts", [
         _extract_country_from_entities(f.get("entities")) for f in confusable
