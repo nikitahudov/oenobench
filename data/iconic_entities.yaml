@@ -1,92 +1,257 @@
-# OenoBench — Iconic wine entities (v2.2 fix #11)
+# OenoBench — Iconic wine entities (v2.3 Phase F expansion)
 #
 # Facts whose ONLY named entity appears on this list are DROPPED from
-# fact_to_question (FTQ) sampling — they produce questions solvable
-# from world knowledge alone (B2 leakage). A fact that also names a
-# non-iconic entity is fine to use (the non-iconic entity is the real
-# subject).
+# single-fact question sampling (fact_to_question + template strategies) —
+# they produce questions solvable from world knowledge alone (B2 leakage).
 #
-# Seed list compiled from gold-v2 failures (WB-BIZ-0095-L2 referenced
-# the Bordeaux 1855 classification — a textbook-famous wine concept
-# every WSET student memorises).
+# For multi-fact strategies (comparative, scenario_synthesis,
+# distractor_mining), a fact MAY be iconic-only, but the generated
+# bundle/pair/cluster must contain ≥1 non-iconic fact that anchors the
+# question. See _bundle_has_non_iconic_anchor in _fact_sampler.py.
 #
-# The filter is OFF for comparative / scenario / distractor strategies —
-# they can still use iconic entities because the multi-fact construction
-# requires genuine synthesis.
+# Expansion history
+# ─────────────────
+# - v2.2 fix #11: 60 entries in 5 categories, seeded from gold-v2 failures.
+# - v2.3 Phase F: expanded to ~170 entries across 9 categories.
+#   Seeded from audit run #3 B2 failures (run_id 0bfe85dc-...) + expert
+#   wine knowledge. Added: Bordeaux growths (1st–5th), Burgundy Grand Crus,
+#   iconic Italian/New-World/Spanish producers, famous generic appellations.
+#
+# Entry-selection rules
+# ─────────────────────
+# - An entity is "iconic" if a well-read wine-knowledgeable taster
+#   (WSET Level 3 +) can identify its region, grape, or style from the
+#   name alone.  Anything a sommelier exam expects you to memorise belongs
+#   here. Obscure sub-appellations, single-vineyards, and technical terms
+#   do NOT belong here — they make legitimate fact-specific questions.
+# - Entries within a category are sorted alphabetically for diff readability.
+# - Case-insensitive match against entities[*].name; the filter lowercases
+#   both the YAML entries and the fact entity names.
 
 classifications:
+  - AOC
+  - AOP
   - Bordeaux 1855
-  - Saint-Émilion Classification
   - Cru Bourgeois
+  - DOC
+  - DOCa
+  - DOCG
+  - Geographical Indication
   - Grand Cru Burgundy
-  - Premier Cru Burgundy
   - Grand Cru Classé
+  - IGP
+  - IGT
+  - Premier Cru Burgundy
   - Premier Cru Classé
   - Prädikatswein
+  - Saint-Émilion Classification
   - VDP Grosses Gewächs
-  - DOCG
-  - DOCa
-  - AOC
-  - Geographical Indication
+  - VDP.Erste Lage
+  - VDP.Grosse Lage
 
-producers_bordeaux:
-  - Château Margaux
-  - Château Lafite Rothschild
-  - Château Latour
-  - Château Mouton Rothschild
+# Bordeaux 1855 classified growths (all 5 tiers + Sauternes).
+classified_growths:
+  - Château Batailley
+  - Château Beychevelle
+  - Château Brane-Cantenac
+  - Château Calon-Ségur
+  - Château Cantemerle
+  - Château Cos d'Estournel
+  - Château Ducru-Beaucaillou
+  - Château Duhart-Milon
+  - Château Gruaud Larose
   - Château Haut-Brion
+  - Château Kirwan
+  - Château Lafite Rothschild
+  - Château Lafon-Rochet
+  - Château Lagrange
+  - Château Lascombes
+  - Château Latour
+  - Château Léoville Barton
+  - Château Léoville Poyferré
+  - Château Léoville-Las Cases
+  - Château Lynch-Bages
+  - Château Margaux
+  - Château Montrose
+  - Château Mouton Rothschild
+  - Château Palmer
+  - Château Pichon Baron
+  - Château Pichon Longueville Comtesse de Lalande
+  - Château Pontet-Canet
+  - Château Rauzan-Ségla
+  - Château Talbot
+  - Château d'Issan
   - Château d'Yquem
-  - Château Pétrus
-  - Château Cheval Blanc
+
+# Right-Bank / Sauternes / Pomerol icons + Saint-Émilion Premiers Grands Crus.
+producers_bordeaux_right_bank:
+  - Château Angélus
   - Château Ausone
+  - Château Canon
+  - Château Cheval Blanc
+  - Château Climens
   - Château Figeac
+  - Château La Conseillante
+  - Château Le Pin
+  - Château Pavie
+  - Château Pétrus
+  - Château Rieussec
+  - Château Suduiraut
+  - Château Trotanoy
+
+# Côte-d'Or Grand Crus (Côte de Nuits + Côte de Beaune) + top producers.
+burgundy_grand_crus:
+  - Bâtard-Montrachet
+  - Chambertin
+  - Chambertin-Clos de Bèze
+  - Chapelle-Chambertin
+  - Charmes-Chambertin
+  - Chevalier-Montrachet
+  - Clos Saint-Denis
+  - Clos Vougeot
+  - Clos de Tart
+  - Clos de Vougeot
+  - Clos des Lambrays
+  - Corton
+  - Corton-Charlemagne
+  - Criots-Bâtard-Montrachet
+  - Grands-Échezeaux
+  - Griotte-Chambertin
+  - La Grande Rue
+  - La Romanée
+  - La Tâche
+  - Latricières-Chambertin
+  - Mazis-Chambertin
+  - Mazoyères-Chambertin
+  - Montrachet
+  - Musigny
+  - Richebourg
+  - Romanée-Conti
+  - Romanée-Saint-Vivant
+  - Ruchottes-Chambertin
+  - Échezeaux
 
 producers_burgundy:
-  - Domaine de la Romanée-Conti
-  - Romanée-Conti
-  - Domaine Leroy
+  - Bouchard Père & Fils
+  - Domaine Armand Rousseau
+  - Domaine Dujac
+  - Domaine Georges Roumier
+  - Domaine Henri Jayer
+  - Domaine Jean-François Coche-Dury
   - Domaine Leflaive
-  - Maison Louis Jadot
+  - Domaine Leroy
+  - Domaine Méo-Camuzet
+  - Domaine de la Romanée-Conti
   - Henri Jayer
+  - Maison Joseph Drouhin
+  - Maison Louis Jadot
+  - Romanée-Conti
 
 producers_champagne:
-  - Dom Pérignon
-  - Krug
+  - Billecart-Salmon
   - Bollinger
-  - Louis Roederer Cristal
-  - Veuve Clicquot
-  - Moët & Chandon
-  - Taittinger
-  - Pol Roger
+  - Cristal
+  - Dom Pérignon
+  - Jacques Selosse
+  - Krug
   - Laurent-Perrier
+  - Louis Roederer
+  - Louis Roederer Cristal
+  - Moët & Chandon
+  - Perrier-Jouët
+  - Pol Roger
+  - Ruinart
+  - Salon
+  - Taittinger
+  - Veuve Clicquot
 
 producers_italy:
+  - Bruno Giacosa
+  - Fontodi
+  - Frescobaldi
   - Gaja
-  - Sassicaia
-  - Ornellaia
+  - Giacomo Conterno
   - Masseto
+  - Ornellaia
+  - Sassicaia
   - Solaia
+  - Tenuta San Guido
   - Tignanello
+  - Vietti
 
-producers_new_world:
-  - Opus One
-  - Screaming Eagle
-  - Penfolds Grange
-  - Harlan Estate
-  - Ridge Monte Bello
+producers_spain_portugal:
+  - Alvaro Palacios
+  - Artadi
+  - Clos Mogador
+  - Dominio de Pingus
+  - La Rioja Alta
+  - López de Heredia
+  - Marqués de Riscal
+  - Pingus
+  - Taylor Fladgate
   - Vega Sicilia
 
-# These region names appear iconic when referenced alone (no sub-region
-# modifier). "Bordeaux" alone → iconic. "Saint-Émilion" or "Pauillac"
-# is specific and NOT iconic. The filter only matches exact bare names.
+producers_new_world:
+  - Cloudy Bay
+  - Colgin Cellars
+  - Dominus Estate
+  - Harlan Estate
+  - Henschke Hill of Grace
+  - Opus One
+  - Penfolds Grange
+  - Ridge Monte Bello
+  - Screaming Eagle
+  - Shafer Hillside Select
+
+# Generic famous appellations / regions that any wine student knows by name.
+# These are the highest-level, textbook-famous names — NOT sub-appellations
+# or technical sub-zones (which stay available for fact-specific questions).
+generic_appellations_famous:
+  - Alsace
+  - Barbaresco
+  - Barolo
+  - Brunello di Montalcino
+  - Chablis
+  - Champagne
+  - Chianti Classico
+  - Châteauneuf-du-Pape
+  - Côte-Rôtie
+  - Douro
+  - Hermitage
+  - Madeira
+  - Mosel
+  - Piedmont
+  - Pouilly-Fumé
+  - Priorat
+  - Port
+  - Rheingau
+  - Rhône
+  - Ribera del Duero
+  - Rioja
+  - Rías Baixas
+  - Sancerre
+  - Sauternes
+  - Sherry
+  - Tokaj
+  - Tuscany
+  - Veneto
+  - Vino Nobile di Montepulciano
+
+# Bare geographic/region names that are iconic when referenced alone
+# (no sub-region modifier). "Bordeaux" alone → iconic. "Pauillac" or
+# "Saint-Émilion" is specific and NOT iconic. The filter only matches
+# exact bare names from this list.
 regions_bare:
+  - Barolo
   - Bordeaux
   - Burgundy
   - Champagne
-  - Napa Valley
-  - Tuscany
-  - Rioja
-  - Barolo
   - Chianti
+  - Mendoza
+  - Napa Valley
+  - Piedmont
   - Port
+  - Rioja
   - Sherry
+  - Sonoma
+  - Tuscany
