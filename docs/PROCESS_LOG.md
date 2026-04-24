@@ -805,3 +805,135 @@ User approved the plan at `/home/winebench/.claude/plans/linear-scribbling-scott
 2. **Gold-v4 export** (60 Qs, 12/strategy) → human grading → import → recompute κ on every rubric including the two new ones.
 3. **Go/No-Go verification** per `docs/GENERATION_IMPROVEMENT_PLAN.md` Regeneration Checklist.
 4. **Unblock full 10k run** if gates clear.
+
+---
+
+## 2026-04-24 — Phase 2g.5: Generation-time closed-book gate (v1.0)
+
+### What was done
+Audit run #4 (`audit_pilot_v4`, 341 Qs, $6.18) showed B2 dropped 66% → 36% but missed the ≤15% gate. Diagnosis + four prototypes confirmed that v2.3 §5b prompt rules can't close the gap because the residual leakage is structural: generators write attribute-bundle stems whose answer is recoverable from the cues alone. Built and shipped a v1.0 generation-time pre-screen (`src/generators/_closed_book_gate.py`) — Sonnet 4.6 closed-book MC at conf≥0.7 — wired into all 5 strategy modules via a new `insert_question_gated()` wrapper. 13 new unit tests + 269 baseline = 282/282 pass.
+
+### Sources & inputs
+- `audit_findings` rows for run `4e3ead78-2b62-4733-919d-bf3f4878aaec` (`audit_pilot_v4`)
+- 343 facts behind L1/L2 v4 questions (joined via `question_facts`)
+- 230 L1/L2 v4 question stems (with options)
+- OpenRouter API: `anthropic/claude-haiku-4.5`, `anthropic/claude-sonnet-4.6`
+
+### Methodology
+
+**Prototype 1 — fact-level Haiku pre-screen** (`scripts/prescreen_b2_prototype.py`).
+For each L1/L2 fact, asked Haiku 4.5 whether a question derived from it would be world-knowledge-solvable. Discovery: Haiku 4.5 wraps JSON in markdown fences even with `response_format=json_object`; reused `_try_parse_json` to strip them. Result: 79 of 343 facts flagged solvable; gate gave 19-pt fail-rate gap (68% vs 49%) — insufficient.
+
+**Prototype 2 — stem-level Haiku pre-screen** (`scripts/prescreen_b2_question_prototype.py`).
+Asked Haiku closed-book on the question stem (no options, no fact). At conf≥0.7: 88% precision, 40% recall. Free-text matching on gold answer via `difflib.SequenceMatcher` ratio≥0.75. Sample of false negatives showed Haiku is too weak — gets close-but-wrong on entities Opus/GPT in B2's panel solve cleanly.
+
+**Prototype 3 — Sonnet 4.6 stem-level pre-screen** (`scripts/prescreen_b2_sonnet_prototype.py`).
+Replaced Haiku with Sonnet 4.6. Marginal improvement: 49% recall vs Haiku's 40%, similar precision. Sample of false negatives revealed the real issue: many stubborn cases are MC-disambiguation problems — Sonnet can't reproduce the gold in free-text but COULD pick it from the options.
+
+**Prototype 4 — MC closed-book pre-screen** (`scripts/prescreen_b2_mc_prototype.py`).
+Re-ran both Haiku and Sonnet WITH the option list, picking A/B/C/D. Result: Sonnet @ conf≥0.7 hit **94% recall, 77% precision**, dropping residual L1/L2 fail rate from 54% to **10%** — clears the ≤15% gate target. Haiku∪Sonnet union pushed residual to 5%. Established Sonnet-alone @ conf≥0.7 as the v1.0 threshold.
+
+**Implementation.**
+- `src/generators/_closed_book_gate.py` — `screen_question(stem, options, gold, difficulty, question_type) -> GateResult`. Only fires for `multiple_choice` + `difficulty in {1,2}`; everything else passes through. On API/parse error: fail-open (PASS) with `error` recorded. Tenacity-backed retries on rate-limit / 5xx.
+- `src/generators/_question_db.py` — `insert_question_gated()` wraps `insert_question`, runs the gate, appends verdict to `generation_meta['raw_response']['gate']`, returns `(uuid_or_none, GateResult)`.
+- All 5 strategy modules (`fact_to_question.py`, `comparative_generator.py`, `scenario_generator.py`, `distractor_miner.py`, `template_generator.py`) — switched to `insert_question_gated`, count and log `skipped_gate`.
+- `tests/generators/test_closed_book_gate.py` — 13 tests covering: skip conditions (L3+, non-MC, no options), reject paths (correct + high conf), pass paths (wrong answer, low conf), fail-open semantics (API error, parse failure), and wrapper behavior (DB skip on reject, gate-verdict in metadata, L3 passthrough, `apply_gate=False`).
+
+### Quality controls
+- 282/282 pytest pass (269 baseline + 13 new).
+- Smoke test: `python -m src.generators.fact_to_question --domain wine_regions --count 15 --difficulty 2 --generator chatgpt`. Result: 15 inserted, 30 gate-rejected (67% reject — matches Prototype 4's predicted 65%), 58 chatgpt parse failures (unrelated to gate). Gate verdicts visible in `generation_metadata.raw_response->'gate'` for all 15 accepted questions; all show either `matched_gold=false` OR `confidence<0.7`.
+
+### Quantitative results
+| Variant | Precision | Recall | Residual L1/L2 B2 fail % |
+|---|---:|---:|---:|
+| Fact-level Haiku | 68% | 44% | 49% |
+| Stem-level Haiku conf≥0.7 (free-text) | 88% | 40% | 43% |
+| Stem-level Sonnet conf≥0.7 (free-text) | 82% | 49% | 40% |
+| **MC Sonnet conf≥0.7 (shipped v1.0)** | **77%** | **94%** | **10%** |
+| MC Haiku∪Sonnet conf≥0.7 | 72% | 98% | 5% |
+
+| Phase | Cost (343 facts / 230 Qs) | Throughput |
+|---|---|---|
+| Prototype 1 (Haiku, 343 facts) | $0.33 | 92 s |
+| Prototype 2 (Haiku stems, 230 Qs) | $0.16 | 63 s |
+| Prototype 3 (Sonnet stems, 230 Qs) | $0.55 | 196 s |
+| Prototype 4 (Haiku+Sonnet MC, 230 Qs) | $0.61 | 172 s |
+| Smoke test (ChatGPT gen + Sonnet gate, 15 inserts) | gate-only ~$0.01 | 7.4 min |
+
+### Decisions & trade-offs
+- **Sonnet alone, not Haiku∪Sonnet union.** Union improves residual 10% → 5% but doubles model count and adds Haiku's 88% precision (vs Sonnet's 77%) — noisier. Phase 2g.5 ships Sonnet-only; the union upgrade is reserved for a later iteration if v5 audit shows residual >15%.
+- **Threshold conf≥0.7, not conf≥0.5.** conf≥0.5 hits 98% recall but cuts an extra 12% of L1/L2 candidates with no measurable gain on residual (already at the gate target). Conservative choice keeps generator throughput higher.
+- **Fail-open on API error, not fail-closed.** A network blip during a 10k run shouldn't silently drop hundreds of questions. The error lands in `GateResult.error` so post-hoc analysis can quantify how often the gate degraded.
+- **Verdict in `raw_response['gate']`, not a new column or table.** Schema-migration-free; keeps the audit trail self-contained per question; `jsonb` indexing already in place if we need to query gate stats.
+- **Gate not applied to non-MC types.** Free-text MC scoring would require either a gold-string normaliser or an LLM-as-judge layer. Out of scope for v1.0; non-MC types are <10% of the corpus.
+- **No regenerate-on-reject.** The orchestrator just over-samples the L1/L2 facts pool. 67%-observed reject rate at L2 implies ~3× over-sampling needed; this is configured per-strategy at run time, not in the gate module.
+
+### Issues encountered & resolutions
+1. **Haiku 4.5 markdown-wrapped JSON.** First prototype run: 0/343 parsed. Probe call confirmed Haiku returns ` ```json\n{...}\n``` ` even with `response_format=json_object`. Fix: imported `_try_parse_json` from `_llm_client.py` (already handles fences). Same fix applies to Sonnet 4.6.
+2. **Free-text gold matching too brittle.** Many "stubborn" B2 fails in Prototype 3 were Sonnet producing semantically-correct but lexically-different answers (e.g. "Charmat method" vs "Ferment in pressurized tanks"). Resolved by Prototype 4's MC-with-options framing — letter match is unambiguous.
+3. **`questions.tag` does not exist.** First DB query used singular `tag`; PostgreSQL hint pointed to `tags` (text[]). Switched to `tags && ARRAY['audit_pilot_v4']`.
+4. **`audit_findings` schema mismatch.** Used `rubric_id`/`status` initially; actual columns are `agent_id`/`severity`. Fixed via `\d audit_findings`.
+
+### Human review notes
+User chose option (A) "prototype the Sonnet-4.6 second stage" then (B) "start implementing the compound fix" after seeing the MC-pre-screen result. No wine-domain facts changed in this phase.
+
+### Next steps
+1. **Audit run #5 with gated corpus.** Build `audit_pilot_v5` (120/strategy) with the gate in force, then `run --teams A,B,C,D`. Target: B2 fail at L1/L2 ≤ 15%, residual structural fixes via prompt edits if gap remains.
+2. **Tune over-sampling.** Bump `_dispatch_llm_strategy` per-generator counts by 3× for L1/L2 to compensate for the gate's 65% reject rate.
+3. **Gold-v5 export** if v5 audit clears.
+4. **Cost budget check.** Sonnet gate adds ~$20 per 10k generation + ~3× over-sampling adds ~$30 LLM-gen cost. Total run estimate revises upward from $80 → ~$130.
+
+---
+
+## 2026-04-24 — Phase 2g.6: Reframe gate from reject to label+quota (v2.0)
+
+### What was done
+Reframed the closed-book gate from a reject filter (v1.0, shipped earlier today) into a label+quota router (v2.0). Gate-flagged L1/L2 multiple-choice questions are no longer dropped: they are tagged `closed_book_solvable`, forced to `difficulty='1'`, and admitted to the corpus until a 25% cap is reached. Above the cap, additional gate-flagged questions are dropped. New eval helper `src/evaluation/cb_split.py` exposes `score_by_cb_split()` for paired closed-book-pass vs closed-book-fail accuracy. GATE_VERSION bumped to 2.0.0; 286+/286+ tests pass.
+
+### Sources & inputs
+The user proposed the reframe directly after reviewing the Phase 2g.5 v1.0 ship in this same lab notebook (entry above). No external data; the policy change is paper-story driven. The v1.0 implementation in `src/generators/_closed_book_gate.py` and `_question_db.py` is the substrate.
+
+### Methodology
+Routing table inside `insert_question_gated()` (`src/generators/_question_db.py`):
+- `gate.passed=True` → INSERT as-is (the closed-book pre-screen could not solve it).
+- `gate.passed=False AND quota has room` → mutate `question_data` (append `closed_book_solvable` to `tags`, force `difficulty='1'`), set `gate.relabeled=True`, INSERT.
+- `gate.passed=False AND quota full` → set `gate.quota_full=True`, DROP. Returns `(None, gate)`.
+- `gate.applied=False` (wrong difficulty, non-MC, or no options) → INSERT as-is.
+
+Quota enforcement uses `count_closed_book_solvable()` per-insert against `CLOSED_BOOK_QUOTA_FRACTION = 0.25` of the orchestrator's `OVERALL_TARGET` (= 2,500 of the 10k corpus). `CLOSED_BOOK_TAG = "closed_book_solvable"` is the canonical tag string. The GIN index already on `questions.tags` keeps the per-insert COUNT cheap.
+
+New module `src/evaluation/cb_split.py` defines `score_by_cb_split(eval_run_id) -> dict`, joining `evaluation_answers` to `questions` and aggregating accuracy by tag membership. Returns paired `cb_pass` (no tag — contextual reasoning) and `cb_fail` (tagged — parametric knowledge) buckets plus `gap = cb_fail.accuracy - cb_pass.accuracy`. CLI entrypoint pretty-prints the result.
+
+Multi-agent dispatch followed the parallel-worktree pattern in `docs/IMPLEMENTATION_AGENT_ARCHITECTURE.md`: 3 teams under one coordinator (Team α: gate routing + tests; Team β: orchestrator + quota CLI; Team γ: eval split helper + docs).
+
+### Quality controls
+Tests added cover the v2.0 routing surface: relabel-when-room (tag append + L1 force), reject-when-quota-full (drop + `quota_full=True`), no-double-tag (idempotent on already-tagged input), and preserve-other-tags (existing tag list untouched). 285+/285+ pytest pass after the merge. Coordinator will run a generation smoke test post-merge to confirm relabel+quota behavior on real OpenRouter calls.
+
+### Quantitative results
+
+| Axis | v1.0 (reject) | v2.0 (label + quota) |
+|---|---|---|
+| L1/L2 gate-flagged kept | 0% (rejected) | 100% up to 25% cap, then 0% |
+| `closed_book_solvable` corpus share | 0% | ≤25% (≤2,500 of 10k) |
+| Estimated 10k-run cost | ~$130 (gate + 3× over-sample) | ~$100 (gate, no over-sample) |
+| Eval-time deliverable | accuracy only | paired `cb_pass` vs `cb_fail` accuracy + gap |
+
+### Decisions & trade-offs
+- **Relabel + quota, not reject.** Gate-flagged questions are by definition wine-world-knowledge questions — a legitimate axis for the benchmark. Keeping them as a labeled subset preserves throughput economics (no 3× over-sampling) and gives the paper a paired metric (parametric wine knowledge vs contextual wine reasoning).
+- **Cap at 25%.** Keeps the world-knowledge subset visible to evaluation without letting it dominate. Aligned with typical fact-recall benchmark weightings; revisitable post-v5 audit.
+- **Force to L1, not preserve original difficulty.** A gate-solved question is, by definition, closed-book-solvable, which is the L1 difficulty contract. Preserving an L2 stamp on a closed-book-trivial item would mislead the difficulty histogram.
+- **First-come-first-served quota fill.** Stratification (e.g., balance the cap across domains/strategies) is deferred to post-v5 audit data analysis where we can see actual flag rates per stratum.
+- **v5 onward only, no retro re-labeling of v4.** Clean policy boundary. v4 stays under v1.0 reject semantics so v4-vs-v5 audit deltas remain attributable to the policy switch, not retroactive relabeling.
+- **Quota check via SQL `count(*)` per insert.** Cheap thanks to the existing GIN index on `questions.tags`. A Redis counter would shave milliseconds but adds operational surface area; not worth it for the 10k-question regime.
+
+### Issues encountered & resolutions
+1. **Existing test invalidated.** `test_insert_question_gated_skips_db_when_rejected` encoded the v1.0 reject semantics and broke under v2.0. Team α rewrote it to assert the new relabel-when-room path. No other test breakage.
+
+### Human review notes
+The user drove the policy reframe interactively after reviewing Phase 2g.5. Earlier in the day they had chosen options A and B (prototype Sonnet-4.6 second stage; implement compound fix), which yielded the v1.0 ship. After v1.0 they proposed the v2.0 reframe directly. Coordinator surfaced two design questions — quota-overflow behavior and retroactive v4 application — and the user took the recommended defaults (drop when quota full; v5 onward only).
+
+### Next steps
+1. Build `audit_pilot_v5` corpus with the v2.0 gate active.
+2. Run audit #5; expect `closed_book_solvable` to populate up to ~25% cap; expect L2 fail rate <15% on the un-tagged subset.
+3. Stand up the basic eval-run executor so `score_by_cb_split()` can be exercised on real data.
+4. Update D1 self-preference and D3 skew agents to optionally split by the `closed_book_solvable` tag.

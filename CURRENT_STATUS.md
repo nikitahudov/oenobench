@@ -1,20 +1,18 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** April 23, 2026
-**Project phase:** Phase 2g — v2.3 §5b+§5c shipped (B2 generation-side leakage fix + judge recalibration). Ready for audit run #4.
+**Last updated:** April 24, 2026
+**Project phase:** Phase 2g.6 — closed-book gate v2.0 (label+quota) shipped. Audit run #5 (`audit_pilot_v5`) launched in background.
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ## Latest cliff notes (start here next session)
 
-- **Phase 2g (2026-04-23) — two remaining v2.3 defects shipped via 3 parallel worktree teams:**
-  - **Team α (generation-side B2):** `data/iconic_entities.yaml` expanded 60 → 188 entries; `_fact_sampler.py` widened iconic filter to multi-fact strategies via `_bundle_has_non_iconic_anchor`; 11 new vague-regex patterns; `AVOID WORLD-KNOWLEDGE SOLVABILITY` + numbered `HARD RULES` blocks across all 10 strategy prompts.
-  - **Team β (judge recalibration):** `B2_VERSION v3.1.0` — L≤2 FAIL iff 5/5 keyed AND `cb_confidence_mean ≥ 0.80`; L≥3 WARN-only (never FAIL on closed-book alone). New `cb_confidence_mean` payload field.
-  - **Team γ (rubric reframing):** A3 rubric_measured=`verbatim_copy` (v1.1.0); C2 rubric_measured=`wine_category_leak` (v1.1.0); audit-report rubric remap with `_HUMAN_ONLY_AGENT` sentinel for semantic `source_faithful`; `GOLD_RUBRICS` extended with the two new entries.
-  - **Coordinator fixup:** wired `strategy="fact_to_question"` / `"template"` / `"distractor_mining"` at four `sample_facts()` call sites (single-fact iconic filter was dormant since v2.2).
-- **Test status:** 269/269 pytest pass on merged main.
-- **Audit run #3 (prior)**: `audit_pilot_v3`, 331 Qs, $8.51. v2.2 fixes landed. κ on 119 combined rows: only B1 `answer_correct` has usable signal (κ=0.47). B2 `needs_source` κ=-0.10 is now addressed by the v3.1.0 threshold change.
-- **Phase D sign-off: Go/No-Go STILL BLOCKED** on 5 gates pending audit run #4 re-measurement: per-generator answer_correct; template 7-rubric clean-pass; difficulty_match; D3 country ratio; B1.
-- **Next session start point:** Run audit_pilot_v4. `python -m src.qa.orchestrator build-corpus --tag audit_pilot_v4 --per-strategy 120 && run --teams A,B,C,D`. Expected: B2 fail rate drops from 66% to ~10–15%; new `verbatim_copy` + `wine_category_leak` rubric columns populate. Then export gold-v4 for human re-grading.
+- **Audit run #4 (2026-04-23, `audit_pilot_v4`, 341 Qs, $6.18):** v2.3 §5b/§5c fixes dropped B2 fail rate 66% → 36%. Real progress, but still missed the ≤15% gate. Diagnosis: residual leakage is *structural* — generators write attribute-bundle stems whose answer is recoverable from the cues alone, regardless of prompt rules.
+- **Phase 2g.5 (2026-04-24) — Generation-time closed-book gate v1.0 (REJECT):** Built `src/generators/_closed_book_gate.py` after 4 prototypes converged on Sonnet 4.6 MC closed-book at conf≥0.7 → 94% recall, 77% precision, residual L1/L2 fail rate 54% → 10% on the v4 corpus. New `insert_question_gated()` wrapper in `_question_db.py`; all 5 generator modules switched. 13 new tests + 269 baseline = 282/282 pass. Smoke test confirmed 65% L2 reject rate matching prototype prediction.
+- **Phase 2g.6 (2026-04-24) — Reframed gate v1.0 → v2.0 (LABEL+QUOTA):** User insight — B2-fail questions are not defects, they're a wine *world-knowledge* axis. Rewrote downstream action: gate-flagged L1/L2 questions are now tagged `closed_book_solvable`, forced to `difficulty='1'`, and admitted up to a 25% corpus cap (2,500 of 10k). Above the cap, gate-flagged questions are dropped. Three parallel teams shipped α (tests, +3 new), β (5 generators + orchestrator quota constant + status command), γ (`src/evaluation/cb_split.py` for paired CB-pass/CB-fail accuracy + Phase 2g.6 docs). 285/285 tests pass. Smoke test: 4 of 10 L2 questions correctly relabeled to L1 with the tag.
+- **Audit run #5 in flight (PID 561955):** Launched 2026-04-24 12:21 UTC via `nohup bash scripts/run_audit_pilot_v5.sh`. Runs build-corpus → run-teams-A,B,C,D → build-reports. Log: `data/logs/audit_pilot_v5_full_20260424T122125Z.log`. Estimated 3–6 hours, ~$10–15. First audit with the v2.0 gate active.
+- **Test status:** 285/285 pytest pass on main.
+- **Cost re-estimate for full 10k run:** $130 (v1.0 reject gate, would need 3× over-sampling) → ~$100 (v2.0 label+quota; over-sampling only on the post-quota tail).
+- **Next session start point:** Tail the audit-#5 log to confirm completion (`grep complete data/logs/audit_pilot_v5_full_*.log`). When done, inspect `docs/QUALITY_AUDIT_REPORT.md` + `docs/GENERATION_IMPROVEMENT_PLAN_AUTO.md` for the v5 verdict. Expectations: `closed_book_solvable` subset fills toward ~25% cap (~150 of 600); the *un-tagged* L1/L2 subset should show B2 fail rate ≤15%. If clear, export gold-v5 for human grading; otherwise iterate.
 
 ---
 
@@ -26,8 +24,12 @@
 | 2. Question Generation Pipeline | 7-10 | **Complete** — all 5 strategies built and iteratively tuned |
 | 2c. Quality Audit Framework | 11 | **Complete** — 9-agent multi-team audit |
 | 2d. Audit run #1 (pilot 472 Qs) | 12 | **Complete** — Go/No-Go BLOCKED, see findings below |
-| 2e. Defect fixes + audit run #2 | 13 | **Pending** — implement 3 critical fixes, re-run audit |
-| 2f. Full 10k generation run | 14 | **Pending** — gated on Go/No-Go pass |
+| 2e. Defect fixes + audit run #2 | 13 | **Complete** — v2.2 fixes shipped |
+| 2f–2g. v2.3 fixes + audits #3, #4 | 14 | **Complete** — B2 dropped 66% → 36%; structural residual identified |
+| 2g.5. Closed-book gate v1.0 (REJECT) | 14 | **Complete** — Sonnet 4.6 MC pre-screen wired into all 5 generators |
+| 2g.6. Closed-book gate v2.0 (LABEL+QUOTA) | 14 | **Complete** — relabel + 25% cap; paired eval helper `score_by_cb_split()` |
+| 2h. Audit run #5 + gold-v5 | 14 | **In progress** — `audit_pilot_v5` build+run launched 2026-04-24 12:21 UTC (PID 561955) |
+| 2i. Full 10k generation run | 15 | **Pending** — gated on v5 Go/No-Go pass |
 | 3. AI Validation | 15-17 | Not started |
 | 4. Human Review & Control Set | 18-20 | Not started |
 | 5. Evaluation & Analysis | 21-24 | Not started |

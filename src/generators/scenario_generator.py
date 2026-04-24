@@ -32,7 +32,7 @@ from src.generators._prompts import (
     build_prompt,
     prompt_hash,
 )
-from src.generators._question_db import get_used_fact_ids, insert_question
+from src.generators._question_db import get_used_fact_ids, insert_question_gated
 from src.generators._schemas import parse_llm_response
 from src.utils.db import get_pg
 
@@ -221,6 +221,8 @@ def _run_generate(
     generated = 0
     skipped_parse = 0
     skipped_dup = 0
+    relabeled_l1 = 0
+    rejected_overflow = 0
     inserted_uuids: list[str] = []
 
     while generated < count:
@@ -320,18 +322,33 @@ def _run_generate(
             fact_ids = [str(f["id"]) for f in cluster]
             source_ids = list({str(f["source_id"]) for f in cluster})
 
-            q_uuid = insert_question(
+            q_uuid, gate = insert_question_gated(
                 question_data, generation_meta,
                 fact_ids=fact_ids,
                 source_ids=source_ids,
             )
-            if q_uuid:
+            if q_uuid and gate.relabeled:
+                generated += 1
+                relabeled_l1 += 1
+                inserted_uuids.append(q_uuid)
+                logger.info(
+                    "OK (relabeled L1) | #{} | {} | subdomain={} | Q: {} | {}",
+                    generated, qid, cluster[0].get("subdomain"),
+                    parsed.question_text[:80], gate.reason,
+                )
+            elif q_uuid:
                 generated += 1
                 inserted_uuids.append(q_uuid)
                 logger.info(
                     "OK | #{} | {} | subdomain={} | Q: {}",
                     generated, qid, cluster[0].get("subdomain"),
                     parsed.question_text[:80],
+                )
+            elif gate.applied and gate.quota_full:
+                rejected_overflow += 1
+                logger.info(
+                    "DROP (cb_quota_full) | subdomain={} | {}",
+                    cluster[0].get("subdomain"), gate.reason,
                 )
             else:
                 logger.error(
@@ -346,12 +363,14 @@ def _run_generate(
 
     logger.info(
         "Scenario generation complete | generated={} | skipped_parse={} | "
-        "skipped_dup={} | dry_run={}",
-        generated, skipped_parse, skipped_dup, dry_run,
+        "skipped_dup={} | relabeled_l1={} | rejected_overflow={} | dry_run={}",
+        generated, skipped_parse, skipped_dup, relabeled_l1, rejected_overflow, dry_run,
     )
     click.echo(
         f"\nDone: {generated} scenario questions generated, "
-        f"{skipped_parse} parse failures, {skipped_dup} duplicates skipped."
+        f"{skipped_parse} parse failures, {skipped_dup} duplicates skipped, "
+        f"{relabeled_l1} relabeled to L1 (closed_book_solvable), "
+        f"{rejected_overflow} dropped over quota."
     )
 
 

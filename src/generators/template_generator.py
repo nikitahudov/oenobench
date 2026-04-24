@@ -58,7 +58,7 @@ from src.generators._question_db import (
     delete_questions_by_ids,
     get_question_count,
     get_used_fact_ids,
-    insert_question,
+    insert_question_gated,
 )
 from src.utils.db import get_pg
 
@@ -2096,6 +2096,8 @@ def main(
 
     used_facts = get_used_fact_ids() if not dry_run else set()
     total_generated = 0
+    total_relabeled_l1 = 0
+    total_rejected_overflow = 0
     generated_ids: list[str] = []
 
     # v2.2 fix #1 — γ-5 LLM paraphrase post-pass is DEFAULT ON (was opt-in via --paraphrase).
@@ -2263,22 +2265,42 @@ def main(
                     "prompt_hash": None,
                     "raw_response": None,
                 }
-                q_uuid = insert_question(
+                q_uuid, gate = insert_question_gated(
                     question_data,
                     generation_meta,
                     fact_ids=[result["_fact_id"]],
                     source_ids=[result["_source_id"]],
                 )
-                if q_uuid:
+                if q_uuid and gate.relabeled:
+                    generated += 1
+                    total_relabeled_l1 += 1
+                    generated_ids.append(q_uuid)
+                    used_facts.add(result["_fact_id"])
+                    _increment_template_count(result["_template_id"])  # v2.3 fix #13
+                    logger.info(
+                        "OK (relabeled L1) | template={} | {}",
+                        result["_template_id"], gate.reason,
+                    )
+                elif q_uuid:
                     generated += 1
                     generated_ids.append(q_uuid)
                     used_facts.add(result["_fact_id"])
                     _increment_template_count(result["_template_id"])  # v2.3 fix #13
+                elif gate.applied and gate.quota_full:
+                    total_rejected_overflow += 1
+                    logger.info(
+                        "DROP (cb_quota_full) | template={} | {}",
+                        result["_template_id"], gate.reason,
+                    )
 
         total_generated += generated
         logger.info(f"Domain {dom}: generated {generated}/{target} questions")
 
-    click.echo(f"\nTotal generated: {total_generated}")
+    click.echo(
+        f"\nTotal generated: {total_generated}  "
+        f"({total_relabeled_l1} relabeled to L1 (closed_book_solvable), "
+        f"{total_rejected_overflow} dropped over quota)"
+    )
     if test_run and generated_ids:
         click.echo(f"Test run — cleaning up {len(generated_ids)} questions")
         delete_questions_by_ids(generated_ids)

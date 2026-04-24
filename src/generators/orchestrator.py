@@ -40,6 +40,12 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 OVERALL_TARGET = 10_000
 
+# 25% of OVERALL_TARGET. Tracks the maximum share of `closed_book_solvable`
+# questions in the corpus (Phase 2g.6 policy). Surfaced in `status` so
+# the user can see when this cap is approaching.
+from src.generators._closed_book_gate import CLOSED_BOOK_QUOTA_FRACTION
+CLOSED_BOOK_QUOTA = int(CLOSED_BOOK_QUOTA_FRACTION * OVERALL_TARGET)
+
 # v2.3 allocation (post-gold-v3 calibration, 2026-04-22). See
 # docs/GENERATION_IMPROVEMENT_PLAN.md §0 and §13.
 #
@@ -211,6 +217,13 @@ def status(target):
     # Template-only
     tmpl_count = by_method.get("template", 0)
     click.echo(f"  {'template_only':20s} {tmpl_count:>5,} / {STRATEGY_TARGETS['template']:,}")
+
+    # Closed-book-solvable subset (Phase 2g.6 policy)
+    from src.generators._question_db import count_closed_book_solvable
+    cb_count = count_closed_book_solvable()
+    cb_pct = (cb_count / CLOSED_BOOK_QUOTA * 100) if CLOSED_BOOK_QUOTA else 0
+    click.echo(f"\nClosed-book-solvable subset:")
+    click.echo(f"  closed_book_solvable {cb_count:>5,} / {CLOSED_BOOK_QUOTA:,}  ({cb_pct:.0f}% of quota)")
 
     # Fact coverage
     click.echo("\nFact Coverage:")

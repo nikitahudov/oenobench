@@ -149,8 +149,12 @@ Per the report's own gating criterion (κ < 0.6 → downweight), every signal mu
 5a. **B1 cannot detect Llama/Qwen wrong keys.** Replace the "blocks regeneration" gate by combining B1 with the post-LLM verifier from fix #1. B1 stays as a sanity check but no longer the sole gate.
 
 5b. **B2 over-reports leakage 5×** because Opus 4.7 / GPT-5.4 / Gemini 3.1 Pro know more wine than the test-taker. Two changes:
-- Add Llama and Qwen to the B2 closed-book judge panel (their world knowledge is closer to a typical test-taker).
-- Re-tune the gate from "<50% leakage" to "<15% leakage" (calibrated against the human's 12% leakage rate on the gold sample).
+- Add Llama and Qwen to the B2 closed-book judge panel (their world knowledge is closer to a typical test-taker). ✅ Shipped 2026-04-23 in v3.1.0.
+- Re-tune the gate from "<50% leakage" to "<15% leakage" (calibrated against the human's 12% leakage rate on the gold sample). ✅ Shipped 2026-04-23 in v3.1.0.
+
+**5b-followup — generation-time closed-book gate (Phase 2g.5, ✅ shipped 2026-04-24).** v4 audit confirmed the prompt rules + threshold change reduced B2 from 66% → 36% but still missed the ≤15% target. Root cause: residual leakage is *structural* (attribute-bundle stems whose answer is recoverable from the cues alone), not phrasing. Four prototypes converged on **Sonnet 4.6 MC closed-book at conf≥0.7** as a generation-time pre-screen: 94% recall, 77% precision on v4, residual L1/L2 fail rate 54% → 10%. Implementation: `src/generators/_closed_book_gate.py` + `_question_db.insert_question_gated()` wrapper called by all 5 strategy modules. Only fires for L1/L2 multiple-choice; non-MC types and L3+ pass through. Fail-open on API/parse error. 13 new tests; 282/282 pass. Verdict stored in `generation_metadata.raw_response['gate']`. Smoke test: 65% reject rate at L2 — implies ~3× over-sampling needed. Cost: +$20 gate + ~$30 over-sampling on full 10k = revised budget ~$130 (was $80).
+
+**5b-followup v2.0 reframe (Phase 2g.6, ✅ shipped 2026-04-24).** Switched the gate's downstream action from REJECT to LABEL+QUOTA. Gate-flagged L1/L2 questions are now tagged `closed_book_solvable`, forced to `difficulty='1'`, and capped at 25% of the corpus (2,500 of 10k). When the cap is reached, additional gate-flagged questions are dropped. New eval helper `src/evaluation/cb_split.py` produces a paired metric (closed-book-pass vs closed-book-fail accuracy) so the benchmark measures both contextual reasoning AND parametric wine knowledge. Net throughput economics: no longer need 3× over-sampling at L1/L2 → corpus generation cost drops $130 → ~$100. v5 onward only — v4 retains the v1.0 reject semantics for clean audit comparison.
 
 5c. **A1 misses subtle vague phrasings.** Harvest the 8 vague-flagged phrasings from the gold sheet's `notes` column and add them to `_VAGUE_PATTERNS` in `src/generators/_fact_sampler.py`.
 

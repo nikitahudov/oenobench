@@ -10,7 +10,130 @@ import uuid
 import orjson
 from loguru import logger
 
+from src.generators._closed_book_gate import (
+    CLOSED_BOOK_QUOTA_FRACTION,
+    CLOSED_BOOK_TAG,
+    GateResult,
+    screen_question,
+)
 from src.utils.db import get_pg
+
+# 25% of the 10k overall target. Imported lazily to avoid circular import on
+# orchestrator at module load. See `_closed_book_quota_cap()` below.
+_OVERALL_TARGET_DEFAULT = 10_000
+
+
+def _closed_book_quota_cap() -> int:
+    """Return the absolute closed-book-solvable cap (e.g. 2500 for a 10k target).
+
+    Reads `OVERALL_TARGET` from the orchestrator if importable, otherwise
+    falls back to 10_000. The orchestrator import is deferred so this
+    module stays cheap at startup.
+    """
+    try:
+        from src.generators.orchestrator import OVERALL_TARGET
+        target = OVERALL_TARGET
+    except Exception:  # noqa: BLE001
+        target = _OVERALL_TARGET_DEFAULT
+    return int(CLOSED_BOOK_QUOTA_FRACTION * target)
+
+
+def count_closed_book_solvable() -> int:
+    """Count questions currently tagged `closed_book_solvable`.
+
+    Used by `insert_question_gated` to enforce the 25% corpus cap. Cheap
+    enough to call per-insert thanks to the GIN index on `questions.tags`.
+    """
+    conn = get_pg()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT count(*) AS cnt FROM questions WHERE %s = ANY(tags)",
+        (CLOSED_BOOK_TAG,),
+    )
+    row = cur.fetchone()
+    return int(row["cnt"]) if row else 0
+
+
+def insert_question_gated(
+    question_data: dict,
+    generation_meta: dict,
+    fact_ids: list[str],
+    source_ids: list[str],
+    apply_gate: bool = True,
+) -> tuple[str | None, GateResult]:
+    """Run the closed-book gate, then route per Phase 2g.6 policy.
+
+    The gate runs only on L1/L2 multiple-choice questions; L3+, non-MC
+    types, and questions without options pass through unchanged. The gate's
+    verdict is appended to `generation_meta['raw_response']['gate']` for
+    downstream audit / split-evaluation.
+
+    Routing (v2.0, 2026-04-24):
+      * gate.passed=True  → INSERT as-is (the pre-screen could not solve it)
+      * gate.passed=False AND quota has room
+            → MUTATE question_data: append `closed_book_solvable` tag,
+              force `difficulty='1'`. Set `gate.relabeled=True`. INSERT.
+      * gate.passed=False AND quota full
+            → set `gate.quota_full=True`. DROP. Return (None, gate).
+      * gate.applied=False → INSERT as-is
+
+    Returns:
+        (q_uuid_or_none, gate_result). q_uuid is None when the question
+        was dropped (quota full) or when the underlying DB insert failed.
+    """
+    if apply_gate:
+        gate = screen_question(
+            stem=question_data["question_text"],
+            options=question_data.get("options"),
+            correct_answer=question_data["correct_answer"],
+            difficulty=str(question_data["difficulty"]),
+            question_type=question_data["question_type"],
+        )
+    else:
+        gate = GateResult(passed=True, applied=False, reason="gate_disabled")
+
+    if gate.applied and not gate.passed:
+        cap = _closed_book_quota_cap()
+        current = count_closed_book_solvable()
+        if current >= cap:
+            gate.quota_full = True
+            gate.reason = (
+                f"reject (quota_full): closed_book_solvable {current}/{cap}; "
+                f"original={gate.reason}"
+            )
+            _stash_gate_meta(generation_meta, gate)
+            logger.info(
+                "GATE QUOTA FULL | qid={} | {}",
+                question_data.get("question_id"), gate.reason,
+            )
+            return None, gate
+
+        existing_tags = list(question_data.get("tags") or [])
+        if CLOSED_BOOK_TAG not in existing_tags:
+            existing_tags.append(CLOSED_BOOK_TAG)
+        question_data["tags"] = existing_tags
+        question_data["difficulty"] = "1"
+        gate.relabeled = True
+        gate.reason = (
+            f"relabel: gate solved closed-book → tagged {CLOSED_BOOK_TAG}, "
+            f"difficulty forced to L1; original={gate.reason}"
+        )
+        logger.info(
+            "GATE RELABEL | qid={} | {}",
+            question_data.get("question_id"), gate.reason,
+        )
+
+    _stash_gate_meta(generation_meta, gate)
+    q_uuid = insert_question(question_data, generation_meta, fact_ids, source_ids)
+    return q_uuid, gate
+
+
+def _stash_gate_meta(generation_meta: dict, gate: GateResult) -> None:
+    raw = generation_meta.setdefault("raw_response", {}) or {}
+    if not isinstance(raw, dict):
+        raw = {"content": raw}
+    raw["gate"] = gate.to_dict()
+    generation_meta["raw_response"] = raw
 
 
 def insert_question(

@@ -147,8 +147,8 @@ All significant work on this project must be documented in `docs/PROCESS_LOG.md`
 │   ├── evaluation/
 │   │   └── __init__.py           # Placeholder — future evaluation pipeline
 │   ├── generators/               # Phase 2 — question generation (5 strategies + orchestrator)
-│   │   ├── _dedup.py, _fact_sampler.py, _id_generator.py, _llm_client.py,
-│   │   ├── _prompts.py, _question_db.py, _schemas.py,
+│   │   ├── _closed_book_gate.py, _dedup.py, _fact_sampler.py, _id_generator.py,
+│   │   ├── _llm_client.py, _prompts.py, _question_db.py, _schemas.py,
 │   │   ├── template_generator.py, fact_to_question.py,
 │   │   ├── comparative_generator.py, scenario_generator.py,
 │   │   ├── distractor_miner.py, orchestrator.py
@@ -194,15 +194,18 @@ All significant work on this project must be documented in `docs/PROCESS_LOG.md`
 
 All other planned scrapers have been implemented and rebuilt with genuine data provenance.
 
-## Current Status (as of April 23, 2026)
+## Current Status (as of April 24, 2026)
 
-**Phase:** 2g — v2.3 §5b+§5c shipped (B2 generation-side leakage fix + judge recalibration). Ready for audit run #4.
+**Phase:** 2g.6 — closed-book gate v2.0 (label+quota) shipped. Ready for audit run #5 with gated+tagged corpus.
 
 - Phase 1 (Data Collection): ✅ 38,104 facts from 35 genuine scrapers
 - Phase 2 (Question Generation Pipeline): ✅ 5 strategies built and iteratively tuned
 - Phase 2c (Quality Audit Framework): ✅ 9 agents across 4 teams under `src/qa/`
 - Phase 2d–2f (Audit runs #1–#3 + gold-v1–v3 sign-off): ✅
-- Phase 2g (v2.3 §5b/§5c fixes): ✅ Three parallel worktree teams merged; 269/269 tests pass
+- Phase 2g (v2.3 §5b/§5c fixes): ✅ Three parallel worktree teams merged
+- Phase 2g (audit #4 on `audit_pilot_v4`): ✅ B2 dropped 66% → 36% — improved but missed ≤15% gate
+- Phase 2g.5 (closed-book MC gate v1.0): ✅ Sonnet 4.6 wired into all 5 generators; 282/282 tests pass; smoke test 65% reject rate matches prototype prediction
+- Phase 2g.6 (gate v2.0 — label+quota): ✅ Routes gate-flagged L1/L2 to `closed_book_solvable` tag at L1, capped at 25% of corpus; new `score_by_cb_split()` eval helper; 285+/285+ tests pass
 
 ### Phase 2g shipped (2026-04-23)
 
@@ -218,7 +221,27 @@ All other planned scrapers have been implemented and rebuilt with genuine data p
 | Gold report remap | `_HUMAN_ONLY_AGENT` sentinel for semantic `source_faithful`; `GOLD_RUBRICS` extended additively | Team γ merge |
 | Sampler strategy wiring | Four `sample_facts()` call sites now pass `strategy=…` (was dormant since v2.2) | Coordinator fixup |
 
-Reports: `docs/QUALITY_AUDIT_REPORT.md`, `docs/GENERATION_IMPROVEMENT_PLAN.md`, `docs/PROCESS_LOG.md` (Phase 2g entry).
+### Phase 2g.5 shipped (2026-04-24)
+
+| Area | Change | Artifact |
+|---|---|---|
+| Closed-book gate v1.0 | New module `src/generators/_closed_book_gate.py` — Sonnet 4.6 MC closed-book at conf≥0.7. Only fires for L1/L2 multiple-choice. Fails open on API/parse error. | gate-only smoke test 30 rejects / 15 accepts |
+| Insert wrapper | New `_question_db.insert_question_gated()` — runs gate, appends verdict to `generation_meta['raw_response']['gate']`, returns `(uuid_or_none, GateResult)` | schema-migration-free |
+| Generator switchover | All 5 strategy modules switched to `insert_question_gated`; each tracks `skipped_gate` count | fact_to_question, comparative, scenario, distractor_miner, template_generator |
+| Tests | 13 new in `tests/generators/test_closed_book_gate.py` | 282/282 total pytest pass |
+
+Prototype evidence (audit_pilot_v4 corpus, 230 L1/L2 questions): MC Sonnet @ conf≥0.7 → 94% recall, 77% precision, residual L1/L2 fail rate 54% → **10%**. See `docs/PROCESS_LOG.md` 2026-04-24 for full prototype methodology.
+
+### Phase 2g.6 shipped (2026-04-24)
+
+| Area | Change | Artifact |
+|---|---|---|
+| Gate routing change | v1.0 reject → v2.0 label+quota: gate-flagged L1/L2 questions are tagged `closed_book_solvable`, forced to `difficulty='1'`, kept in corpus until 25% cap | `src/generators/_closed_book_gate.py` (GATE_VERSION 2.0.0; `relabeled` + `quota_full` on `GateResult`) |
+| Quota constant + status command | `CLOSED_BOOK_QUOTA_FRACTION = 0.25`, `CLOSED_BOOK_TAG = "closed_book_solvable"`, new `count_closed_book_solvable()` helper; `insert_question_gated()` rewritten as routing wrapper | `src/generators/_question_db.py` |
+| Eval split helper | New `score_by_cb_split(eval_run_id)` returns paired cb_pass vs cb_fail accuracy + gap, exposing parametric wine knowledge vs contextual wine reasoning | `src/evaluation/cb_split.py` |
+| Tests | Routing tests (relabel-when-room, reject-when-quota-full, no-double-tag, preserve-other-tags); 1 v1.0 reject test rewritten | 285+/285+ pytest pass |
+
+Reports: `docs/QUALITY_AUDIT_REPORT.md`, `docs/GENERATION_IMPROVEMENT_PLAN.md`, `docs/PROCESS_LOG.md` (Phase 2g + 2g.5 + 2g.6 entries).
 
 See `CURRENT_STATUS.md` for detailed phase tracking and the regeneration Go/No-Go gate.
 
@@ -377,14 +400,15 @@ See `config/postgres/init.sql` for full schema with enums, indexes, views, and t
 
 ## What to Work On Next
 
-Phase 2g fixes are merged and green. The immediate sequence:
+Phase 2g.6 closed-book gate v2.0 (label+quota) is merged and green (285+/285+ tests). The immediate sequence:
 
-1. **Run audit #4.** `python -m src.qa.orchestrator build-corpus --tag audit_pilot_v4 --per-strategy 120 --seed 42` then `run --teams A,B,C,D`. Target: B2 fail rate drops from 66% → ≤15%; new `verbatim_copy` and `wine_category_leak` rubric columns should populate.
-2. **Export gold-v4** (60 Qs, 12/strategy) via `export-gold` and hand to the domain expert for rubric scoring on all 10 rubrics (including the two new ones). Import via `import-gold` once returned.
-3. **Verify Go/No-Go** against the revised checklist in `docs/GENERATION_IMPROVEMENT_PLAN.md` (§Regeneration Go/No-Go — κ targets + per-generator 95% answer_correct spot-check).
-4. **Only then** kick off the full 10k generation run (`python -m src.generators.orchestrator generate-all`, ~$80).
+1. **Build `audit_pilot_v5` with the new gate+quota policy.** `python -m src.qa.orchestrator build-corpus --tag audit_pilot_v5 --per-strategy 120 --seed 42` then `run --teams A,B,C,D`. Expected: closed-book-solvable subset fills toward the ~25% cap; non-tagged L1/L2 should show B2 fail rate ≤15%.
+2. **Stand up a basic evaluation-run executor** (out of scope for Phase 2g.6) so `score_by_cb_split()` can be exercised on real data and report the cb_pass vs cb_fail gap.
+3. **Run audit #5 and gold-v5** with both rubrics (`verbatim_copy`, `wine_category_leak`) plus the new tag-segment analysis (split metrics by `closed_book_solvable`).
+4. **Verify Go/No-Go** per `docs/GENERATION_IMPROVEMENT_PLAN.md` (§Regeneration Go/No-Go — κ targets + per-generator 95% answer_correct spot-check).
+5. **Kick off the full 10k generation run** (`python -m src.generators.orchestrator generate-all`, revised cost estimate ~$100 with v2.0 gate, down from the $130 v1.0 estimate now that 3× over-sampling is no longer needed).
 
-See `CURRENT_STATUS.md` for detailed phase tracking, `docs/GENERATION_IMPROVEMENT_PLAN.md` for the full ranked defect list and Go/No-Go gates, and `docs/PROCESS_LOG.md` 2026-04-23 for the Phase 2g methodology details.
+See `CURRENT_STATUS.md` for detailed phase tracking, `docs/GENERATION_IMPROVEMENT_PLAN.md` for the full ranked defect list and Go/No-Go gates, and `docs/PROCESS_LOG.md` 2026-04-23 (Phase 2g), 2026-04-24 (Phase 2g.5 — closed-book gate v1.0 prototype + ship), and 2026-04-24 (Phase 2g.6 — gate v2.0 reframe) for methodology details.
 
 ## Important Links
 
