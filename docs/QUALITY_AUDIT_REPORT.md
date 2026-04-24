@@ -1,208 +1,177 @@
 # OenoBench Quality Audit Report
 
-- Run ID: `0bfe85dc-4fdc-4500-b274-a4b05d982e20`
-- Corpus tag: `audit_pilot_v3`
-- Corpus size: 331
-- Config hash: `9b5412b7428a2322...`
-- Started: 2026-04-20 23:29:02.857716+00:00
-- Completed: (in progress)
-- LLM calls: 3479
-- Cost: $8.51
+- Run ID: `4e3ead78-2b62-4733-919d-bf3f4878aaec`
+- Corpus tag: `audit_pilot_v4`
+- Corpus size: 341
+- Config hash: `46b46c6cd37835f5...`
+- Started: 2026-04-23 21:28:38.863657+00:00
+- Completed: 2026-04-24 01:24:45.776806+00:00
+- LLM calls: 3228
+- Cost: $6.18
 
 ## 1 · Executive summary
 
-- Findings across 10 agents: 1312 pass · 397 warn · 275 fail · 6 error
+- Findings across 9 agents: 1231 pass · 318 warn · 160 fail · 0 error
 
 | Agent | pass | warn | fail | error | total |
 |---|---:|---:|---:|---:|---:|
-| A1_LexicalHygiene | 302 | 13 | 16 | 0 | 331 |
-| A2_BiasStats | 0 | 0 | 1 | 0 | 1 |
-| A3_FactEcho | 181 | 134 | 16 | 0 | 331 |
+| A1_LexicalHygiene | 316 | 11 | 14 | 0 | 341 |
+| A2_BiasStats | 0 | 1 | 0 | 0 | 1 |
+| A3_FactEcho | 154 | 171 | 16 | 0 | 341 |
 | A4_TemplateFingerprint | 1 | 0 | 0 | 0 | 1 |
-| B1_TriJudgeAnswer | 304 | 18 | 9 | 0 | 331 |
-| B2_ClosedBookSolvability | 73 | 38 | 220 | 0 | 331 |
-| C2_CategoryLeak | 324 | 7 | 0 | 0 | 331 |
-| C4_DifficultyAudit | 127 | 186 | 12 | 6 | 331 |
-| D1_SelfPreference | 0 | 1 | 0 | 0 | 1 |
+| B1_TriJudgeAnswer | 326 | 13 | 2 | 0 | 341 |
+| B2_ClosedBookSolvability | 102 | 115 | 124 | 0 | 341 |
+| C2_CategoryLeak | 332 | 7 | 2 | 0 | 341 |
+| D1_SelfPreference | 0 | 0 | 1 | 0 | 1 |
 | D3_SkewAudit | 0 | 0 | 1 | 0 | 1 |
 
 ## 2 · Methodology
 
-- Corpus: 331 questions tagged `audit_pilot_v3`, seed 42.
+- Corpus: 341 questions tagged `audit_pilot_v4`, seed 42.
 - Agents: ['A1_LexicalHygiene', 'A2_BiasStats', 'A3_FactEcho', 'A4_TemplateFingerprint', 'B1_TriJudgeAnswer', 'B2_ClosedBookSolvability', 'C2_CategoryLeak', 'C4_DifficultyAudit', 'D1_SelfPreference', 'D3_SkewAudit']
 - Judge models: ['claude', 'chatgpt', 'gemini']
-- Thresholds and seeds encoded in config hash (full hash: `9b5412b7428a2322c47dd0aadfa23bed8de9ec86c748b0b89471144a04ae7dc5`).
+- Thresholds and seeds encoded in config hash (full hash: `46b46c6cd37835f5fb4554f64317887a2329f7b0da1176deb835d91876184489`).
 
 ## 3 · Per-strategy deep dive
 
 ### template
 
-- Question count: **14**
-- Severity rollup: pass=53, warn=13, fail=18
+- Question count: **52**
+- Severity rollup: pass=186, warn=44, fail=30
 - Failures by agent:
-  - B2_ClosedBookSolvability: 8
-  - A3_FactEcho: 7
-  - B1_TriJudgeAnswer: 2
-  - C4_DifficultyAudit: 1
+  - B2_ClosedBookSolvability: 26
+  - A3_FactEcho: 4
 - Sample failures:
-  - WB-REG-0136-L1  ·  B2_ClosedBookSolvability  ·  
-    > Decide True or False — Nebbiolo is an authorised variety in Terre Alfieri.
-  - WB-PRD-0147-L3  ·  A3_FactEcho  ·  lcs_ratio=0.75
-    > True or False: Specific colour requirement (if applicable) is located in the align="center" | lightly coloured red wine region.
-  - WB-PRD-0148-L2  ·  B2_ClosedBookSolvability  ·  
-    > True or False: Rocca delle Macìe is located in the Tuscany wine region.
+  - WB-REG-0186-L1  ·  B2_ClosedBookSolvability  ·  
+    > The fact assigns the Madera AVA to which US state?
+  - WB-REG-0187-L1  ·  B2_ClosedBookSolvability  ·  
+    > The fact assigns the Rutherford AVA to which US state?
+  - WB-REG-0189-L1  ·  B2_ClosedBookSolvability  ·  
+    > Based on the fact, in which country is the Meursault wine region located?
 
 ### fact_to_question
 
 - Question count: **120**
-- Severity rollup: pass=471, warn=132, fail=115
+- Severity rollup: pass=443, warn=87, fail=70
 - Failures by agent:
-  - B2_ClosedBookSolvability: 102
-  - C4_DifficultyAudit: 7
-  - A1_LexicalHygiene: 5
-  - A3_FactEcho: 1
+  - B2_ClosedBookSolvability: 61
+  - A3_FactEcho: 6
+  - A1_LexicalHygiene: 3
 - Sample failures:
-  - WB-WMK-0131-L2  ·  B2_ClosedBookSolvability  ·  
-    > What type of aging is traditionally used for Bourgogne Aligoté wines?
-  - WB-WMK-0134-L2  ·  B2_ClosedBookSolvability  ·  
-    > Which materials are commonly used by modern South American wineries for aging wine?
-  - WB-WMK-0136-L2  ·  B2_ClosedBookSolvability  ·  
-    > Which of the following areas should be considered in preparation for the winemaking process called crush?
+  - WB-PRD-0213-L2  ·  B2_ClosedBookSolvability  ·  
+    > In which Médoc commune is the Bordeaux estate Château d'Angludet located?
+  - WB-PRD-0215-L2  ·  B2_ClosedBookSolvability  ·  
+    > An Adelaide Hills winery pioneered the cultivation of Grüner Veltliner in Australia by bringing in three clones from Austria in 2006, followed by an additional three clones or clon
+  - WB-PRD-0216-L2  ·  B2_ClosedBookSolvability  ·  
+    > A Salta producer established two vineyard sites at about 2,250 meters and 3,000 meters above sea level. Which winery fits those elevations?
 
 ### comparative
 
-- Question count: **57**
-- Severity rollup: pass=224, warn=79, fail=38
+- Question count: **58**
+- Severity rollup: pass=214, warn=58, fail=18
 - Failures by agent:
-  - B2_ClosedBookSolvability: 27
-  - B1_TriJudgeAnswer: 5
-  - A1_LexicalHygiene: 3
+  - B2_ClosedBookSolvability: 12
+  - A1_LexicalHygiene: 2
   - A3_FactEcho: 2
-  - C4_DifficultyAudit: 1
+  - C2_CategoryLeak: 1
+  - B1_TriJudgeAnswer: 1
 - Sample failures:
-  - WB-WMK-0132-L2  ·  B2_ClosedBookSolvability  ·  
-    > A wine labeled as DOCG must meet certain requirements. If a wine has been aged for 21 months, with 9 months in oak barrels, which classification is it more likely to be?
-  - WB-WMK-0133-L3  ·  B2_ClosedBookSolvability  ·  
-    > Which production method is used for Trento DOC wines?
-  - WB-VIT-0142-L3  ·  B1_TriJudgeAnswer  ·  majority_matches_key=False
-    > A viticulturist is evaluating a specific Napa Valley appellation characterized by exceptionally low temperatures compared to the surrounding areas, a feature that significantly ext
+  - WB-REG-0216-L2  ·  B2_ClosedBookSolvability  ·  
+    > Which grape variety is permitted for white wine production under the Chablis Grand Cru AOC?
+  - WB-REG-0217-L2  ·  B2_ClosedBookSolvability  ·  
+    > Which appellation has separate DOCG status and distinct production regulations from the larger DOCG that surrounds it?
+  - WB-WMK-0200-L2  ·  B2_ClosedBookSolvability  ·  
+    > Which of these grape varieties is used to produce a DOC wine with a minimum 85% varietal requirement?
 
 ### scenario_synthesis
 
-- Question count: **57**
-- Severity rollup: pass=213, warn=75, fail=53
+- Question count: **86**
+- Severity rollup: pass=294, warn=100, fail=36
 - Failures by agent:
-  - B2_ClosedBookSolvability: 42
-  - A1_LexicalHygiene: 5
+  - B2_ClosedBookSolvability: 25
+  - A1_LexicalHygiene: 6
   - A3_FactEcho: 3
-  - C4_DifficultyAudit: 2
   - B1_TriJudgeAnswer: 1
+  - C2_CategoryLeak: 1
 - Sample failures:
-  - WB-WMK-0128-L3  ·  C4_DifficultyAudit  ·  
-    > A Georgian winemaker is preparing to ferment their wine using traditional kvevri vessels. They have sourced clay from two different regions, with one having higher mineral content 
-  - WB-WMK-0138-L4  ·  B2_ClosedBookSolvability  ·  
-    > A Champagne house is creating a special limited edition cuvée to commemorate a significant anniversary. They want to use only vintage wine for this release, and age it on the lees 
-  - WB-WMK-0141-L2  ·  B2_ClosedBookSolvability  ·  
-    > A winemaker in the Wairarapa region of New Zealand is deciding whether to age their Sauvignon Blanc in stainless steel or oak barrels. They want to produce a wine that aligns with 
+  - WB-REG-0221-L2  ·  B2_ClosedBookSolvability  ·  
+    > A winemaker in a well-known northeastern Hungarian appellation is planning the cellar lineup for the next release. The team wants to showcase the area's breadth while also introduc
+  - WB-REG-0222-L2  ·  B2_ClosedBookSolvability  ·  
+    > A Chilean winemaker is planning a new Pinot Noir program and wants to shortlist vineyard sources in areas where that grape is regularly made. Four internal proposals are on the tab
+  - WB-REG-0224-L2  ·  B2_ClosedBookSolvability  ·  
+    > A winemaker is planning a small Canadian release and wants the project to align with three internal benchmarks from past review data: it should use a grape that is regularly made i
 
 ### distractor_mining
 
-- Question count: **83**
-- Severity rollup: pass=350, warn=97, fail=49
+- Question count: **25**
+- Severity rollup: pass=93, warn=28, fail=4
 - Failures by agent:
-  - B2_ClosedBookSolvability: 41
-  - A3_FactEcho: 3
   - A1_LexicalHygiene: 3
-  - C4_DifficultyAudit: 1
-  - B1_TriJudgeAnswer: 1
+  - A3_FactEcho: 1
 - Sample failures:
-  - WB-REG-0157-L4  ·  B2_ClosedBookSolvability  ·  
-    > Which California AVA was established in 2005?
-  - WB-WMK-0135-L3  ·  A3_FactEcho  ·  lcs_ratio=0.381
-    > Which technique combination shows promise for accelerating wine ageing while preserving sensory quality?
-  - WB-VIT-0127-L4  ·  B2_ClosedBookSolvability  ·  
-    > During a controlled environmental study evaluating the resilience of juvenile white grapevines, researchers monitored specific physiological responses. Which simulated climatic str
-
-## 3.5 · Per-strategy gold pass rates
-
-Cross-tab of human-rated rubric pass percentages by generation strategy. Empty cells (`—`) mean no gold label was recorded for that (strategy, rubric) cell.
-
-| strategy | n | answer_correct | needs_source | no_vague_language | source_faithful | distractors_plausible |
-|---|---:|---:|---:|---:|---:|---:|
-| comparative | 12 | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |
-| distractor_mining | 12 | 91.7% | 91.7% | 83.3% | 91.7% | 91.7% |
-| fact_to_question | 11 | 90.9% | 100.0% | 90.9% | 100.0% | 100.0% |
-| scenario_synthesis | 12 | 100.0% | 100.0% | 100.0% | 100.0% | 83.3% |
-| template | 12 | 75.0% | 75.0% | 75.0% | 75.0% | 75.0% |
+  - WB-REG-0242-L3  ·  A1_LexicalHygiene  ·  matches=['question_text']
+    > This specific geographical indication is positioned roughly sixty kilometers to the north of Christchurch. It is notable for containing the greatest proportion of vineyard planting
+  - WB-GRP-0279-L3  ·  A1_LexicalHygiene  ·  matches=['question_text']
+    > This grape variety is native to Spain and is authorized for use in certain designated wine regions of the country. While several Spanish geographical indications permit its inclusi
+  - WB-GRP-0280-L3  ·  A1_LexicalHygiene  ·  matches=['question_text']
+    > In the Burgundy region, a group of 44 appellations is defined by a naming convention that directly reflects the commune in which the vineyards are located. These designations are t
 
 ## 4 · Per-generator deep dive
 
 ### chatgpt
 
-- Authored question count: **66**
-- Total fails: 58, warns: 73
+- Authored question count: **62**
+- Total fails: 29, warns: 65
 
 ### claude
 
-- Authored question count: **59**
-- Total fails: 45, warns: 73
+- Authored question count: **52**
+- Total fails: 19, warns: 56
 
 ### gemini
 
-- Authored question count: **57**
-- Total fails: 45, warns: 56
+- Authored question count: **49**
+- Total fails: 13, warns: 29
 
 ### llama
 
-- Authored question count: **65**
-- Total fails: 48, warns: 87
+- Authored question count: **60**
+- Total fails: 26, warns: 58
 
 ### qwen
 
-- Authored question count: **70**
-- Total fails: 59, warns: 94
+- Authored question count: **66**
+- Total fails: 41, warns: 65
 
 ### template_only
 
-- Authored question count: **14**
-- Total fails: 18, warns: 13
-
-## 4.5 · Per-generator gold pass rates
-
-Cross-tab of human-rated rubric pass percentages by generator model. Use this to compare quality across the 5 LLM generators (plus `template_only`) and decide allocation.
-
-| generator | n | answer_correct | needs_source | no_vague_language | source_faithful | distractors_plausible |
-|---|---:|---:|---:|---:|---:|---:|
-| chatgpt | 12 | 100.0% | 100.0% | 100.0% | 100.0% | 83.3% |
-| claude | 12 | 100.0% | 100.0% | 100.0% | 100.0% | 100.0% |
-| gemini | 8 | 87.5% | 100.0% | 87.5% | 100.0% | 100.0% |
-| llama | 9 | 88.9% | 88.9% | 88.9% | 88.9% | 88.9% |
-| qwen | 6 | 100.0% | 100.0% | 83.3% | 100.0% | 100.0% |
-| template_only | 12 | 75.0% | 75.0% | 75.0% | 75.0% | 75.0% |
+- Authored question count: **52**
+- Total fails: 30, warns: 44
 
 ## 5 · Cross-cutting findings
 
 ### Template detectability (A4)
-- Held-out AUC: **None**
+- Held-out AUC: **0.7293**
+- Top discriminative features: `len:tokens` (-3.44), `len:sentences` (+2.48), `len:avg_word` (+1.58), `punc::` (+0.92), `bg:WORD-PUN` (+0.38), `bg:DET-WORD` (+0.33), `bg:WORD-AUX` (+0.20), `punc:?` (-0.17)
 
 ### Country / domain skew (D3)
-- Max country over-representation ratio: **3.139**
-- Question country counts (top 10): {'US': 2, 'Chile': 6, 'Italy': 9, 'Canada': 1, 'Israel': 3, 'England': 1, 'Germany': 1, 'Australia': 12, 'New Zealand': 20, 'South Africa': 39}
-- Subdomain Herfindahl per strategy: template=0.1837, comparative=0.4004, fact_to_question=0.091, distractor_mining=0.0515, scenario_synthesis=0.0853
+- Max country over-representation ratio: **6.368**
+- Question country counts (top 10): {'Chile': 3, 'China': 1, 'Italy': 2, 'Spain': 6, 'Canada': 3, 'France': 2, 'Austria': 1, 'Germany': 6, 'Argentina': 3, 'Australia': 13}
+- Subdomain Herfindahl per strategy: template=0.1021, comparative=0.2354, fact_to_question=0.0733, distractor_mining=0.0752, scenario_synthesis=0.056
 
 ## 6 · Gold calibration
 
-- Human-reviewed items: **119**
+- Human-reviewed items: **110**
 
 | Rubric | Agent | Human pass% | LLM pass% | Agreement | κ | n |
 |---|---|---:|---:|---:|---:|---:|
-| answer_correct | B1 TriJudgeAnswer (majority_matches_key) | 91.5% | 94.9% | 93.2% | **0.466** | 59 |
-| needs_source | B2 ClosedBookSolvability (NOT closed-book correct) | 93.2% | 18.6% | 15.3% | **-0.099** | 59 |
-| no_vague_language | A1 LexicalHygiene (no regex match) | 89.8% | 89.8% | 79.7% | **-0.113** | 59 |
-| source_faithful | A3 FactEcho (LCS < 0.6) | 93.2% | 88.1% | 88.1% | **0.304** | 59 |
-| distractors_plausible | C2 CategoryLeak (no leaked distractor) | 89.8% | 94.9% | 88.1% | **0.166** | 59 |
-
-- ⚠ κ below 0.6 — downweight these LLM signals when interpreting strategy rollups: `answer_correct` (κ=0.466), `needs_source` (κ=-0.099), `no_vague_language` (κ=-0.113), `source_faithful` (κ=0.304), `distractors_plausible` (κ=0.166).
+| answer_correct | B1 TriJudgeAnswer (majority_matches_key) | — | — | — | — | 0 |
+| needs_source | B2 ClosedBookSolvability (NOT closed-book correct) | — | — | — | — | 0 |
+| no_vague_language | A1 LexicalHygiene (no regex match) | — | — | — | — | 0 |
+| verbatim_copy | A3 FactEcho (LCS < 0.6) | — | — | — | — | 0 |
+| source_faithful | (human-only — no LLM proxy) | 73.6% | — | — | — | 110 |
+| wine_category_leak | C2 WineCategoryLeak (no leaked distractor) | — | — | — | — | 0 |
+| distractors_plausible | C2 WineCategoryLeak (partial — category leaks only) | — | — | — | — | 0 |
 
 ## 7 · Limitations & deferred checks
 
@@ -225,10 +194,10 @@ Escalation triggers (if the audit finds these, run the deferred agents):
 
 ```sql
 -- All findings for this run
-SELECT agent_id, severity, count(*) FROM audit_findings WHERE run_id = '0bfe85dc-4fdc-4500-b274-a4b05d982e20' GROUP BY 1,2;
+SELECT agent_id, severity, count(*) FROM audit_findings WHERE run_id = '4e3ead78-2b62-4733-919d-bf3f4878aaec' GROUP BY 1,2;
 
 -- Per-question rollup
-SELECT * FROM v_question_audit_summary WHERE id IN (SELECT question_id FROM audit_findings WHERE run_id = '0bfe85dc-4fdc-4500-b274-a4b05d982e20');
+SELECT * FROM v_question_audit_summary WHERE id IN (SELECT question_id FROM audit_findings WHERE run_id = '4e3ead78-2b62-4733-919d-bf3f4878aaec');
 ```
 
-_Generated 2026-04-22T20:35:49.017431_
+_Generated 2026-04-24T01:24:46.782117_
