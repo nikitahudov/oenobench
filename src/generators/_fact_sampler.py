@@ -661,6 +661,146 @@ _QUOTA_GRACE_N = 10  # cap is not enforced until at least N facts have been retu
 _MIN_CAP_COUNT = 3
 
 
+# ─── Team ε — per-call absolute per-country cap (D3 fix v3) ─────────────────
+#
+# Addition: the existing 1.2× pool-share quota above is *pool-relative* and
+# allows large pool-shares (Australia 22%, South Africa 13%, New Zealand 13%
+# in the country-tagged slice) to legitimately fill ~26%, ~16%, ~15% of the
+# returned set. That over-shoots the D3 max_overrep_ratio < 2.0 gate when
+# combined with finite-sample noise.
+#
+# This per-call absolute cap (e.g. 0.10) is an additional gate on top of the
+# 1.2× pool-share rule. Semantics:
+#
+#   per_country_cap = None  → behaviour unchanged (backward compat).
+#   per_country_cap = 0.10  → no single country may exceed 10% of the
+#                              returned-facts list for THIS sampling call.
+#
+# The cap is scoped to the candidate list of a single sampler call (not the
+# global session counter) so multi-fact strategies (pairs/groups/clusters)
+# count BOTH members of an Australian pair as 2 toward Australia's local
+# quota. The implementation lives in ``_apply_per_country_cap`` below; each
+# sampler post-processes its ranked candidate list through the helper before
+# the existing ``_cap_admit_and_record`` step.
+
+
+def _country_cap_max(per_country_cap: float, target_count: int) -> int:
+    """Return the maximum per-country count allowed in a returned set of size
+    ``target_count`` under the absolute fraction cap ``per_country_cap``.
+
+    We use ``ceil`` so a request for ``count=10`` with ``cap=0.10`` allows
+    exactly 1 fact per country (10% of 10 = 1.0, so the limit is 1, not 0).
+    Below 1 we floor at 1 — disallowing any country at all would break
+    sampling against single-country pools in tests.
+    """
+    if per_country_cap is None or per_country_cap <= 0.0:
+        # No cap configured.
+        return target_count
+    raw = per_country_cap * target_count
+    # Round-up so a 10% cap on 10 facts = 1 (not 0). Always allow at least 1.
+    import math
+    return max(1, math.ceil(raw))
+
+
+def _apply_per_country_cap(
+    candidates: list[dict],
+    target_count: int,
+    per_country_cap: float | None,
+) -> list[dict]:
+    """Filter a ranked candidate fact list to enforce a per-country absolute cap.
+
+    Walks ``candidates`` in order, admitting each fact whose country still
+    has room under the cap. Facts whose country is already at the cap are
+    skipped; facts with no extractable country are always admitted (the cap
+    only constrains country-tagged facts).
+
+    This is the single-fact variant. For multi-fact strategies (pairs, groups,
+    clusters) use ``_apply_per_country_cap_to_bundles`` so all bundle members
+    count atomically.
+
+    If ``per_country_cap`` is ``None``, the candidate list is returned
+    unchanged (backward-compatible no-op).
+
+    Args:
+        candidates: ranked list of fact dicts (highest-priority first).
+        target_count: caller's requested sample size — used to derive the
+            per-country max via ``_country_cap_max``.
+        per_country_cap: ``None`` for no cap, or a fraction in (0, 1].
+
+    Returns:
+        A new list (length ≤ ``target_count``) where no country's count
+        exceeds ``ceil(per_country_cap * target_count)``.
+    """
+    if per_country_cap is None:
+        return list(candidates)
+    max_per_country = _country_cap_max(per_country_cap, target_count)
+    selected: list[dict] = []
+    per_country_count: dict[str, int] = defaultdict(int)
+    for fact in candidates:
+        if len(selected) >= target_count:
+            break
+        country = _extract_country_from_entities(fact.get("entities"))
+        if country is not None:
+            if per_country_count[country] >= max_per_country:
+                continue
+            per_country_count[country] += 1
+        selected.append(fact)
+    return selected
+
+
+def _apply_per_country_cap_to_bundles(
+    bundles: list[list[dict]] | list[tuple[dict, ...]],
+    target_count: int,
+    per_country_cap: float | None,
+) -> list:
+    """Per-call cap variant for bundle (multi-fact) outputs.
+
+    Each bundle is a tuple/list of facts. A bundle is admitted iff every
+    fact's country still has room under the cap; admitting the bundle counts
+    EACH fact toward its country's total (so an all-Australian pair adds 2
+    to Australia's count, not 1, matching the audit D3 contract).
+
+    The denominator for the cap is ``target_count * group_size`` — the total
+    number of facts that will appear in the returned bundle list. We infer
+    ``group_size`` from the first bundle's length; for heterogeneous bundle
+    shapes the caller should pass them through this helper separately.
+
+    If ``per_country_cap`` is ``None``, returns the input unchanged.
+    """
+    if per_country_cap is None:
+        return list(bundles)
+    if not bundles:
+        return list(bundles)
+    group_size = len(bundles[0])
+    fact_total = target_count * group_size
+    max_per_country = _country_cap_max(per_country_cap, fact_total)
+    selected: list = []
+    per_country_count: dict[str, int] = defaultdict(int)
+    for bundle in bundles:
+        if len(selected) >= target_count:
+            break
+        # Tally this bundle's countries.
+        bundle_countries: list[str | None] = [
+            _extract_country_from_entities(f.get("entities")) for f in bundle
+        ]
+        # Per-country counts ADDED by this bundle (handles within-bundle dupes).
+        added: dict[str, int] = defaultdict(int)
+        for c in bundle_countries:
+            if c is not None:
+                added[c] += 1
+        # Bundle admissible iff for every country, current + added <= max.
+        ok = all(
+            per_country_count[c] + n <= max_per_country
+            for c, n in added.items()
+        )
+        if not ok:
+            continue
+        for c, n in added.items():
+            per_country_count[c] += n
+        selected.append(bundle)
+    return selected
+
+
 def _country_quota_score(country: str | None) -> float:
     """Multiplicative weight in [0, 1] for a candidate fact's country.
 
@@ -728,6 +868,7 @@ def sample_facts(
     prefer_diverse_sources: bool = True,
     wine_category: str | None = None,
     strategy: str | None = None,
+    per_country_cap: float | None = None,
 ) -> list[dict]:
     """Sample facts from PostgreSQL for question generation.
 
@@ -746,6 +887,13 @@ def sample_facts(
             dropped because the question is world-knowledge-solvable. Other
             strategies still get iconic facts (multi-fact synthesis keeps
             the difficulty up).
+        per_country_cap: Team ε D3-fix v3 (April 2026). When set to a
+            fraction in (0, 1], no single country may exceed
+            ``ceil(per_country_cap * count)`` of the returned set. Backward-
+            compatible default ``None`` disables the cap (existing callers
+            unchanged). Pool-relative 1.2× quota (``_country_quota_score``)
+            still applies — this is an additional, absolute gate stacked on
+            top.
     """
     conn = get_pg()
     cur = conn.cursor()
@@ -830,17 +978,31 @@ def sample_facts(
         weighted.append((weight, fact))
     weighted.sort(key=lambda kv: kv[0], reverse=True)
 
+    # Per-call absolute cap (Team ε): walk the ranked list and skip any
+    # candidate whose country has already filled its per-call quota. This is
+    # an additional gate stacked on top of the pool-relative 1.2× quota.
+    max_per_country = _country_cap_max(per_country_cap, count) if per_country_cap is not None else None
+    per_call_country_count: dict[str, int] = defaultdict(int)
+    per_call_capped = 0
+
     results: list[dict] = []
     for _, fact in weighted:
         if len(results) >= count:
             break
         country = _extract_country_from_entities(fact.get("entities"))
-        # Re-check the cap with the now-incremented totals so a streak of
-        # same-country candidates can't slip past the gate.
+        # Per-call cap check (only when configured).
+        if max_per_country is not None and country is not None:
+            if per_call_country_count[country] >= max_per_country:
+                per_call_capped += 1
+                continue
+        # Re-check the pool-share cap with the now-incremented totals so a
+        # streak of same-country candidates can't slip past the gate.
         if _country_quota_score(country) <= 0.0:
             capped += 1
             continue
         _record_country_use(country)
+        if country is not None:
+            per_call_country_count[country] += 1
         results.append(fact)
 
     if quality_filtered:
@@ -854,6 +1016,11 @@ def sample_facts(
         )
     if capped:
         logger.debug(f"Skipped {capped} facts capped by country quota")
+    if per_call_capped:
+        logger.debug(
+            f"Skipped {per_call_capped} facts capped by per-call cap "
+            f"(per_country_cap={per_country_cap})"
+        )
 
     # v2.3 fix #17 — post-sample assertion guard (defence in depth).
     _assert_batch_under_cap("sample_facts", [
@@ -1004,6 +1171,7 @@ def sample_fact_pairs(
     domain: str,
     count: int,
     exclude_ids: set[str] | None = None,
+    per_country_cap: float | None = None,
 ) -> list[tuple[dict, dict]]:
     """Sample pairs of comparable facts about different entities of the same type.
 
@@ -1012,6 +1180,13 @@ def sample_fact_pairs(
     two Bordeaux châteaux, two grapes from the same country. This produces
     meaningful comparisons like "Both Barolo and Barbaresco are Piedmont DOCGs.
     Which requires longer minimum aging?"
+
+    Args:
+        per_country_cap: Team ε D3-fix v3. When set to a fraction in (0, 1],
+            no single country may contribute more than
+            ``ceil(per_country_cap * count * 2)`` facts to the returned set
+            (pairs contribute 2 facts each toward the country quota). Default
+            ``None`` preserves the prior behaviour (no per-call cap).
     """
     conn = get_pg()
     cur = conn.cursor()
@@ -1123,6 +1298,17 @@ def sample_fact_pairs(
     seen_ids: set[str] = set()
     capped = 0
     iconic_bundle_rejected = 0
+    per_call_capped = 0
+
+    # Per-call absolute cap (Team ε). Total facts in the returned set =
+    # count * 2 (each pair contributes 2 facts). Bookkeeping: track per-country
+    # facts admitted by this call only.
+    per_call_max = (
+        _country_cap_max(per_country_cap, count * 2)
+        if per_country_cap is not None
+        else None
+    )
+    per_call_country_count: dict[str, int] = defaultdict(int)
 
     for affinity, reason, row, dim, auto_type in scored:
         if len(pairs) >= count:
@@ -1166,6 +1352,31 @@ def sample_fact_pairs(
         # the country quota honest across all generator strategies.
         country_a = _extract_country_from_entities(fact_a.get("entities"))
         country_b = _extract_country_from_entities(fact_b.get("entities"))
+
+        # Per-call absolute cap (Team ε). Both facts of a pair count toward
+        # the same country if they share one — admit atomically.
+        if per_call_max is not None:
+            added_a = 1 if country_a is not None else 0
+            added_b = 1 if country_b is not None else 0
+            if country_a is not None and country_a == country_b:
+                # Same-country pair: total addition is 2, must fit at once.
+                if per_call_country_count[country_a] + 2 > per_call_max:
+                    per_call_capped += 1
+                    continue
+            else:
+                if (
+                    country_a is not None
+                    and per_call_country_count[country_a] + added_a > per_call_max
+                ):
+                    per_call_capped += 1
+                    continue
+                if (
+                    country_b is not None
+                    and per_call_country_count[country_b] + added_b > per_call_max
+                ):
+                    per_call_capped += 1
+                    continue
+
         if not _cap_admit_and_record(country_a):
             capped += 1
             continue
@@ -1184,10 +1395,20 @@ def sample_fact_pairs(
             continue
         pairs.append((fact_a, fact_b))
         seen_ids.update({a_id, b_id})
+        # Per-call cap bookkeeping (Team ε).
+        if country_a is not None:
+            per_call_country_count[country_a] += 1
+        if country_b is not None:
+            per_call_country_count[country_b] += 1
 
     if capped:
         logger.debug(
             f"sample_fact_pairs: skipped {capped} pairs blocked by country cap"
+        )
+    if per_call_capped:
+        logger.debug(
+            f"sample_fact_pairs: skipped {per_call_capped} pairs blocked by "
+            f"per-call cap (per_country_cap={per_country_cap})"
         )
     if iconic_bundle_rejected:
         logger.debug(
@@ -1214,11 +1435,19 @@ def sample_fact_groups(
     count: int,
     group_size: int = 3,
     exclude_ids: set[str] | None = None,
+    per_country_cap: float | None = None,
 ) -> list[list[dict]]:
     """Sample groups of 3-4 dimension-matched facts for multi-entity comparisons.
 
     Groups facts by (country, entity_type, dimension) to ensure all facts
     in a group discuss the same attribute about different but comparable entities.
+
+    Args:
+        per_country_cap: Team ε D3-fix v3. When set to a fraction in (0, 1],
+            no single country may contribute more than
+            ``ceil(per_country_cap * count * group_size)`` facts to the
+            returned set. Default ``None`` preserves the prior behaviour
+            (no per-call cap).
     """
     conn = get_pg()
     cur = conn.cursor()
@@ -1283,6 +1512,17 @@ def sample_fact_groups(
     groups: list[list[dict]] = []
     capped = 0
     iconic_bundle_rejected = 0
+    per_call_capped = 0
+
+    # Per-call absolute cap (Team ε). Total facts in returned set =
+    # count * group_size. Track per-country fact admissions for this call.
+    per_call_max = (
+        _country_cap_max(per_country_cap, count * group_size)
+        if per_country_cap is not None
+        else None
+    )
+    per_call_country_count: dict[str, int] = defaultdict(int)
+
     for key, facts in classified.items():
         if len(facts) < group_size:
             continue
@@ -1318,6 +1558,22 @@ def sample_fact_groups(
                 iconic_bundle_rejected += 1
                 continue
 
+            # Per-call absolute cap pre-check (Team ε). Tally added counts
+            # per country and reject the whole group if any country would
+            # overshoot the per-call max.
+            if per_call_max is not None:
+                added_per_country: dict[str, int] = defaultdict(int)
+                for f in selected:
+                    c = _extract_country_from_entities(f.get("entities"))
+                    if c is not None:
+                        added_per_country[c] += 1
+                if any(
+                    per_call_country_count[c] + n > per_call_max
+                    for c, n in added_per_country.items()
+                ):
+                    per_call_capped += 1
+                    continue
+
             # v2.3 fix #17 — hard-cap admission BEFORE emitting the group.
             # All N facts in a group are admitted atomically; if any single
             # country-cap check fails, the whole group is rejected and the
@@ -1346,10 +1602,19 @@ def sample_fact_groups(
                 capped += 1
                 continue
             groups.append(selected)
+            # Per-call cap bookkeeping (Team ε): commit the per-country adds.
+            if per_call_max is not None:
+                for c, n in added_per_country.items():
+                    per_call_country_count[c] += n
 
     if capped:
         logger.debug(
             f"sample_fact_groups: skipped {capped} groups blocked by country cap"
+        )
+    if per_call_capped:
+        logger.debug(
+            f"sample_fact_groups: skipped {per_call_capped} groups blocked by "
+            f"per-call cap (per_country_cap={per_country_cap})"
         )
     if iconic_bundle_rejected:
         logger.debug(
@@ -1379,6 +1644,7 @@ def sample_fact_clusters(
     count: int,
     cluster_size: int = 3,
     exclude_ids: set[str] | None = None,
+    per_country_cap: float | None = None,
 ) -> list[list[dict]]:
     """Sample clusters of cohesive, related facts for scenario synthesis.
 
@@ -1391,6 +1657,13 @@ def sample_fact_clusters(
     up combining "Pinot Noir red" facts with "Champagne sparkling" facts.
     Facts with no detectable category are allowed (the seed fact's category
     governs).
+
+    Args:
+        per_country_cap: Team ε D3-fix v3. When set to a fraction in (0, 1],
+            no single country may contribute more than
+            ``ceil(per_country_cap * count * cluster_size)`` facts to the
+            returned set. Default ``None`` preserves the prior behaviour
+            (no per-call cap).
     """
     conn = get_pg()
     cur = conn.cursor()
@@ -1415,6 +1688,17 @@ def sample_fact_clusters(
 
     clusters: list[list[dict]] = []
     iconic_bundle_rejected = 0
+    per_call_capped = 0
+
+    # Per-call absolute cap (Team ε). Total facts in returned set =
+    # count * cluster_size. Track per-country fact admissions for this call.
+    per_call_max = (
+        _country_cap_max(per_country_cap, count * cluster_size)
+        if per_country_cap is not None
+        else None
+    )
+    per_call_country_count: dict[str, int] = defaultdict(int)
+
     for sub in eligible:
         if len(clusters) >= count:
             break
@@ -1505,6 +1789,22 @@ def sample_fact_clusters(
             if not _bundle_has_non_iconic_anchor(cluster):
                 iconic_bundle_rejected += 1
                 continue
+            # Per-call absolute cap pre-check (Team ε). Tally added counts
+            # per country and reject the whole cluster if any country would
+            # overshoot the per-call max.
+            if per_call_max is not None:
+                added_per_country: dict[str, int] = defaultdict(int)
+                for f in cluster:
+                    c = _extract_country_from_entities(f.get("entities"))
+                    if c is not None:
+                        added_per_country[c] += 1
+                if any(
+                    per_call_country_count[c] + n > per_call_max
+                    for c, n in added_per_country.items()
+                ):
+                    per_call_capped += 1
+                    continue
+
             # v2.3 fix #17 — admit the whole cluster under the 1.2x cap
             # atomically. If any fact's country would push it over, reject
             # the whole cluster and roll back partial admissions.
@@ -1533,11 +1833,20 @@ def sample_fact_clusters(
                 )
                 continue
             clusters.append(cluster)
+            # Per-call cap bookkeeping (Team ε): commit per-country adds.
+            if per_call_max is not None:
+                for c, n in added_per_country.items():
+                    per_call_country_count[c] += n
 
     if iconic_bundle_rejected:
         logger.debug(
             f"sample_fact_clusters: rejected {iconic_bundle_rejected} "
             f"iconic-only clusters (v2.3 Phase F — no non-iconic anchor)"
+        )
+    if per_call_capped:
+        logger.debug(
+            f"sample_fact_clusters: skipped {per_call_capped} clusters blocked "
+            f"by per-call cap (per_country_cap={per_country_cap})"
         )
 
     _assert_batch_under_cap("sample_fact_clusters", [
@@ -1554,6 +1863,7 @@ def sample_confusable_facts(
     domain: str,
     count: int = 4,
     exclude_ids: set[str] | None = None,
+    per_country_cap: float | None = None,
 ) -> list[dict]:
     """Sample dimension-aware confusable facts for distractor mining.
 
@@ -1564,6 +1874,23 @@ def sample_confusable_facts(
     Each returned fact dict is enriched with:
       _dimension: str | None  — classified semantic dimension
       _confusability_context: str — why this distractor is confusable with target
+
+    Args:
+        per_country_cap: Team ε D3-fix v3. When set to a fraction in (0, 1],
+            no single country may contribute more than
+            ``ceil(per_country_cap * count)`` distractors to the returned set.
+            Note that this scope is per-call and EXCLUDES the target fact;
+            callers responsible for whole-bundle cap accounting (target +
+            distractors) should not rely on this kwarg alone for that.
+            Default ``None`` preserves the prior behaviour (no per-call cap).
+
+            Within distractor mining the same-country filtering is already
+            quite tight — Priority 1 candidates all share the target's
+            country — so a per-call cap below 1.0 will effectively shrink
+            the returned distractor count when the target has a "popular"
+            country. This is intentional: under-supplying distractors is
+            preferable to over-representing a single country across the
+            audit corpus.
     """
     conn = get_pg()
     cur = conn.cursor()
@@ -1715,18 +2042,43 @@ def sample_confusable_facts(
     # is already over quota and keep looking.
     confusable: list[dict] = []
     capped = 0
+    per_call_capped = 0
+
+    # Per-call absolute cap (Team ε). Applied per-call across the returned
+    # distractor list (target itself excluded). Most distractor calls already
+    # have a tight country filter via Priority 1, so this cap is more relevant
+    # for the rare Priority 2 fallback path.
+    per_call_max = (
+        _country_cap_max(per_country_cap, count)
+        if per_country_cap is not None
+        else None
+    )
+    per_call_country_count: dict[str, int] = defaultdict(int)
+
     for score, cand in candidates:
         if len(confusable) >= count:
             break
         c = _extract_country_from_entities(cand.get("entities"))
+        # Per-call cap pre-check (Team ε).
+        if per_call_max is not None and c is not None:
+            if per_call_country_count[c] >= per_call_max:
+                per_call_capped += 1
+                continue
         if _cap_admit_and_record(c):
             confusable.append(cand)
+            if per_call_max is not None and c is not None:
+                per_call_country_count[c] += 1
         else:
             capped += 1
 
     if capped:
         logger.debug(
             f"sample_confusable_facts: skipped {capped} distractors blocked by country cap"
+        )
+    if per_call_capped:
+        logger.debug(
+            f"sample_confusable_facts: skipped {per_call_capped} distractors "
+            f"blocked by per-call cap (per_country_cap={per_country_cap})"
         )
 
     # v2.3 Phase F — iconic anchor requirement for distractor-mining. If BOTH

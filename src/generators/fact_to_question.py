@@ -180,9 +180,26 @@ def _generate_one(
 @click.option("--test-run", is_flag=True, help="Generate 3 questions, print details")
 @click.option("--validate", is_flag=True, help="Quality checks on existing questions")
 @click.option("--all", "run_all", is_flag=True, help="Generate full quota for domain")
+@click.option(
+    "--tag",
+    type=str,
+    default=None,
+    help="Append this tag to every generated question (used for prototype/audit corpora).",
+)
+@click.option(
+    "--per-country-cap",
+    type=float,
+    default=None,
+    help=(
+        "Per-call absolute country cap as a fraction in (0, 1]. "
+        "When set, no single country may exceed ceil(cap * count) of "
+        "the sampled facts. Default unset (no cap)."
+    ),
+)
 def main(
     domain, count, generator, question_type, difficulty,
     cognitive_dim, dry_run, test_run, validate, run_all,
+    tag, per_country_cap,
 ):
     """Generate benchmark questions from individual facts via LLM."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -206,7 +223,10 @@ def main(
         target = DOMAIN_TARGETS.get(domain, 1000)
         logger.info(f"--all mode: targeting {target} questions for {domain}")
 
-    _run_generate(domain, target, generator, question_type, difficulty, cognitive_dim, dry_run)
+    _run_generate(
+        domain, target, generator, question_type, difficulty, cognitive_dim, dry_run,
+        tag=tag, per_country_cap=per_country_cap,
+    )
 
 
 # ─── Generate run ─────────────────────────────────────────────────────────────
@@ -220,12 +240,15 @@ def _run_generate(
     difficulty: str,
     cognitive_dim: str,
     dry_run: bool,
+    tag: str | None = None,
+    per_country_cap: float | None = None,
 ):
     """Main generation loop."""
     logger.info(
         "Starting generation | domain={} | count={} | generator={} | type={} | "
-        "difficulty={} | cognitive={} | dry_run={}",
+        "difficulty={} | cognitive={} | dry_run={} | tag={} | per_country_cap={}",
         domain, count, generator, question_type, difficulty, cognitive_dim, dry_run,
+        tag, per_country_cap,
     )
 
     used_fact_ids = get_used_fact_ids()
@@ -239,7 +262,12 @@ def _run_generate(
 
     while generated < count:
         batch_size = min(count - generated, 10)
-        facts = sample_facts(domain, batch_size, exclude_ids=used_fact_ids | run_used_ids, strategy="fact_to_question")
+        facts = sample_facts(
+            domain, batch_size,
+            exclude_ids=used_fact_ids | run_used_ids,
+            strategy="fact_to_question",
+            per_country_cap=per_country_cap,
+        )
         if not facts:
             logger.warning("No more facts available for domain={}", domain)
             break
@@ -288,6 +316,9 @@ def _run_generate(
                 else None
             )
 
+            tags_with_run = list(parsed.tags or [])
+            if tag and tag not in tags_with_run:
+                tags_with_run.append(tag)
             question_data = {
                 "question_id": qid,
                 "domain": domain,
@@ -300,7 +331,7 @@ def _run_generate(
                 "correct_answer": parsed.correct_answer,
                 "correct_answer_text": parsed.correct_answer_text,
                 "explanation": parsed.explanation,
-                "tags": parsed.tags,
+                "tags": tags_with_run,
             }
 
             generation_meta = {
