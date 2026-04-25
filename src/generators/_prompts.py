@@ -544,6 +544,59 @@ if a wine-reading generalist could answer without them, rewrite or skip.
 4. Distractors must reverse or swap key relationships from the facts, so a \
 test-taker relying on general knowledge picks wrong.
 
+HARD RULES — NON-DERIVABLE ANCHOR (closed-book leakage prevention):
+1. ANCHOR REQUIREMENT — The correct answer MUST hinge on a specific anchor \
+drawn directly from one of the source facts: a numeric threshold (yield cap, \
+ABV minimum, hectares, % varietal, aging months), a year (founding, \
+regulation, classification), a named entity (specific producer not on the \
+iconic list, specific clone designation, specific AVA/DOC sub-tier name, \
+specific person), or an exact regulatory value (allowed grape list item, \
+sweetness term, vessel material). Generic regional/category facts are NOT \
+anchors — "Andean elevation", "Old World techniques", "natural barriers \
+reduce pests", "fortified because grape spirit added", "icewine freezes on \
+vine", "Crémant uses traditional method", and well-known grape synonyms \
+("Franconia Nera = Blaufränkisch") are world-knowledge cliches that a \
+frontier LLM solves closed-book. If your only candidate anchor is one of \
+those, the cluster is inadequate — output skip.
+
+2. STEM SCRUBBING — The scenario premise MUST NOT contain the answer or any \
+synonym/paraphrase of it. Do not write a stem that says "the team wants \
+the vessel most strongly associated with that culture: a very large clay \
+container lined internally with beeswax" and then offer "qvevri" as the \
+correct option — the stem already describes the answer. Do not say \
+"raising its alcohol with added grape spirit" and then ask the test-taker \
+to classify it as "fortified" — the stem already names the category. \
+Hide the answer from the stem.
+
+3. SUBSTITUTION TEST — If you replaced the source fact(s) with analogous \
+fact(s) from a different region/grape/producer, the question MUST become \
+factually wrong (not merely awkward). If a Chilean fact could be swapped \
+for an Argentine fact and the answer would still be the same (e.g. \
+"high-elevation vineyards yield concentrated wines"), the question is \
+world-knowledge-solvable — REWRITE or skip.
+
+4. CLICHE BLOCKLIST — These answer patterns are world-knowledge cliches and \
+must NOT be the correct answer unless the source fact provides a specific \
+numeric/named anchor a generalist could not guess: "reduce irrigation for \
+quality"; "barrel ferment + MLF for full body"; "natural barriers reduce \
+pest pressure"; "fortified wine = added grape spirit"; "vintage indicates \
+harvest year not quality"; "Old World methods for age-worthy wines"; "high \
+elevation means concentration"; "qvevri for amber Georgian wine"; "vin de \
+pays allows varietal labels"; "Roman influence on early German viticulture"; \
+"reduce yields for quality"; "thin skins → sunburn risk → leaf cover"; \
+"icewine freeze-on-vine → low juice yield → high price"; "Crémant/Trento \
+DOC use traditional method"; common grape synonym recognition. If your \
+draft answer is one of these, REWRITE with a fact-specific anchor (move a \
+textbook detail from the stem into a distractor; pin the answer on a \
+specific sub-tier number or named entity from the source fact) or skip.
+
+5. FRONTIER-LLM SELF-CHECK — Before emitting, pretend a frontier LLM is \
+answering with the source facts hidden. Frontier LLMs know virtually all \
+mainstream wine textbook material. The correct answer must hinge on a \
+detail that ONLY the source fact establishes — a precise number, a niche \
+name, an unusual regulatory tier — not on textbook knowledge. If your \
+draft fails this bar, output: {{"skip": true, "reason": "..."}}.
+
 QUALITY REQUIREMENTS:
 - The scenario must feel authentic and professionally relevant
 - ALL provided facts must be load-bearing in the reasoning path — if a fact \
