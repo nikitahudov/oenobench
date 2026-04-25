@@ -217,25 +217,48 @@ def pos_bucket(token: str) -> str:
 
 
 def feature_vector(text: str) -> dict[str, float]:
-    """POS-bigram + punctuation features for template detection.
+    """POS-bigram + punctuation features for template / style detection.
 
-    Return dict with bigram counts (normalized), question-mark count,
-    comma/colon/dash counts, average word length, sentence count.
+    Return dict with:
+      * `bg:<X-Y>` bigram counts normalized by total bigrams (range 0-1)
+      * `punc:<c>` punctuation counts normalized **per token** (range ~0-0.3)
+      * `len:tokens` normalized by an empirical cap of 200 tokens
+        (range ~0-1; longer texts cap at 1.0)
+      * `len:avg_word` raw average word length (range ~3-7, used directly)
+      * `len:sentences` count normalized per token (range ~0-0.2)
+
+    The pre-v1.2.0 version emitted raw counts here, which combined with
+    fit_logreg's L2-only regularization caused logits to saturate when
+    the two classes had very different mean text lengths (e.g.,
+    fixed-reference reference set vs scenario-generator corpus). Per-
+    token normalization keeps every feature roughly in [0,1] so
+    optimization is well-conditioned.
     """
     raw_tokens = re.findall(r"\w+|[^\w\s]", text)
     if not raw_tokens:
         return {}
+    n_tokens = len(raw_tokens)
     buckets = [pos_bucket(t) for t in raw_tokens]
     bigrams = [f"{a}-{b}" for a, b in zip(buckets, buckets[1:])]
-    n = max(len(bigrams), 1)
-    feats: dict[str, float] = {f"bg:{bg}": c / n for bg, c in Counter(bigrams).items()}
-    feats["punc:?"] = text.count("?")
-    feats["punc:,"] = text.count(",")
-    feats["punc::"] = text.count(":")
-    feats["punc:-"] = text.count("-")
-    feats["len:tokens"] = float(len(raw_tokens))
-    feats["len:avg_word"] = sum(len(t) for t in raw_tokens) / len(raw_tokens)
-    feats["len:sentences"] = float(text.count(".") + text.count("!") + text.count("?"))
+    n_bigrams = max(len(bigrams), 1)
+    feats: dict[str, float] = {
+        f"bg:{bg}": c / n_bigrams for bg, c in Counter(bigrams).items()
+    }
+    # Per-token punctuation rates (normalized) — always in [0, 1) for any
+    # natural text. Comparable to bigram rates above.
+    feats["punc:?"] = text.count("?") / n_tokens
+    feats["punc:,"] = text.count(",") / n_tokens
+    feats["punc::"] = text.count(":") / n_tokens
+    feats["punc:-"] = text.count("-") / n_tokens
+    # Token count, soft-capped at 200 tokens. The ratio is small for short
+    # text and saturates near 1.0 for long stems.
+    feats["len:tokens"] = min(n_tokens / 200.0, 1.0)
+    feats["len:avg_word"] = sum(len(t) for t in raw_tokens) / n_tokens
+    # Sentences-per-token rate — captures the staccato vs flowing prose
+    # signal that the absolute count would otherwise dominate.
+    feats["len:sentences"] = (
+        text.count(".") + text.count("!") + text.count("?")
+    ) / n_tokens
     return feats
 
 

@@ -89,7 +89,12 @@ def test_longest_common_ngram_finds_contiguous_run():
 def test_feature_vector_has_bigrams():
     feats = feature_vector("Which country produces Nebbiolo?")
     assert any(k.startswith("bg:") for k in feats)
-    assert feats.get("punc:?", 0) == 1
+    # `punc:?` is now a per-token rate (normalized) so a single `?` in a
+    # 5-token text scores 1/5 = 0.2 — still strictly positive and the
+    # signal is preserved.
+    assert feats.get("punc:?", 0) > 0
+    # Sanity: feature value bounded in [0, 1] for natural text.
+    assert feats["punc:?"] <= 1.0
 
 
 def test_fit_logreg_separable():
