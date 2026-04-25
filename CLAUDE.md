@@ -194,9 +194,9 @@ All significant work on this project must be documented in `docs/PROCESS_LOG.md`
 
 All other planned scrapers have been implemented and rebuilt with genuine data provenance.
 
-## Current Status (as of April 24, 2026)
+## Current Status (as of April 25, 2026)
 
-**Phase:** 2g.6 — closed-book gate v2.0 (label+quota) shipped. Ready for audit run #5 with gated+tagged corpus.
+**Phase:** 2g.7 — audit #5 + four-team retune shipped on engineering side. v6 build is **blocked on OpenRouter API key cap exhaustion**. Awaiting (a) user top-up of OpenRouter key, (b) gold review of `data/reports/gold_sheet_v5.csv`, and (c) Team γ A4 reference set ship before audit #6.
 
 - Phase 1 (Data Collection): ✅ 38,104 facts from 35 genuine scrapers
 - Phase 2 (Question Generation Pipeline): ✅ 5 strategies built and iteratively tuned
@@ -206,6 +206,8 @@ All other planned scrapers have been implemented and rebuilt with genuine data p
 - Phase 2g (audit #4 on `audit_pilot_v4`): ✅ B2 dropped 66% → 36% — improved but missed ≤15% gate
 - Phase 2g.5 (closed-book MC gate v1.0): ✅ Sonnet 4.6 wired into all 5 generators; 282/282 tests pass; smoke test 65% reject rate matches prototype prediction
 - Phase 2g.6 (gate v2.0 — label+quota): ✅ Routes gate-flagged L1/L2 to `closed_book_solvable` tag at L1, capped at 25% of corpus; new `score_by_cb_split()` eval helper; 285+/285+ tests pass
+- Phase 2g (audit #5 on `audit_pilot_v5`): ✅ B2 non-cb-tagged L1/L2 dropped 53.9% → **33.7%** (still above ≤15% gate); A4 AUC 0.954 trips 0.9 escalation; κ n=0 for new v2.3 rubrics (gold predates Phase 2g)
+- Phase 2g.7 (four-team retune): ✅ Gate threshold 0.7→0.6 + L1/L2/L3 + multiple_choice+scenario_based; quota math fixed to per-corpus; scenario HARD RULE; `per_country_cap` sampler kwarg; gold sheet v5 ready for review (Team δ); 289/289 tests pass; Team γ (A4 external reference set via WSET/CMS scrape) running in background
 
 ### Phase 2g shipped (2026-04-23)
 
@@ -241,7 +243,23 @@ Prototype evidence (audit_pilot_v4 corpus, 230 L1/L2 questions): MC Sonnet @ con
 | Eval split helper | New `score_by_cb_split(eval_run_id)` returns paired cb_pass vs cb_fail accuracy + gap, exposing parametric wine knowledge vs contextual wine reasoning | `src/evaluation/cb_split.py` |
 | Tests | Routing tests (relabel-when-room, reject-when-quota-full, no-double-tag, preserve-other-tags); 1 v1.0 reject test rewritten | 285+/285+ pytest pass |
 
-Reports: `docs/QUALITY_AUDIT_REPORT.md`, `docs/GENERATION_IMPROVEMENT_PLAN.md`, `docs/PROCESS_LOG.md` (Phase 2g + 2g.5 + 2g.6 entries).
+### Phase 2g.7 shipped (2026-04-25)
+
+Audit #5 ran on `audit_pilot_v5` (run_id `541d1d1d…`); B2 non-cb-tagged L1/L2 fail rate dropped 53.9% → 33.7% (still ≥15% Go gate). Four parallel autonomous teams + one coordinator commit shipped the engineering retune; v6 build is blocked on OpenRouter rate limit.
+
+| Area | Change | Artifact |
+|---|---|---|
+| Gate threshold | `CONFIDENCE_THRESHOLD` 0.7 → **0.6** (Sonnet's residual leaks live in 0.5-0.65 band) | Team α merge (`_closed_book_gate.py`) |
+| Gate difficulty coverage | L1/L2 → **L1/L2/L3** (v5 L3 leakage 33%) | Team α merge |
+| Gate question_type coverage | `multiple_choice` → **`multiple_choice + scenario_based`** (scenario_based was 63% B2 fail rate, silently bypassing gate) | Coordinator commit (`_closed_book_gate.py` GATE_VERSION 2.2.0) |
+| Quota math | `OVERALL_TARGET × 0.25` (=2500 absolute) → `ceil(target_size × 0.25)` per-corpus; `set_corpus_target()` setter; `target_size` kwarg on `insert_question_gated()` | Team α merge (`_question_db.py`) |
+| Scenario prompt | `+ HARD RULES — NON-DERIVABLE ANCHOR` section in `SCENARIO_TEMPLATE`; answer must depend on a specific entity drawn from the source fact and not implied by the scenario premise | Team β merge (`_prompts.py`) |
+| Sampler country balance | `per_country_cap: float | None = None` kwarg on all 5 sampler entry points; multi-fact bundles count every fact toward country quota; `--per-country-cap` CLI flag | Team ε merge (`_fact_sampler.py`, `fact_to_question.py`) |
+| Gold sheet refresh | Sub-stratified 120-row export at `data/reports/gold_sheet_v5.csv`; `docs/GOLD_REVIEW_GUIDE_V5.md`; all 10 v2.3 rubrics blank for human review | Team δ branch (awaits user gold review before merge) |
+| A4 reference set | External human reference via WSET/CMS public-practice scrape | Team γ branch (running) |
+| Tests | 289/289 pass (1 deselected: live-LLM smoke test 403'd by OpenRouter cap) | Phase 2g.7 net: +14 sampler + 5 gold + 4 gate + 1 scenario_based |
+
+Reports: `docs/QUALITY_AUDIT_REPORT.md`, `docs/GENERATION_IMPROVEMENT_PLAN.md`, `docs/PROCESS_LOG.md` (Phase 2g + 2g.5 + 2g.6 + 2g.7 entries).
 
 See `CURRENT_STATUS.md` for detailed phase tracking and the regeneration Go/No-Go gate.
 
@@ -400,15 +418,15 @@ See `config/postgres/init.sql` for full schema with enums, indexes, views, and t
 
 ## What to Work On Next
 
-Phase 2g.6 closed-book gate v2.0 (label+quota) is merged and green (285+/285+ tests). The immediate sequence:
+Phase 2g.7 four-team retune is merged and green (289/289 tests excluding the OpenRouter-403'd live-LLM smoke test). The immediate sequence is gated on user actions and external signals:
 
-1. **Build `audit_pilot_v5` with the new gate+quota policy.** `python -m src.qa.orchestrator build-corpus --tag audit_pilot_v5 --per-strategy 120 --seed 42` then `run --teams A,B,C,D`. Expected: closed-book-solvable subset fills toward the ~25% cap; non-tagged L1/L2 should show B2 fail rate ≤15%.
-2. **Stand up a basic evaluation-run executor** (out of scope for Phase 2g.6) so `score_by_cb_split()` can be exercised on real data and report the cb_pass vs cb_fail gap.
-3. **Run audit #5 and gold-v5** with both rubrics (`verbatim_copy`, `wine_category_leak`) plus the new tag-segment analysis (split metrics by `closed_book_solvable`).
-4. **Verify Go/No-Go** per `docs/GENERATION_IMPROVEMENT_PLAN.md` (§Regeneration Go/No-Go — κ targets + per-generator 95% answer_correct spot-check).
-5. **Kick off the full 10k generation run** (`python -m src.generators.orchestrator generate-all`, revised cost estimate ~$100 with v2.0 gate, down from the $130 v1.0 estimate now that 3× over-sampling is no longer needed).
+1. **User: top up OpenRouter API key.** `test_c4_calibration::test_c4_live_roundtrip_on_representative_fewshot` and any v6 build/audit will return HTTP 403 "Key limit exceeded" until this is resolved. Until then, all LLM-dependent work is paused.
+2. **User: gold review of `data/reports/gold_sheet_v5.csv`** using `docs/GOLD_REVIEW_GUIDE_V5.md` (~120 questions × 10 rubrics, 2-3h). Then re-import: `python -m src.qa.orchestrator import-gold --csv-path data/reports/gold_sheet_v5.csv --reviewer nikita`. After re-import, merge `team-delta-gold-sheet` and rebuild reports — expect κ ≥ 0.6 on `verbatim_copy` and `wine_category_leak`.
+3. **Coordinator: build `audit_pilot_v6`** once OpenRouter is unblocked: `python -m src.qa.orchestrator build-corpus --tag audit_pilot_v6 --per-strategy 120 --seed 43` (passing `per_country_cap=0.10` where supported) → `run --teams A,B,C,D`. Cost ≈ $6.
+4. **Verify Go/No-Go on v6.** Pass criteria: B2 fail rate on non-cb-tagged L1/L2 ≤ 15%; A4 AUC < 0.9 (or A4 fixed via Team γ); κ ≥ 0.6 on populated rubrics; D3 max country ratio < 2.0. If failing, fork to (a) gate model upgrade Sonnet 4.6 → Opus 4.7 (Decision 4), (b) build C1 + B4 audit agents (deferred Decision 3), or (c) accept and ship.
+5. **If v6 passes: kick off the full 10k generation run** (`python -m src.generators.orchestrator generate-all`, revised cost estimate ≈$90 with v2.2 gate at threshold 0.6 + scenario type coverage).
 
-See `CURRENT_STATUS.md` for detailed phase tracking, `docs/GENERATION_IMPROVEMENT_PLAN.md` for the full ranked defect list and Go/No-Go gates, and `docs/PROCESS_LOG.md` 2026-04-23 (Phase 2g), 2026-04-24 (Phase 2g.5 — closed-book gate v1.0 prototype + ship), and 2026-04-24 (Phase 2g.6 — gate v2.0 reframe) for methodology details.
+See `CURRENT_STATUS.md` for detailed phase tracking, `docs/GENERATION_IMPROVEMENT_PLAN.md` for the full ranked defect list and Go/No-Go gates, and `docs/PROCESS_LOG.md` 2026-04-23 (Phase 2g), 2026-04-24 (Phase 2g.5 + 2g.6 — closed-book gate v1.0 + v2.0), and 2026-04-25 (Phase 2g.7 — four-team retune) for methodology details.
 
 ## Important Links
 
