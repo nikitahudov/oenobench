@@ -175,6 +175,7 @@ def screen_question(
     correct_answer: str,
     difficulty: str,
     question_type: str,
+    confidence_threshold: float | None = None,
 ) -> GateResult:
     """Run the closed-book gate on a candidate question.
 
@@ -184,10 +185,17 @@ def screen_question(
         correct_answer: The gold-truth letter ('A'/'B'/'C'/'D').
         difficulty: '1' through '4'.
         question_type: 'multiple_choice', 'true_false', etc.
+        confidence_threshold: Optional override of the module-level
+            `CONFIDENCE_THRESHOLD`. Used by the Phase 2g.7 threshold
+            sweep prototype; production callers should pass None to use
+            the configured default.
 
     Returns:
         GateResult. `passed=True` means keep the question.
     """
+    threshold = (
+        CONFIDENCE_THRESHOLD if confidence_threshold is None else float(confidence_threshold)
+    )
     if (
         str(difficulty) not in _GATED_DIFFICULTIES
         or question_type not in _GATED_QUESTION_TYPES
@@ -251,16 +259,16 @@ def screen_question(
     reasoning = str(parsed.get("reasoning", ""))[:500]
     matched_gold = bool(selected) and selected == gold_letter
 
-    if matched_gold and confidence >= CONFIDENCE_THRESHOLD:
+    if matched_gold and confidence >= threshold:
         passed = False
         reason = (
             f"reject: gate solved closed-book (selected={selected} "
-            f"conf={confidence:.2f} >= {CONFIDENCE_THRESHOLD})"
+            f"conf={confidence:.2f} >= {threshold})"
         )
     else:
         passed = True
         if matched_gold:
-            reason = f"pass: gate matched gold but conf={confidence:.2f} < {CONFIDENCE_THRESHOLD}"
+            reason = f"pass: gate matched gold but conf={confidence:.2f} < {threshold}"
         elif selected:
             reason = f"pass: gate picked {selected} (gold={gold_letter})"
         else:

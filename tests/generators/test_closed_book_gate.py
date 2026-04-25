@@ -471,3 +471,55 @@ def test_insert_question_gated_preserves_other_tags_during_relabel(monkeypatch):
     assert q_uuid == "uuid-tags-preserved"
     assert gate.relabeled is True
     assert captured["question_data"]["tags"] == ["italy", "barolo", "closed_book_solvable"]
+
+
+# ─── Phase 2g.7 quota math + tunable threshold ───────────────────────────────
+
+
+def test_quota_cap_with_explicit_target_size():
+    """When a caller passes an explicit `target_size`, the cap is
+    ceil(target × 0.25) — the correct per-corpus semantics. A 295-Q
+    pilot must produce a 74-Q cap, not the 2500-Q global cap.
+    """
+    from src.generators._question_db import _closed_book_quota_cap
+
+    # 295 × 0.25 = 73.75 → ceil = 74
+    assert _closed_book_quota_cap(target_size=295) == 74
+    # Spot-check a couple more sizes for the ceil() behaviour.
+    assert _closed_book_quota_cap(target_size=100) == 25  # exact
+    assert _closed_book_quota_cap(target_size=101) == 26  # 25.25 → ceil 26
+
+
+def test_quota_cap_default_unchanged():
+    """Backward compat: calling with no arg must still return 2500
+    (= 10_000 × 0.25, the OVERALL_TARGET full-run cap). The orchestrator
+    relies on this for the production 10k generation.
+    """
+    from src.generators import _question_db
+    from src.generators._question_db import _closed_book_quota_cap
+
+    # Defensive: clear any override leaked from an unrelated test.
+    _question_db.set_corpus_target(None)
+    try:
+        assert _closed_book_quota_cap() == 2500
+    finally:
+        _question_db.set_corpus_target(None)
+
+
+def test_threshold_parameter_respected(monkeypatch):
+    """Per-call confidence_threshold override must change the reject decision.
+
+    Same gate verdict (matched A at conf=0.55) — at threshold=0.7 the gate
+    PASSES (0.55 < 0.7), at threshold=0.5 the gate REJECTS (0.55 >= 0.5).
+    """
+    _patch_call(monkeypatch, selected="A", confidence=0.55)
+
+    high = screen_question("Q?", _OPTS, "A", "1", "multiple_choice", confidence_threshold=0.7)
+    assert high.passed is True
+    assert high.matched_gold is True
+    assert high.confidence == pytest.approx(0.55)
+
+    low = screen_question("Q?", _OPTS, "A", "1", "multiple_choice", confidence_threshold=0.5)
+    assert low.passed is False
+    assert low.matched_gold is True
+    assert low.confidence == pytest.approx(0.55)
