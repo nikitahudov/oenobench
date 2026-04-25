@@ -85,17 +85,32 @@ _OPTS = [
 # ─── Skip-conditions (gate must NOT call the API) ────────────────────────────
 
 
-def test_gate_skips_l3_questions(monkeypatch):
-    """L3+ questions must skip the gate entirely (B2 fail rate is ~0% there)."""
+def test_gate_skips_l4_questions(monkeypatch):
+    """L4 questions must skip the gate entirely.
+
+    Phase 2g.7 (2026-04-25) extended the gate to L3 after audit_pilot_v5
+    showed 33% L3 closed-book leakage. L4 still skips — too low-volume
+    to justify the API spend and historically near-zero leakage.
+    """
 
     def explode(*_a, **_kw):
-        raise AssertionError("Gate must not call API for L3+ questions")
+        raise AssertionError("Gate must not call API for L4 questions")
 
     monkeypatch.setattr(_closed_book_gate, "_call_gate", explode)
-    result = screen_question("Q?", _OPTS, "A", "3", "multiple_choice")
+    result = screen_question("Q?", _OPTS, "A", "4", "multiple_choice")
     assert result.passed is True
     assert result.applied is False
     assert "skipped" in result.reason
+
+
+def test_gate_now_runs_on_l3_questions(monkeypatch):
+    """Phase 2g.7: L3 multiple-choice questions go through the gate."""
+    _patch_call(monkeypatch, selected="A", confidence=0.85)
+    result = screen_question("Q?", _OPTS, "A", "3", "multiple_choice")
+    assert result.applied is True
+    # 0.85 >= 0.6 (current threshold) → reject path
+    assert result.passed is False
+    assert result.matched_gold is True
 
 
 def test_gate_skips_non_mc_questions(monkeypatch):
@@ -287,12 +302,16 @@ def test_insert_question_gated_records_gate_in_metadata(monkeypatch):
     assert gate_meta["model"] == "anthropic/claude-sonnet-4.6"
 
 
-def test_insert_question_gated_passthrough_for_l3(monkeypatch):
-    """L3 questions must skip the gate AND still insert."""
+def test_insert_question_gated_passthrough_for_l4(monkeypatch):
+    """L4 questions must skip the gate AND still insert.
+
+    Phase 2g.7: gate now extends to L3, so this test pivots to L4 to
+    cover the same skip-path-still-inserts contract.
+    """
     from src.generators import _question_db
 
     def explode(*_a, **_kw):
-        raise AssertionError("Gate must not call API for L3+ questions")
+        raise AssertionError("Gate must not call API for L4 questions")
 
     monkeypatch.setattr(_closed_book_gate, "_call_gate", explode)
 
@@ -300,7 +319,7 @@ def test_insert_question_gated_passthrough_for_l3(monkeypatch):
 
     def fake_insert(question_data, generation_meta, fact_ids, source_ids):
         captured["meta"] = generation_meta
-        return "uuid-l3"
+        return "uuid-l4"
 
     monkeypatch.setattr(_question_db, "insert_question", fake_insert)
 
@@ -310,7 +329,7 @@ def test_insert_question_gated_passthrough_for_l3(monkeypatch):
             "question_text": "Q?",
             "options": _OPTS,
             "correct_answer": "A",
-            "difficulty": "3",
+            "difficulty": "4",
             "question_type": "multiple_choice",
             "domain": "wine_regions",
         },
@@ -318,7 +337,7 @@ def test_insert_question_gated_passthrough_for_l3(monkeypatch):
         fact_ids=[],
         source_ids=[],
     )
-    assert q_uuid == "uuid-l3"
+    assert q_uuid == "uuid-l4"
     assert gate.applied is False
     assert captured["meta"]["raw_response"]["gate"]["applied"] is False
 
@@ -471,3 +490,55 @@ def test_insert_question_gated_preserves_other_tags_during_relabel(monkeypatch):
     assert q_uuid == "uuid-tags-preserved"
     assert gate.relabeled is True
     assert captured["question_data"]["tags"] == ["italy", "barolo", "closed_book_solvable"]
+
+
+# ─── Phase 2g.7 quota math + tunable threshold ───────────────────────────────
+
+
+def test_quota_cap_with_explicit_target_size():
+    """When a caller passes an explicit `target_size`, the cap is
+    ceil(target × 0.25) — the correct per-corpus semantics. A 295-Q
+    pilot must produce a 74-Q cap, not the 2500-Q global cap.
+    """
+    from src.generators._question_db import _closed_book_quota_cap
+
+    # 295 × 0.25 = 73.75 → ceil = 74
+    assert _closed_book_quota_cap(target_size=295) == 74
+    # Spot-check a couple more sizes for the ceil() behaviour.
+    assert _closed_book_quota_cap(target_size=100) == 25  # exact
+    assert _closed_book_quota_cap(target_size=101) == 26  # 25.25 → ceil 26
+
+
+def test_quota_cap_default_unchanged():
+    """Backward compat: calling with no arg must still return 2500
+    (= 10_000 × 0.25, the OVERALL_TARGET full-run cap). The orchestrator
+    relies on this for the production 10k generation.
+    """
+    from src.generators import _question_db
+    from src.generators._question_db import _closed_book_quota_cap
+
+    # Defensive: clear any override leaked from an unrelated test.
+    _question_db.set_corpus_target(None)
+    try:
+        assert _closed_book_quota_cap() == 2500
+    finally:
+        _question_db.set_corpus_target(None)
+
+
+def test_threshold_parameter_respected(monkeypatch):
+    """Per-call confidence_threshold override must change the reject decision.
+
+    Same gate verdict (matched A at conf=0.55) — at threshold=0.7 the gate
+    PASSES (0.55 < 0.7), at threshold=0.5 the gate REJECTS (0.55 >= 0.5).
+    """
+    _patch_call(monkeypatch, selected="A", confidence=0.55)
+
+    high = screen_question("Q?", _OPTS, "A", "1", "multiple_choice", confidence_threshold=0.7)
+    assert high.passed is True
+    assert high.matched_gold is True
+    assert high.confidence == pytest.approx(0.55)
+
+    low = screen_question("Q?", _OPTS, "A", "1", "multiple_choice", confidence_threshold=0.5)
+    assert low.passed is False
+    assert low.matched_gold is True
+    assert low.confidence == pytest.approx(0.55)

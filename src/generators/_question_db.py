@@ -5,6 +5,7 @@ Handles atomic insertion of questions + generation metadata + fact/source
 linkage in a single transaction, plus query helpers for quota tracking.
 """
 
+import math
 import uuid
 
 import orjson
@@ -22,20 +23,62 @@ from src.utils.db import get_pg
 # orchestrator at module load. See `_closed_book_quota_cap()` below.
 _OVERALL_TARGET_DEFAULT = 10_000
 
+# Per-corpus override for the quota cap. Set by `set_corpus_target()` so the
+# audit-pilot orchestrator can scope the 25% cap to a small corpus (e.g. 295
+# questions → cap 74) rather than the global 10k → 2500. None means "use the
+# orchestrator default".
+_CORPUS_TARGET_OVERRIDE: int | None = None
 
-def _closed_book_quota_cap() -> int:
-    """Return the absolute closed-book-solvable cap (e.g. 2500 for a 10k target).
 
-    Reads `OVERALL_TARGET` from the orchestrator if importable, otherwise
-    falls back to 10_000. The orchestrator import is deferred so this
-    module stays cheap at startup.
+def set_corpus_target(size: int | None) -> None:
+    """Override the corpus size used to compute the closed-book quota cap.
+
+    Pass `None` to clear the override and revert to the orchestrator's
+    `OVERALL_TARGET` (the 10k full-generation default).
+
+    Audit-pilot builders set this so the 25% cap is evaluated against the
+    pilot size (e.g. 295) instead of the global 10k. Without this, a 295-Q
+    pilot's cap is 2500 — i.e. effectively no cap — which broke the
+    documented "25% of corpus" semantics in v2.0.
     """
+    global _CORPUS_TARGET_OVERRIDE
+    if size is None:
+        _CORPUS_TARGET_OVERRIDE = None
+        return
+    if int(size) <= 0:
+        raise ValueError(f"corpus target must be positive, got {size}")
+    _CORPUS_TARGET_OVERRIDE = int(size)
+
+
+def _resolve_default_target_size() -> int:
+    """Resolve the effective `target_size` when a caller does not pass one.
+
+    Priority:
+      1. `_CORPUS_TARGET_OVERRIDE` set via `set_corpus_target()` (audit pilots).
+      2. `OVERALL_TARGET` imported from the orchestrator (full 10k run).
+      3. `_OVERALL_TARGET_DEFAULT = 10_000` (final fallback).
+    """
+    if _CORPUS_TARGET_OVERRIDE is not None:
+        return _CORPUS_TARGET_OVERRIDE
     try:
         from src.generators.orchestrator import OVERALL_TARGET
-        target = OVERALL_TARGET
+        return int(OVERALL_TARGET)
     except Exception:  # noqa: BLE001
-        target = _OVERALL_TARGET_DEFAULT
-    return int(CLOSED_BOOK_QUOTA_FRACTION * target)
+        return _OVERALL_TARGET_DEFAULT
+
+
+def _closed_book_quota_cap(target_size: int | None = None) -> int:
+    """Absolute cap on closed-book-solvable questions in the current corpus.
+
+    cap = ceil(target_size × CLOSED_BOOK_QUOTA_FRACTION)
+
+    target_size is the planned corpus size (per-strategy, per-corpus, or
+    OVERALL_TARGET). For the 10k full-generation run, defaults to OVERALL_TARGET.
+    For audit pilots, the orchestrator should pass the pilot size.
+    """
+    if target_size is None:
+        target_size = _resolve_default_target_size()
+    return math.ceil(int(target_size) * CLOSED_BOOK_QUOTA_FRACTION)
 
 
 def count_closed_book_solvable() -> int:
@@ -60,6 +103,7 @@ def insert_question_gated(
     fact_ids: list[str],
     source_ids: list[str],
     apply_gate: bool = True,
+    target_size: int | None = None,
 ) -> tuple[str | None, GateResult]:
     """Run the closed-book gate, then route per Phase 2g.6 policy.
 
@@ -93,7 +137,7 @@ def insert_question_gated(
         gate = GateResult(passed=True, applied=False, reason="gate_disabled")
 
     if gate.applied and not gate.passed:
-        cap = _closed_book_quota_cap()
+        cap = _closed_book_quota_cap(target_size)
         current = count_closed_book_solvable()
         if current >= cap:
             gate.quota_full = True
