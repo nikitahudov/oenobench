@@ -114,6 +114,13 @@ def test_gate_now_runs_on_l3_questions(monkeypatch):
 
 
 def test_gate_skips_non_mc_questions(monkeypatch):
+    """true_false still skips — 2-option payload incompatible with the A/B/C/D prompt.
+
+    Phase 2g.7 (2026-04-25) extended gate coverage to scenario_based but
+    deliberately left true_false out: only 5 T/F questions on v5, and
+    the gate prompt would need adapting to a 2-option payload first.
+    """
+
     def explode(*_a, **_kw):
         raise AssertionError("Gate must not call API for non-MC types")
 
@@ -121,6 +128,22 @@ def test_gate_skips_non_mc_questions(monkeypatch):
     result = screen_question("Q?", _OPTS, "A", "1", "true_false")
     assert result.passed is True
     assert result.applied is False
+
+
+def test_gate_runs_on_scenario_based(monkeypatch):
+    """scenario_based questions emit 4-option payloads — gate must run.
+
+    Phase 2g.7 (2026-04-25): on audit_pilot_v5 the gate silently skipped
+    all 69 scenario_based questions via the old type guard, so 19 of them
+    leaked B2 closed-book solvability. Lifting the type guard is the
+    structural fix Teams α + β both surfaced independently.
+    """
+    _patch_call(monkeypatch, selected="A", confidence=0.85)
+    result = screen_question("Q?", _OPTS, "A", "2", "scenario_based")
+    assert result.applied is True
+    # 0.85 >= 0.6 threshold and matched gold → reject path
+    assert result.passed is False
+    assert result.matched_gold is True
 
 
 def test_gate_skips_when_no_options(monkeypatch):

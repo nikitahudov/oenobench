@@ -36,7 +36,7 @@ from src.generators._llm_client import _try_parse_json
 
 load_dotenv()
 
-GATE_VERSION = "2.1.0"
+GATE_VERSION = "2.2.0"
 GATE_MODEL = "anthropic/claude-sonnet-4.6"
 # Phase 2g.7 retune (2026-04-25): threshold lowered 0.7 -> 0.6 and gate
 # extended to L3 multiple-choice. See prototypes/team_alpha_results.json.
@@ -60,14 +60,21 @@ CONFIDENCE_THRESHOLD = 0.6
 CLOSED_BOOK_QUOTA_FRACTION = 0.25
 CLOSED_BOOK_TAG = "closed_book_solvable"
 
-# L1/L2/L3 multiple-choice questions go through the gate. Phase 2g.7
-# extended this to L3 after audit_pilot_v5 showed 33% L3 leakage at the
-# new 0.6 threshold (>=10% trigger). L4 still skips: too low-volume to
-# justify the API spend and historically near-zero leakage. Non-MC types
-# (true/false, short_answer, matching, scenario_based) lack the option
-# list the gate uses to mirror B2's evaluation, so they remain skipped.
+# L1/L2/L3 questions of any 4-option type go through the gate. Phase
+# 2g.7 (2026-04-25) extended coverage in two dimensions:
+#   - difficulty: L1/L2 -> L1/L2/L3, after v5 showed 33% L3 leakage at
+#     the new 0.6 threshold (>=10% escalation trigger).
+#   - type: multiple_choice -> multiple_choice + scenario_based, after
+#     v5 B2 revealed 63% scenario fail rate (19/30) on questions that
+#     were silently bypassing the gate via the type guard. Scenarios
+#     emit 4-option payloads identical in shape to MC, so the existing
+#     prompt and parser work unchanged.
+# L4 still skips: low volume, historically near-zero leakage, not worth
+# the API spend. true_false (5 q on v5) skips because its 2-option
+# payload doesn't fit the A/B/C/D prompt; revisit if T/F volume grows.
+# short_answer / matching also skip — no fixed option list to mirror.
 _GATED_DIFFICULTIES = {"1", "2", "3"}
-_GATED_QUESTION_TYPES = {"multiple_choice"}
+_GATED_QUESTION_TYPES = {"multiple_choice", "scenario_based"}
 
 _PROMPT = """You are taking a closed-book multiple-choice wine knowledge test. Pick the best answer using ONLY your general training knowledge — no external sources, no provided context facts.
 
