@@ -16,8 +16,10 @@ under a minute and never call an LLM.
 from __future__ import annotations
 
 import json
+import random
 import re
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
 import orjson
@@ -386,23 +388,130 @@ def run_a3_fact_echo(run_id: str, questions: list[dict]) -> list[dict]:
     return findings
 
 
-# ─── A4 — TemplateFingerprint ────────────────────────────────────────────────
+# ─── A4 — TemplateFingerprint (v1.2.0) ───────────────────────────────────────
+#
+# v1.0.0 — original. Trained an internal split on the audit corpus, treating
+#   `generation_method == 'template'` as the positive (LLM-template) class.
+#   Symptom on audit_pilot_v5 (run 541d1d1d…): AUC 0.954 with only 34
+#   templates in the corpus — the small-and-uniform template class plus
+#   short fact_to_question/comparative outputs gave a learnable gap on
+#   `len:sentences`, `len:avg_word`, `punc:-`. Net effect: A4 was flagging
+#   **valid LLM questions as template-like**, not detecting genuine
+#   template leakage.
+#
+# v1.2.0 — fixed-reference setup. The negative class is now the curated
+#   external reference set at `data/reference/human_reference_v1.jsonl`
+#   (104 human-written wine MC questions; see SOURCES.md). The positive
+#   class is **all OenoBench-generated questions** in the audit corpus,
+#   templates included — the agent is no longer measuring "template vs
+#   LLM" but rather "machine-style vs human-style" wine question prose,
+#   which is the actual scientific signal of interest.
+#
+#   If new AUC ≥ 0.9 → genuine machine-style stylometric drift across the
+#       generators. Surface as a corpus-level finding.
+#   If new AUC < 0.9 → confirms the v1.0.0 signal was a template-vs-LLM
+#       artefact, and the OenoBench corpus's prose distribution is
+#       indistinguishable (statistically) from the human reference.
 
 A4_ID = "A4_TemplateFingerprint"
-A4_VERSION = "v1.0.0"
+A4_VERSION = "v1.2.0"
+
+A4_REFERENCE_PATH = Path("data/reference/human_reference_v1.jsonl")
+A4_MIN_REFERENCE = 50  # below this, v1.2.0 falls through to "insufficient data" pass
+A4_TEST_SPLIT = 0.20
+A4_SEED = 123
 
 
-def run_a4_template_fingerprint(run_id: str, questions: list[dict]) -> list[dict]:
-    """Train a tiny logreg to separate template from LLM questions, then flag
-    LLM questions scoring >= 0.7 template-likeness.
+def _question_text_from_reference(item: dict) -> str:
+    """Render a reference-set entry into a single 'stem + options' string.
 
-    Population-level finding summarises AUC; per-question findings flag the
-    LLM questions that scored template-like.
+    Reference items use the v1 schema (stem + options dict). To feed the
+    same `feature_vector` to ref and corpus, we canonicalise both to
+    'stem A. opt1 B. opt2 C. opt3 D. opt4'.
     """
-    tmpl = [q for q in questions if (q.get("generation_method") == "template")]
-    llm = [q for q in questions if (q.get("generation_method") != "template")]
+    stem = (item.get("stem") or "").strip()
+    options = item.get("options") or {}
+    if isinstance(options, dict):
+        parts = [stem]
+        for key in sorted(options.keys()):
+            parts.append(f"{key}. {options[key]}")
+        return " ".join(parts)
+    return stem
 
-    if len(tmpl) < 20 or len(llm) < 20:
+
+def _question_text_from_corpus(q: dict) -> str:
+    """Render an audit-corpus question into the same canonical
+    'stem + options' string used for reference items.
+
+    Audit-corpus questions store stem in `question_text` and options as
+    a list of `{id, text}` dicts. Render to the same shape as
+    `_question_text_from_reference()` so logreg sees comparable feature
+    distributions across the negative and positive classes.
+    """
+    stem = (q.get("question_text") or "").strip()
+    options = q.get("options") or []
+    if isinstance(options, str):
+        try:
+            options = orjson.loads(options)
+        except Exception:
+            options = []
+    if not isinstance(options, list):
+        return stem
+    parts = [stem]
+    # Sort by id (A, B, C, D) so render order is deterministic.
+    for opt in sorted(options, key=lambda o: (o.get("id") or "").upper()):
+        oid = (opt.get("id") or "").strip()
+        text = (opt.get("text") or "").strip()
+        if oid:
+            parts.append(f"{oid}. {text}")
+        elif text:
+            parts.append(text)
+    return " ".join(parts)
+
+
+def load_human_reference(path: Path = A4_REFERENCE_PATH) -> list[dict]:
+    """Load the human reference set. Returns [] if the file is missing.
+
+    Each entry is the raw JSONL dict; downstream code uses
+    `_question_text_from_reference()` to render the canonical text.
+    """
+    if not path.exists():
+        logger.warning("A4 v1.2.0: reference file not found at {}", path)
+        return []
+    out: list[dict] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(orjson.loads(line))
+            except Exception as exc:
+                logger.warning("A4 v1.2.0: bad ref line: {}", exc)
+    return out
+
+
+def run_a4_template_fingerprint(
+    run_id: str,
+    questions: list[dict],
+    *,
+    reference_path: Path | None = None,
+) -> list[dict]:
+    """Train logreg on `human reference (negative)` vs `corpus (positive)`,
+    flag corpus questions scoring >= 0.7 'machine-style'.
+
+    The signal v1.0.0 measured (template vs LLM) is replaced by a
+    machine-vs-human signal. The positive class includes *all* OenoBench
+    questions — templates and LLM-generated alike. The negative class is
+    the fixed external reference set.
+
+    Population-level finding summarises AUC; per-question findings flag
+    corpus questions that scored very machine-like.
+    """
+    ref_path = reference_path or A4_REFERENCE_PATH
+    reference = load_human_reference(ref_path)
+
+    if len(reference) < A4_MIN_REFERENCE or len(questions) < 20:
         return [{
             "run_id": run_id,
             "question_id": None,
@@ -410,49 +519,85 @@ def run_a4_template_fingerprint(run_id: str, questions: list[dict]) -> list[dict
             "agent_version": A4_VERSION,
             "severity": SEVERITY_PASS,
             "score": 0.0,
-            "payload": {"note": "not enough data to train classifier",
-                        "n_template": len(tmpl), "n_llm": len(llm)},
+            "payload": {
+                "note": "insufficient data to train fixed-reference classifier",
+                "n_reference": len(reference),
+                "n_corpus": len(questions),
+                "reference_path": str(ref_path),
+            },
         }]
 
-    feats = [feature_vector(q.get("question_text") or "") for q in tmpl + llm]
-    labels = [1] * len(tmpl) + [0] * len(llm)
+    # Negative class (label 0): human reference set, rendered as stem + opts.
+    ref_feats = [feature_vector(_question_text_from_reference(it)) for it in reference]
+    # Positive class (label 1): every OenoBench-generated corpus question,
+    # rendered through the same canonical 'stem + opts' helper so logreg
+    # sees comparable feature distributions across the two classes.
+    corpus_feats = [feature_vector(_question_text_from_corpus(q)) for q in questions]
 
-    # Train/test split 70/30 with interleaving so both classes are present
-    pairs = list(zip(feats, labels, tmpl + llm))
-    # Deterministic shuffle via (hash-by-position) — we already set seed upstream
-    import random
-    random.Random(123).shuffle(pairs)
-    cut = int(len(pairs) * 0.7)
-    train = pairs[:cut]
-    test = pairs[cut:]
+    # Build held-out 20% from each class so AUC isn't optimistic.
+    rng = random.Random(A4_SEED)
+    ref_pairs = list(zip(ref_feats, [0] * len(reference), reference))
+    corp_pairs = list(zip(corpus_feats, [1] * len(questions), questions))
+    rng.shuffle(ref_pairs)
+    rng.shuffle(corp_pairs)
+
+    def _split(pairs: list, frac: float) -> tuple[list, list]:
+        cut = max(1, int(len(pairs) * frac))
+        return pairs[cut:], pairs[:cut]
+
+    ref_train, ref_test = _split(ref_pairs, A4_TEST_SPLIT)
+    corp_train, corp_test = _split(corp_pairs, A4_TEST_SPLIT)
+    train = ref_train + corp_train
+    test = ref_test + corp_test
+    rng.shuffle(train)
+    rng.shuffle(test)
 
     w, b = fit_logreg([p[0] for p in train], [p[1] for p in train])
     y_true = [p[1] for p in test]
     y_score = [predict_proba(w, b, p[0]) for p in test]
     test_auc = auc(y_true, y_score)
 
-    # Top 10 discriminative features by absolute weight
+    # Top 10 discriminative features by absolute weight.
     top_feats = sorted(w.items(), key=lambda kv: -abs(kv[1]))[:10]
 
-    # Per-question: score every *LLM-authored* question and flag the top tail
+    # Per-question per-class thresholds. v1.0.0 used a fixed 0.7 / 0.85
+    # threshold which was tuned for the within-corpus split. With the
+    # fixed-reference setup the score distribution shifts (reference
+    # items typically cluster around 0.6-0.7 because the scenario
+    # generator's prose is systematically longer than community-quiz
+    # prose). Use the reference 95th percentile as the WARN cutoff and
+    # the reference max as the FAIL cutoff so flagging only fires for
+    # items meaningfully more machine-like than any human reference.
+    ref_full_scores = [predict_proba(w, b, ref_pair[0]) for ref_pair in ref_pairs]
+    ref_full_scores_sorted = sorted(ref_full_scores)
+    if ref_full_scores_sorted:
+        idx95 = max(0, int(len(ref_full_scores_sorted) * 0.95) - 1)
+        warn_threshold = max(ref_full_scores_sorted[idx95], 0.7)
+        fail_threshold = max(max(ref_full_scores_sorted), warn_threshold + 0.05)
+    else:
+        warn_threshold, fail_threshold = 0.7, 0.85
+
     per_q_findings: list[dict] = []
-    for feat, _, q in pairs:
-        if q.get("generation_method") == "template":
-            continue
+    for feat, _, item in corp_pairs:
         score = predict_proba(w, b, feat)
-        if score >= 0.7:
-            sev = SEVERITY_WARN if score < 0.85 else SEVERITY_FAIL
+        if score >= warn_threshold:
+            sev = SEVERITY_FAIL if score >= fail_threshold else SEVERITY_WARN
             per_q_findings.append({
                 "run_id": run_id,
-                "question_id": q["uuid"],
+                "question_id": item["uuid"],
                 "agent_id": A4_ID,
                 "agent_version": A4_VERSION,
                 "severity": sev,
                 "score": round(score, 3),
-                "payload": {"template_likeness": round(score, 3)},
+                "payload": {
+                    "machine_likeness": round(score, 3),
+                    "warn_threshold": round(warn_threshold, 3),
+                    "fail_threshold": round(fail_threshold, 3),
+                    "rubric_measured": "machine_style_prose",
+                },
             })
 
-    # Population-level summary
+    # Population-level summary.
     sev_pop = SEVERITY_PASS
     if test_auc >= 0.95:
         sev_pop = SEVERITY_FAIL
@@ -468,12 +613,21 @@ def run_a4_template_fingerprint(run_id: str, questions: list[dict]) -> list[dict
         "payload": {
             "test_auc": round(test_auc, 4),
             "top_features": top_feats,
+            "n_reference": len(reference),
+            "n_corpus": len(questions),
             "n_train": len(train),
             "n_test": len(test),
-            "n_flagged_llm": len(per_q_findings),
+            "n_flagged_corpus": len(per_q_findings),
+            "warn_threshold": round(warn_threshold, 3),
+            "fail_threshold": round(fail_threshold, 3),
+            "reference_path": str(ref_path),
+            "rubric_measured": "machine_style_prose",
         },
     }
-    logger.info("A4: AUC={:.3f}, flagged {} LLM qs template-like", test_auc, len(per_q_findings))
+    logger.info(
+        "A4 v1.2.0: AUC={:.3f}, flagged {} corpus qs as machine-like (ref n={}, corpus n={})",
+        test_auc, len(per_q_findings), len(reference), len(questions),
+    )
     return [pop, *per_q_findings]
 
 
