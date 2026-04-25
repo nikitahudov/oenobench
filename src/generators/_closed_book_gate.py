@@ -36,9 +36,23 @@ from src.generators._llm_client import _try_parse_json
 
 load_dotenv()
 
-GATE_VERSION = "2.0.0"
+GATE_VERSION = "2.1.0"
 GATE_MODEL = "anthropic/claude-sonnet-4.6"
-CONFIDENCE_THRESHOLD = 0.7
+# Phase 2g.7 retune (2026-04-25): threshold lowered 0.7 -> 0.6 and gate
+# extended to L3 multiple-choice. See prototypes/team_alpha_results.json.
+#
+# At threshold 0.7 the gate caught 0% of the residual non-cb L1/L2 fails
+# on audit_pilot_v5 (Sonnet's confidence on the residual leaks lives in
+# the 0.5-0.65 band, not 0.7+). Threshold 0.6 is the loosest setting that
+# brings projected MC-only L1/L2 fail rate under the 15% Go gate (12.5%)
+# while flagging only 15% of MC questions. L3 leakage at 0.6 is 33%
+# (>=10% trigger) so the gate now applies to L3 MC as well.
+#
+# The OVERALL non-cb L1/L2 fail rate (33.7% on v5) is bounded by the
+# non-MC populations (scenario_based: 63% B2 fail, true_false: 80%) which
+# are structurally beyond the gate's reach. Closing the overall gate
+# requires the parallel scenario_synthesis prompt fix (Team β).
+CONFIDENCE_THRESHOLD = 0.6
 # Maximum share of the 10k corpus that may be tagged `closed_book_solvable`.
 # When this cap is hit at insertion time, additional gate-flagged questions
 # are dropped instead of relabeled. See docs/PROCESS_LOG.md 2026-04-24
@@ -46,11 +60,13 @@ CONFIDENCE_THRESHOLD = 0.7
 CLOSED_BOOK_QUOTA_FRACTION = 0.25
 CLOSED_BOOK_TAG = "closed_book_solvable"
 
-# Only L1/L2 multiple-choice questions go through the gate. L3/L4 already
-# show ~0% B2 fail rate on audit_pilot_v4 (see prototype), and non-MC types
-# (true/false, short_answer, matching, scenario_based) lack the option list
-# the gate uses to mirror B2's evaluation.
-_GATED_DIFFICULTIES = {"1", "2"}
+# L1/L2/L3 multiple-choice questions go through the gate. Phase 2g.7
+# extended this to L3 after audit_pilot_v5 showed 33% L3 leakage at the
+# new 0.6 threshold (>=10% trigger). L4 still skips: too low-volume to
+# justify the API spend and historically near-zero leakage. Non-MC types
+# (true/false, short_answer, matching, scenario_based) lack the option
+# list the gate uses to mirror B2's evaluation, so they remain skipped.
+_GATED_DIFFICULTIES = {"1", "2", "3"}
 _GATED_QUESTION_TYPES = {"multiple_choice"}
 
 _PROMPT = """You are taking a closed-book multiple-choice wine knowledge test. Pick the best answer using ONLY your general training knowledge — no external sources, no provided context facts.

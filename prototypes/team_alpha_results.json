@@ -1,0 +1,191 @@
+{
+  "v5_run_id": "541d1d1d-1a89-4f5a-8940-218928da3729",
+  "thresholds_swept": [
+    0.4,
+    0.5,
+    0.6,
+    0.7
+  ],
+  "non_cb_population_qtype_breakdown": {
+    "multiple_choice": {
+      "total": 66,
+      "b2_fails": 11,
+      "b2_fail_rate": 0.1667
+    },
+    "scenario_based": {
+      "total": 30,
+      "b2_fails": 19,
+      "b2_fail_rate": 0.6333
+    },
+    "true_false": {
+      "total": 5,
+      "b2_fails": 4,
+      "b2_fail_rate": 0.8
+    }
+  },
+  "l1l2_sweep_all": [
+    {
+      "threshold": 0.4,
+      "scope": "all_l1l2",
+      "population_total": 101,
+      "population_b2_fails": 34,
+      "gate_flagged": 27,
+      "flag_rate": 0.2673,
+      "true_positives": 10,
+      "precision": 0.3704,
+      "recall": 0.2941,
+      "projected_remaining_pop": 74,
+      "projected_remaining_fails": 24,
+      "projected_fail_rate": 0.3243
+    },
+    {
+      "threshold": 0.5,
+      "scope": "all_l1l2",
+      "population_total": 101,
+      "population_b2_fails": 34,
+      "gate_flagged": 22,
+      "flag_rate": 0.2178,
+      "true_positives": 8,
+      "precision": 0.3636,
+      "recall": 0.2353,
+      "projected_remaining_pop": 79,
+      "projected_remaining_fails": 26,
+      "projected_fail_rate": 0.3291
+    },
+    {
+      "threshold": 0.6,
+      "scope": "all_l1l2",
+      "population_total": 101,
+      "population_b2_fails": 34,
+      "gate_flagged": 10,
+      "flag_rate": 0.099,
+      "true_positives": 4,
+      "precision": 0.4,
+      "recall": 0.1176,
+      "projected_remaining_pop": 91,
+      "projected_remaining_fails": 30,
+      "projected_fail_rate": 0.3297
+    },
+    {
+      "threshold": 0.7,
+      "scope": "all_l1l2",
+      "population_total": 101,
+      "population_b2_fails": 34,
+      "gate_flagged": 0,
+      "flag_rate": 0.0,
+      "true_positives": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "projected_remaining_pop": 101,
+      "projected_remaining_fails": 34,
+      "projected_fail_rate": 0.3366
+    }
+  ],
+  "l1l2_sweep_mc_only": [
+    {
+      "threshold": 0.4,
+      "scope": "mc_only",
+      "population_total": 66,
+      "population_b2_fails": 11,
+      "gate_flagged": 27,
+      "flag_rate": 0.4091,
+      "true_positives": 10,
+      "precision": 0.3704,
+      "recall": 0.9091,
+      "projected_remaining_pop": 39,
+      "projected_remaining_fails": 1,
+      "projected_fail_rate": 0.0256
+    },
+    {
+      "threshold": 0.5,
+      "scope": "mc_only",
+      "population_total": 66,
+      "population_b2_fails": 11,
+      "gate_flagged": 22,
+      "flag_rate": 0.3333,
+      "true_positives": 8,
+      "precision": 0.3636,
+      "recall": 0.7273,
+      "projected_remaining_pop": 44,
+      "projected_remaining_fails": 3,
+      "projected_fail_rate": 0.0682
+    },
+    {
+      "threshold": 0.6,
+      "scope": "mc_only",
+      "population_total": 66,
+      "population_b2_fails": 11,
+      "gate_flagged": 10,
+      "flag_rate": 0.1515,
+      "true_positives": 4,
+      "precision": 0.4,
+      "recall": 0.3636,
+      "projected_remaining_pop": 56,
+      "projected_remaining_fails": 7,
+      "projected_fail_rate": 0.125
+    },
+    {
+      "threshold": 0.7,
+      "scope": "mc_only",
+      "population_total": 66,
+      "population_b2_fails": 11,
+      "gate_flagged": 0,
+      "flag_rate": 0.0,
+      "true_positives": 0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "projected_remaining_pop": 66,
+      "projected_remaining_fails": 11,
+      "projected_fail_rate": 0.1667
+    }
+  ],
+  "l3_sweep": [
+    {
+      "threshold": 0.4,
+      "l3_total": 73,
+      "l3_flagged": 38,
+      "l3_leak_rate": 0.5205
+    },
+    {
+      "threshold": 0.5,
+      "l3_total": 73,
+      "l3_flagged": 34,
+      "l3_leak_rate": 0.4658
+    },
+    {
+      "threshold": 0.6,
+      "l3_total": 73,
+      "l3_flagged": 24,
+      "l3_leak_rate": 0.3288
+    },
+    {
+      "threshold": 0.7,
+      "l3_total": 73,
+      "l3_flagged": 23,
+      "l3_leak_rate": 0.3151
+    }
+  ],
+  "recommended_threshold": 0.6,
+  "recommended_metrics_mc_only": {
+    "threshold": 0.6,
+    "scope": "mc_only",
+    "population_total": 66,
+    "population_b2_fails": 11,
+    "gate_flagged": 10,
+    "flag_rate": 0.1515,
+    "true_positives": 4,
+    "precision": 0.4,
+    "recall": 0.3636,
+    "projected_remaining_pop": 56,
+    "projected_remaining_fails": 7,
+    "projected_fail_rate": 0.125
+  },
+  "recommendation_note": "Threshold 0.6 achieves projected MC-only fail rate 12.5% <= 15% Go gate (recall 36%). The OVERALL non-cb L1/L2 fail rate stays >15% because non-MC question types (scenario_based, true_false) dominate the residual fail population and the gate does not fire on them.",
+  "l3_leakage_at_recommended": {
+    "threshold": 0.6,
+    "l3_total": 73,
+    "l3_flagged": 24,
+    "l3_leak_rate": 0.3288
+  },
+  "extend_gate_to_l3": true
+}
