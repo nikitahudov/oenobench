@@ -1,164 +1,162 @@
 # OenoBench Quality Audit Report
 
-- Run ID: `541d1d1d-1a89-4f5a-8940-218928da3729`
-- Corpus tag: `audit_pilot_v5`
-- Corpus size: 295
-- Config hash: `46b46c6cd37835f5...`
-- Started: 2026-04-25 00:39:50.803250+00:00
-- Completed: 2026-04-25 04:14:35.305992+00:00
-- LLM calls: 2860
-- Cost: $5.50
+- Run ID: `bfc39e1a-ba6b-471d-bde0-87eead62d1dc`
+- Corpus tag: `audit_pilot_v6`
+- Corpus size: 264
+- Config hash: `bfc5aaae81f8027f...`
+- Started: 2026-04-26 10:20:13.096194+00:00
+- Completed: 2026-04-26 13:38:57.199333+00:00
+- LLM calls: 2612
+- Cost: $4.82
 
 ## 1 · Executive summary
 
-- Findings across 9 agents: 1070 pass · 285 warn · 234 fail · 0 error
+- Findings across 9 agents: 963 pass · 296 warn · 211 fail · 0 error
 
 | Agent | pass | warn | fail | error | total |
 |---|---:|---:|---:|---:|---:|
-| A1_LexicalHygiene | 273 | 12 | 10 | 0 | 295 |
-| A2_BiasStats | 0 | 1 | 0 | 0 | 1 |
-| A3_FactEcho | 149 | 135 | 11 | 0 | 295 |
-| A4_TemplateFingerprint | 0 | 14 | 97 | 0 | 111 |
-| B1_TriJudgeAnswer | 271 | 23 | 1 | 0 | 295 |
-| B2_ClosedBookSolvability | 91 | 93 | 111 | 0 | 295 |
-| C2_CategoryLeak | 285 | 7 | 3 | 0 | 295 |
-| D1_SelfPreference | 1 | 0 | 0 | 0 | 1 |
+| A1_LexicalHygiene | 245 | 15 | 4 | 0 | 264 |
+| A2_BiasStats | 0 | 0 | 1 | 0 | 1 |
+| A3_FactEcho | 120 | 136 | 8 | 0 | 264 |
+| A4_TemplateFingerprint | 1 | 75 | 71 | 0 | 147 |
+| B1_TriJudgeAnswer | 245 | 16 | 3 | 0 | 264 |
+| B2_ClosedBookSolvability | 90 | 52 | 122 | 0 | 264 |
+| C2_CategoryLeak | 262 | 2 | 0 | 0 | 264 |
+| D1_SelfPreference | 0 | 0 | 1 | 0 | 1 |
 | D3_SkewAudit | 0 | 0 | 1 | 0 | 1 |
 
 ## 2 · Methodology
 
-- Corpus: 295 questions tagged `audit_pilot_v5`, seed 42.
+- Corpus: 264 questions tagged `audit_pilot_v6`, seed 43.
 - Agents: ['A1_LexicalHygiene', 'A2_BiasStats', 'A3_FactEcho', 'A4_TemplateFingerprint', 'B1_TriJudgeAnswer', 'B2_ClosedBookSolvability', 'C2_CategoryLeak', 'C4_DifficultyAudit', 'D1_SelfPreference', 'D3_SkewAudit']
 - Judge models: ['claude', 'chatgpt', 'gemini']
-- Thresholds and seeds encoded in config hash (full hash: `46b46c6cd37835f5fb4554f64317887a2329f7b0da1176deb835d91876184489`).
+- Thresholds and seeds encoded in config hash (full hash: `bfc5aaae81f8027ff6d64ff3fef540b77699de6982f845ab2829d0ba63df0fe7`).
 
 ## 3 · Per-strategy deep dive
 
 ### template
 
 - Question count: **34**
-- Severity rollup: pass=115, warn=32, fail=23
+- Severity rollup: pass=127, warn=19, fail=24
 - Failures by agent:
-  - B2_ClosedBookSolvability: 20
+  - B2_ClosedBookSolvability: 21
   - A3_FactEcho: 3
 - Sample failures:
-  - WB-REG-0273-L1  ·  B2_ClosedBookSolvability  ·  
-    > The fact assigns the Sierra Pelona AVA to which US state?
-  - WB-REG-0274-L1  ·  B2_ClosedBookSolvability  ·  
-    > A producer intends to release a varietal wine as Valtellina Superiore. Based on the fact, which grape variety is permitted for this release?
-  - WB-REG-0275-L2  ·  B2_ClosedBookSolvability  ·  
-    > A regulator is auditing labelling under Recioto di Gambellara. Which grape, per the fact, is among the permitted varieties for this appellation?
+  - WB-REG-0332-L1  ·  B2_ClosedBookSolvability  ·  
+    > An importer purchasing Goose Gap AVA wines is confirming the US state of origin for customs paperwork. Per the fact, which state should appear on the form?
+  - WB-REG-0333-L2  ·  B2_ClosedBookSolvability  ·  
+    > A retailer lists Texas Hill Country AVA wines on its website under state. Per the fact, which state should be used?
+  - WB-REG-0334-L1  ·  B2_ClosedBookSolvability  ·  
+    > A buyer is routing a shipment of Chiles Valley AVA wine. Based on the fact, which US state is the origin?
 
 ### fact_to_question
 
 - Question count: **120**
-- Severity rollup: pass=457, warn=72, fail=143
+- Severity rollup: pass=448, warn=123, fail=86
 - Failures by agent:
-  - B2_ClosedBookSolvability: 66
-  - A4_TemplateFingerprint: 65
-  - A1_LexicalHygiene: 7
-  - A3_FactEcho: 5
+  - B2_ClosedBookSolvability: 61
+  - A4_TemplateFingerprint: 20
+  - A1_LexicalHygiene: 3
+  - A3_FactEcho: 2
 - Sample failures:
-  - WB-BIZ-0204-L2  ·  A1_LexicalHygiene  ·  matches=['question_text']
-    > Which Italian wine region includes seven DOCG classifications, among them a renowned dried-grape red wine from the Valpolicella zone and a premium sparkling wine from a hilly subzo
-  - WB-BIZ-0205-L2  ·  A4_TemplateFingerprint  ·  
-    > An international regulatory body for viticulture and oenology was restructured in 2001, succeeding an earlier organization established in 1924. In which year was the predecessor or
-  - WB-BIZ-0206-L2  ·  A4_TemplateFingerprint  ·  
-    > Which Spanish wine region holds the highest regulatory classification under the country's appellation system, designated as a Qualified Designation of Origin?
+  - WB-VIT-0304-L2  ·  A4_TemplateFingerprint  ·  
+    > Which vineyard practice helps lower the need for insecticide treatments by interfering with grapevine moth reproduction?
+  - WB-VIT-0300-L2  ·  A3_FactEcho  ·  lcs_ratio=0.5769
+    > Which factor significantly influences the content, composition and development of organic acids and volatile compounds in wine, as well as its sensory attributes?
+  - WB-VIT-0301-L2  ·  B2_ClosedBookSolvability  ·  
+    > What type of viruses in grapevines may not show symptoms or cause disease under certain conditions?
 
 ### comparative
 
-- Question count: **47**
-- Severity rollup: pass=179, warn=51, fail=31
+- Question count: **39**
+- Severity rollup: pass=138, warn=55, fail=25
 - Failures by agent:
-  - A4_TemplateFingerprint: 23
-  - B2_ClosedBookSolvability: 6
-  - A3_FactEcho: 1
+  - B2_ClosedBookSolvability: 14
+  - A4_TemplateFingerprint: 6
+  - A3_FactEcho: 3
   - B1_TriJudgeAnswer: 1
+  - A1_LexicalHygiene: 1
 - Sample failures:
-  - WB-GRP-0311-L3  ·  A4_TemplateFingerprint  ·  
-    > One of these regions allows Chambourcin, while the other authorizes Sauvignon Blanc. Which option correctly matches the region to its permitted grape?
-  - WB-GRP-0312-L2  ·  A4_TemplateFingerprint  ·  
-    > One of these AVAs allows Cabernet Franc, while the other allows Merlot. Which option matches those permitted grapes to the correct AVAs?
-  - WB-GRP-0313-L3  ·  A3_FactEcho  ·  lcs_ratio=0.6
-    > One of these AVAs allows Cabernet Franc, while the other allows Pinot noir. Which option matches them correctly?
+  - WB-GRP-0390-L3  ·  A4_TemplateFingerprint  ·  
+    > When examining the authorized grape varieties for specific American Viticultural Areas, one region approves the Iberian white grape Albariño for wine production, while another auth
+  - WB-GRP-0386-L3  ·  B1_TriJudgeAnswer  ·  majority_matches_key=False
+    > Which of the following wine regions or estates allows the use of a grape variety that is not explicitly named as Tempranillo in its permitted varietals list?
+  - WB-GRP-0387-L3  ·  B2_ClosedBookSolvability  ·  
+    > Which grape variety is characterized as a dark-skinned type used in wine production and officially classified as a black variety in the Foundation Plant Services database at the Un
 
 ### scenario_synthesis
 
-- Question count: **69**
-- Severity rollup: pass=227, warn=94, fail=26
+- Question count: **49**
+- Severity rollup: pass=168, warn=62, fail=64
 - Failures by agent:
-  - B2_ClosedBookSolvability: 19
-  - C2_CategoryLeak: 3
-  - A1_LexicalHygiene: 2
-  - A4_TemplateFingerprint: 1
-  - A3_FactEcho: 1
+  - A4_TemplateFingerprint: 41
+  - B2_ClosedBookSolvability: 21
+  - B1_TriJudgeAnswer: 2
 - Sample failures:
-  - WB-REG-0311-L2  ·  B2_ClosedBookSolvability  ·  
-    > A winemaker in Chile is redesigning an estate and reviewing why older local practices and market positioning developed the way they did. In archived notes, she finds three patterns
-  - WB-REG-0312-L2  ·  B2_ClosedBookSolvability  ·  
-    > A winemaker is evaluating whether a high-elevation Andean vineyard can remain productive after a major consolidation of plantings. The estate has removed a large share of its viney
-  - WB-REG-0314-L2  ·  B2_ClosedBookSolvability  ·  
-    > A winemaker is designing a heritage bottling and wants every production choice and label note to align with a traditional Georgian model. The wine is intended to be an amber style 
+  - WB-REG-0370-L2  ·  A4_TemplateFingerprint  ·  
+    > A winery team is preparing a staff briefing about a dessert wine made from grapes left on the vine deep into winter. They want the briefing to accurately explain both the category’
+  - WB-WMK-0288-L3  ·  A4_TemplateFingerprint  ·  
+    > A German winery is finalizing production notes and legal labeling for a low-cost bubbly. The cellar team says their base wine could already have been sold during its initial fermen
+  - WB-GRP-0411-L2  ·  A4_TemplateFingerprint  ·  
+    > A cellar team is drafting training notes for new assistants after a difficult harvest. One parcel came in very ripe, with lots of natural sugar but not enough freshness, so the win
 
 ### distractor_mining
 
-- Question count: **25**
-- Severity rollup: pass=91, warn=35, fail=9
+- Question count: **22**
+- Severity rollup: pass=81, warn=37, fail=9
 - Failures by agent:
-  - A4_TemplateFingerprint: 7
-  - A1_LexicalHygiene: 1
-  - A3_FactEcho: 1
+  - B2_ClosedBookSolvability: 5
+  - A4_TemplateFingerprint: 4
 - Sample failures:
-  - WB-BIZ-0231-L3  ·  A4_TemplateFingerprint  ·  
-    > Which South African wine-related aspect was not legally protected for a long time?
-  - WB-BIZ-0232-L4  ·  A4_TemplateFingerprint  ·  
-    > Which organization is hosting a Spring Board of Directors Meeting in March 2026 at The Sutter Club?
-  - WB-BIZ-0234-L3  ·  A4_TemplateFingerprint  ·  
-    > Which regulatory framework integrated European geographical indication concepts but discarded the traditional focus on terroir, choosing instead to utilize trademark principles bas
+  - WB-PRD-0324-L3  ·  A4_TemplateFingerprint  ·  
+    > Which winery is associated with a Vino de Pago designation established in 2019, representing a single-estate classification in Spain that emphasizes geographic specificity and regu
+  - WB-REG-0383-L3  ·  A4_TemplateFingerprint  ·  
+    > This South American wine region features vineyards that stretch across a dramatic longitudinal gradient, beginning at the coastal edge of the Pacific Ocean and extending eastward i
+  - WB-REG-0387-L3  ·  B2_ClosedBookSolvability  ·  
+    > Within the Bordeaux wine region, which AOC is dedicated exclusively to the production of sweet white wine?
 
 ## 4 · Per-generator deep dive
 
 ### chatgpt
 
-- Authored question count: **52**
-- Total fails: 44, warns: 44
+- Authored question count: **38**
+- Total fails: 31, warns: 41
 
 ### claude
 
-- Authored question count: **50**
-- Total fails: 38, warns: 49
+- Authored question count: **48**
+- Total fails: 40, warns: 54
 
 ### gemini
 
-- Authored question count: **40**
-- Total fails: 30, warns: 26
+- Authored question count: **35**
+- Total fails: 23, warns: 39
 
 ### llama
 
-- Authored question count: **55**
-- Total fails: 53, warns: 71
+- Authored question count: **53**
+- Total fails: 37, warns: 71
 
 ### qwen
 
-- Authored question count: **64**
-- Total fails: 44, warns: 62
+- Authored question count: **56**
+- Total fails: 53, warns: 72
 
 ### template_only
 
 - Authored question count: **34**
-- Total fails: 23, warns: 32
+- Total fails: 24, warns: 19
 
 ## 5 · Cross-cutting findings
 
 ### Template detectability (A4)
-- Held-out AUC: **0.9542**
-- Top discriminative features: `len:sentences` (+2.95), `len:avg_word` (+2.47), `len:tokens` (-0.61), `punc:-` (+0.61), `bg:DET-WORD` (+0.39), `punc::` (+0.34), `punc:,` (+0.31), `bg:WORD-PUN` (+0.27)
+- Held-out AUC: **0.7933**
+- Top discriminative features: `len:tokens` (+1.15), `bg:PUN-WORD` (-0.55), `len:sentences` (-0.53), `len:avg_word` (+0.53), `bg:SHORT-PUN` (-0.38), `bg:WORD-SHORT` (-0.25), `bg:PUN-DET` (-0.18), `bg:DET-WORD` (+0.18)
 
 ### Country / domain skew (D3)
-- Max country over-representation ratio: **3.696**
-- Question country counts (top 10): {'US': 1, 'Italy': 2, 'Spain': 4, 'France': 2, 'Austria': 2, 'England': 2, 'Germany': 1, 'Uruguay': 1, 'Argentina': 1, 'Australia': 17}
-- Subdomain Herfindahl per strategy: template=0.1107, comparative=0.3255, fact_to_question=0.0882, distractor_mining=0.0976, scenario_synthesis=0.0754
+- Max country over-representation ratio: **4.516**
+- Question country counts (top 10): {'US': 2, 'Chile': 2, 'Italy': 1, 'Spain': 3, 'France': 4, 'Austria': 4, 'Hungary': 1, 'Portugal': 1, 'Australia': 3, 'New Zealand': 10}
+- Subdomain Herfindahl per strategy: template=0.0969, comparative=0.3872, fact_to_question=0.066, distractor_mining=0.0785, scenario_synthesis=0.0812
 
 ## 6 · Gold calibration
 
@@ -195,10 +193,10 @@ Escalation triggers (if the audit finds these, run the deferred agents):
 
 ```sql
 -- All findings for this run
-SELECT agent_id, severity, count(*) FROM audit_findings WHERE run_id = '541d1d1d-1a89-4f5a-8940-218928da3729' GROUP BY 1,2;
+SELECT agent_id, severity, count(*) FROM audit_findings WHERE run_id = 'bfc39e1a-ba6b-471d-bde0-87eead62d1dc' GROUP BY 1,2;
 
 -- Per-question rollup
-SELECT * FROM v_question_audit_summary WHERE id IN (SELECT question_id FROM audit_findings WHERE run_id = '541d1d1d-1a89-4f5a-8940-218928da3729');
+SELECT * FROM v_question_audit_summary WHERE id IN (SELECT question_id FROM audit_findings WHERE run_id = 'bfc39e1a-ba6b-471d-bde0-87eead62d1dc');
 ```
 
-_Generated 2026-04-25T04:14:36.495705_
+_Generated 2026-04-26T13:38:58.131998_
