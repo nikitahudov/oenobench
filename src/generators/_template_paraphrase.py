@@ -123,6 +123,11 @@ def paraphrase_question_text(
             temperature=0.3,
             max_tokens=300,
             json_mode=True,
+            # Phase 2g.8: paraphrase prompts are sub-2K tokens. Pin OpenRouter
+            # to the cheapest provider for the requested model so we don't
+            # get billed at the >200K-context Gemini Pro tier ($5/$15 per
+            # MTok) that the unpinned route was hitting on audit_pilot_v6.
+            extra_body={"provider": {"sort": "price"}},
         )
     except Exception as e:
         logger.warning(f"Paraphrase LLM call raised: {e}")
