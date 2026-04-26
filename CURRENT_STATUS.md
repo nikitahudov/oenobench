@@ -1,28 +1,28 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** April 25, 2026
-**Project phase:** Phase 2g.7 — audit #5 + four-team retune shipped on engineering side. v6 build is **blocked on OpenRouter API key cap exhaustion**.
+**Last updated:** April 26, 2026
+**Project phase:** Phase 2g.8 — audit #6 ran and exposed three coordinator-layer wire-up regressions; Phase 2g.8 fixes + cost optimizations + gate model upgrade are merged on `phase-2g.8/cheaper-corpus-build` and ready for audit #7.
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ## Latest cliff notes (start here next session)
 
-- **Audit run #5 (2026-04-25, `audit_pilot_v5`, 295 Qs, $5.50, 2,860 LLM calls):** B2 non-cb-tagged L1/L2 fail rate dropped 53.9% → **33.7%** (run_id `541d1d1d-1a89-4f5a-8940-218928da3729`). Real progress, but still 2.2× the ≤15% Go gate. Other gates failing: A4 TemplateFingerprint AUC 0.954 (>0.9 escalation), κ n=0 for new v2.3 rubrics (gold predates Phase 2g), D3 country skew (max ratio 3.7 — but Team ε later showed this was finite-sample noise on Uruguay; real culprit was South Africa at 2.71×).
-- **Phase 2g.7 (2026-04-25) — Four-team parallel retune:** Coordinator dispatched 4 autonomous worktree teams + 1 follow-up team unblocked mid-cycle. All engineering work shipped clean.
-  - **Team α** (`team-alpha-gate-tuning`): Threshold sweep — at 0.7 the gate caught 0% of residual non-cb fails (Sonnet's residual confidence lives in 0.5-0.65 band). Recommended **threshold 0.6** → MC-only L1/L2 projected fail rate 12.5%. L3 leakage at 0.6 was 33% → gate extended to L3. Quota math fixed from `OVERALL_TARGET × 0.25` (no-op for pilots) to `ceil(target_size × 0.25)`. **Critical strategic finding:** gate alone cannot close the overall ≤15% gate because non-MC types dominate residual fails — scenario_based 63%, true_false 80% vs MC 17%.
-  - **Team β** (`team-beta-scenario-prompt`): Failure-mode taxonomy on 19 v5 scenario fails (premise-telegraphs / famous-region cliché / single-canonical-best-practice / textbook caveat). Drafted HARD RULE for non-derivable anchor in `SCENARIO_TEMPLATE`. Prototype hit structural ceiling (1/1 leak at iter3). Independently recommended same fix as α: extend gate to scenario_based.
-  - **Team δ** (`team-delta-gold-sheet`): All 10 v2.3 rubrics already in export schema (no code change). Sub-stratified sampler within-strategy across (generator × difficulty). Exported `data/reports/gold_sheet_v5.csv` (120 rows, 24/strategy, all 10 rubric columns blank). Wrote `docs/GOLD_REVIEW_GUIDE_V5.md` (255 lines). **Branch awaits user gold review (~2-3h) before merge.**
-  - **Team ε** (`team-epsilon-country-balance`): Diagnosis — Australia (1.12×) was proportional, not the outlier; real culprit South Africa at 2.71× pool share. Implemented `per_country_cap: float | None = None` kwarg on all 5 sampler entry points with multi-fact bundle counting. Recommended cap for v6: 0.10.
-  - **Coordinator commit (gate type extension):** Lifted `_GATED_QUESTION_TYPES` from `{multiple_choice}` to `{multiple_choice, scenario_based}`. GATE_VERSION 2.1.0 → **2.2.0**. T/F deferred (only 5 q on v5).
-  - **Team γ** (`team-gamma-a4-reference`, **running in background**): Unblocked by user choosing "external human reference set" + "WSET/CMS public-practice scrape" as source. Goal: 100-150 community-shared questions, retrain A4 against them as negative class. Cost budget $0.50.
-- **Test status:** 289/289 pytest pass on main (1 deselected: `test_c4_calibration::test_c4_live_roundtrip…` blocked by OpenRouter 403).
-- **OpenRouter API key cap exhausted.** Hit during Teams β + ε prototypes and the post-merge live-LLM smoke test. Until topped up, all LLM-dependent work (v6 build, audit run, Team γ A4 retraining smoke) is paused.
-- **v5 audit reports** (auto-generated): `docs/QUALITY_AUDIT_REPORT.md`, `docs/GENERATION_IMPROVEMENT_PLAN_AUTO.md` (working-tree modified, will be committed alongside v5 audit ship).
-- **Cost re-estimate for full 10k run:** $130 (v1.0 reject gate) → $100 (v2.0 label+quota) → **~$90** (v2.2 gate at 0.6 threshold + scenario_based coverage).
+- **Audit run #6 (2026-04-26, `audit_pilot_v6`, 264 Qs, $4.82, 2,612 LLM calls, run_id `bfc39e1a-ba6b-471d-bde0-87eead62d1dc`):** B2 fail rate 46% (162/264 — improved from v5's 53.9% but still 3× the ≤15% Go gate). D3 max country ratio **4.52×** (Team ε's per-country cap was effectively never applied due to wire-up regression). A3 8/264 = 3% (over the 2% gate, but 7/8 are measurement artifacts on T/F templates with short source facts and borderline LCS=0.60 cases). A4 v1.2.0 (fixed-reference, 104-Q human set) shipped at AUC 0.825 — comfortably under the 0.9 escalation trigger.
+- **Phase 2g.8 (2026-04-26) — three issues investigated, three teams shipped fixes:**
+  - **Issue 1: Build-corpus Gemini cost** ($25 of $36 OpenRouter spend on v6 was Gemini, billed at >200K-context tier on sub-2K-token verifier+paraphrase calls). Fix: gate-before-paraphrase reorder for templates (saves ~60% of paraphrase+verifier calls on gate-flagged questions); OpenRouter `provider.sort=price` routing for verifier + paraphrase. Commit `d35ee00`.
+  - **Issue 2: D3 wire-up regression.** Team ε's `per_country_cap` kwarg was added to the sampler functions in Phase 2g.7 but never propagated through (a) the audit-pilot orchestrator's `build-corpus` CLI, (b) `build_pilot_corpus()`, (c) `_run_generator()` subprocess args, or (d) the strategy CLIs (only `fact_to_question` had the flag). Result: v6 ran with effectively `per_country_cap=None`. Fix: `--per-country-cap` flag added to all 5 strategy CLIs; propagated through every layer. Commit `846fb8e`. New harness `scripts/run_audit_pilot_v7.sh` passes `--per-country-cap 0.10`.
+  - **Issue 3: `set_corpus_target` never called.** The function exists in `_question_db.py` (Phase 2g.7) but was only used in tests; `build_pilot_corpus()` never called it, so audit pilots fell back to the 10k default cap of 2500 (effectively unbounded for a 600-Q pilot). v6 had 158 closed-book relabels; the documented cap should have been ceil(264 × 0.25) = 66, so 92 questions slipped through. Fix: `set_corpus_target(per_strategy × 5)` called from `build_pilot_corpus()` with `try/finally` cleanup. Commit `2a30348`.
+  - **Issue 4 (companion): A3 v1.2.0.** Skip `true_false` (T/F's 1-token correct option breaks LCS denominator); LCS fail threshold `0.60 → 0.65`. The 12-token n-gram check still catches genuine verbatim copies independently. Projected v6 fail rate 8/264 = 3.0% → 1/260 = 0.4%. Commit `c4443a9`.
+  - **Issue 5 (companion): Gate v2.3.0.** `GATE_MODEL` Sonnet 4.6 → **Opus 4.7**, overridable via `OENOBENCH_GATE_MODEL` env var. Audit-cycle marginal cost ~+$2; full 10k decision deferred to post-audit-#7 (~+$60 if Opus stays). Commit `5825aa8`.
+- **Three parallel teams, then merged.** User-validated 4-team worktree pattern was used: Team α (set_corpus_target), Team β (A3 v1.2.0), Team γ (gate model). All three landed on `phase-2g.8/cheaper-corpus-build` with cherry-picks (worktrees were branched from a stale base; one had a manual conflict resolution).
+- **Test status:** 329/329 pytest pass on `phase-2g.8/cheaper-corpus-build` (1 deselected: `test_c4_calibration::test_c4_live_roundtrip…` blocked by OpenRouter 403, pre-existing).
+- **v6 audit reports** (auto-generated): `docs/QUALITY_AUDIT_REPORT.md`, `docs/GENERATION_IMPROVEMENT_PLAN_AUTO.md` regenerated by the v6 build-reports step at 2026-04-26 13:38 UTC.
+- **Cost re-estimate per audit pilot:** $5 (v6 with Sonnet gate, no 2g.8 opts) → ~$15-20 (v7 with 2g.8 opts + Opus gate). Cost re-estimate for full 10k run: $90 (v6 settings) → ~$60-70 (with 2g.8 opts, Sonnet gate) or ~$120-130 (with 2g.8 opts, Opus gate).
 - **Next session start point:**
-  1. Verify OpenRouter is unblocked: `python -c "from src.generators._llm_client import call_llm; print(call_llm('claude-sonnet-4.6', 'ping', max_tokens=10))"`
-  2. If green → kick off `audit_pilot_v6`: `python -m src.qa.orchestrator build-corpus --tag audit_pilot_v6 --per-strategy 120 --seed 43` (with `per_country_cap=0.10`) → `run --teams A,B,C,D` → inspect report.
-  3. Whenever user finishes the gold-v5 review, re-import + merge `team-delta-gold-sheet` + rebuild reports — expect κ ≥ 0.6 on `verbatim_copy`/`wine_category_leak`.
-  4. If Team γ has reported back, review the A4 AUC delta and decide whether to merge `team-gamma-a4-reference` before or after v6 audit.
+  1. Whenever user finishes the gold-v5 review (`data/reports/gold_sheet_v5.csv`), re-import + merge `team-delta-gold-sheet` + rebuild reports — expect κ ≥ 0.6 on `verbatim_copy`/`wine_category_leak`.
+  2. Merge `phase-2g.8/cheaper-corpus-build` into `main` (or open a PR) so audit #7 runs on the canonical branch.
+  3. Run audit #7: `bash scripts/run_audit_pilot_v7.sh`. Cost ~$15-20. Wall time ~3-4h end-to-end.
+  4. Verify Go/No-Go on v7. Pass criteria: B2 fail rate ≤ 15%, A4 AUC < 0.9, κ ≥ 0.6 on populated rubrics, D3 max country ratio < 2.0, A3 fail rate < 2%, closed-book quota properly enforced (≤25%). If B2 still fails, the residual is structural in scenario_synthesis prompts — fork to a scenario-prompt revision before further model upgrades.
+  5. If v7 passes: decide on the full-generation gate model (env override available) and kick off the 10k run.
 
 ---
 
@@ -38,9 +38,11 @@
 | 2f–2g. v2.3 fixes + audits #3, #4 | 14 | **Complete** — B2 dropped 66% → 36%; structural residual identified |
 | 2g.5. Closed-book gate v1.0 (REJECT) | 14 | **Complete** — Sonnet 4.6 MC pre-screen wired into all 5 generators |
 | 2g.6. Closed-book gate v2.0 (LABEL+QUOTA) | 14 | **Complete** — relabel + 25% cap; paired eval helper `score_by_cb_split()` |
-| 2g.7. Audit #5 + four-team retune | 14 | **Complete (engineering)** — gate threshold 0.6, L3 + scenario_based coverage, per-corpus quota, scenario HARD RULE, sampler country cap, gold sheet refresh |
-| 2h. Audit run #6 + gold-v5 review | 15 | **Blocked** — gated on OpenRouter top-up + user gold review |
-| 2i. Full 10k generation run | 15 | **Pending** — gated on v6 Go/No-Go pass |
+| 2g.7. Audit #5 + four-team retune | 14 | **Complete** — gate threshold 0.6, L3 + scenario_based coverage, per-corpus quota math, scenario HARD RULE, sampler country cap kwarg, gold sheet refresh, A4 v1.2.0 fixed-reference |
+| 2g.7. Audit #6 (`audit_pilot_v6`) | 15 | **Complete** — failed Go/No-Go on B2 (46%) + D3 (4.52×); revealed three coordinator wire-up regressions |
+| 2g.8. Wire-up fixes + cost opts + gate upgrade | 15 | **Complete (engineering)** — `set_corpus_target` wired up, `--per-country-cap` plumbed end-to-end, A3 v1.2.0, gate model Sonnet→Opus, Gemini cost opts. 329/329 tests pass on `phase-2g.8/cheaper-corpus-build` |
+| 2h. Audit run #7 + gold-v5 review | 15 | **Pending** — gated on user gold review (~2-3h) and `bash scripts/run_audit_pilot_v7.sh` (~3-4h, ~$15-20) |
+| 2i. Full 10k generation run | 15-16 | **Pending** — gated on v7 Go/No-Go pass |
 | 3. AI Validation | 15-17 | Not started |
 | 4. Human Review & Control Set | 18-20 | Not started |
 | 5. Evaluation & Analysis | 21-24 | Not started |
