@@ -324,15 +324,40 @@ def export_gold_sheet(tag: str, out_path: Path, sample_size: int, seed: int) -> 
         logger.warning("gold sheet: no rows tagged {}", tag)
         return 0
 
-    # Stratified sample: per-strategy, take sample_size / 5
-    per_strategy = max(1, sample_size // 5)
-    buckets: dict[str, list[dict]] = {}
+    # Stratified sample: take ~`sample_size / N_strategies` from each strategy.
+    # Within a strategy, sub-stratify across (generator, difficulty) cells so
+    # the reviewer doesn't see e.g. all template_only L1 questions clustered
+    # at the top. Falls back to random fill when a strategy is short on cells.
+    strategy_buckets: dict[str, list[dict]] = {}
     for r in rows:
-        buckets.setdefault(r["generation_method"], []).append(r)
+        strategy_buckets.setdefault(r["generation_method"], []).append(r)
+
+    n_strategies = max(1, len(strategy_buckets))
+    per_strategy = max(1, sample_size // n_strategies)
+
     selected: list[dict] = []
-    for method, group in buckets.items():
-        random.shuffle(group)
-        selected.extend(group[:per_strategy])
+    for method, group in strategy_buckets.items():
+        # Build (generator, difficulty) sub-buckets and round-robin pick from
+        # them so the per-strategy slice is as balanced as the corpus allows.
+        sub: dict[tuple[str, str], list[dict]] = {}
+        for r in group:
+            key = (r.get("generator") or "template_only", str(r.get("difficulty") or ""))
+            sub.setdefault(key, []).append(r)
+        for items in sub.values():
+            random.shuffle(items)
+
+        chosen: list[dict] = []
+        # Round-robin across cells until we hit per_strategy or exhaust the cells.
+        keys = sorted(sub.keys())
+        random.shuffle(keys)
+        while len(chosen) < per_strategy and any(sub[k] for k in keys):
+            for k in keys:
+                if not sub[k]:
+                    continue
+                chosen.append(sub[k].pop())
+                if len(chosen) >= per_strategy:
+                    break
+        selected.extend(chosen)
     random.shuffle(selected)
     selected = selected[:sample_size]
 
