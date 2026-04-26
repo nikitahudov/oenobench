@@ -1119,7 +1119,7 @@ Projected v7 audit results assuming the wire-up fixes work as designed:
 - **Gate model: env-overridable, Opus default.** The user explicitly framed audit vs full-generation as separate decisions. Env-var override gives a no-code-change toggle, which is the right knob for the deferred full-run decision. Documented cost numbers in the gate module's narrative comment so future readers don't need to dig.
 - **A3 v1.2.0: skip T/F + bump LCS, don't change n-gram.** The 12-token n-gram catch on WB-VIT-0300 is the only true positive in v6. Keeping `_A3_FAIL_NGRAM=8` preserves that signal even with the higher LCS bar. Skipping T/F is structurally correct; the LCS metric using `max(len)` denominator and a 1-token correct option is fundamentally noisy on short-source T/F.
 - **Cost optimization: paraphrase + verifier behind gate, cheap-provider routing.** Did NOT apply Optimization 2 (drop Gemini for verifier — user explicitly rejected to preserve audit-key behaviour). The two shipped optimizations are scoped to template_generator (gate-first reorder) and verifier+paraphrase calls only (provider routing). Audit panel and main generators unchanged.
-- **`scripts/run_audit_pilot_v7.sh` not v6 in-place.** Kept v6 as historical reference (committed for the first time as part of this phase — it had been sitting untracked since the v6 launch). v7 has bumped seed (44) and tag.
+- **`scripts/run_audit_pilot_v7.sh` not v6 in-place.** Kept v6 as historical reference (committed for the first time as part of this phase — it had been sitting untracked since the v6 launch). v7 has bumped seed (44) and tag. *Update later same day: split into `_build.sh` + `_audit.sh`; see "Workflow refinement" section below.*
 - **Full 10k cost framing.** With 2g.8 cost optimizations active, Sonnet gate puts the 10k at ~$60-70 (down from $90); Opus gate puts it at ~$120-130 (up). The Opus upgrade roughly cancels the 2g.8 savings on the 10k. Decision deferred until v7 results land.
 
 ### Issues encountered & resolutions
@@ -1137,11 +1137,23 @@ User decisions in this phase:
 3. **Defer full-generation gate model decision.** Made Opus the audit default, kept Sonnet reachable via `OENOBENCH_GATE_MODEL` env var.
 4. **Approve v7 harness with `--per-country-cap 0.10`.** Tag `audit_pilot_v7`, seed 44.
 
+### Workflow refinement (2026-04-26 evening): two-phase v7 harness
+
+The original `scripts/run_audit_pilot_v7.sh` ran build-corpus + audit + reports as one linear pipeline. After a user review hygiene point, the harness was split into two phases gated on a manual gold review step:
+
+* **`scripts/run_audit_pilot_v7_build.sh`** (phase 1, ~13h): runs `build-corpus --tag audit_pilot_v7 --per-strategy 120 --seed 44 --per-country-cap 0.10`, then `export-gold --tag audit_pilot_v7 --out data/reports/gold_sheet_v7.csv --size 120 --seed 44`. Idempotent on the export step (skips if `gold_sheet_v7.csv` already exists, so re-runs don't clobber a review in progress). Prints the exact next-step commands at the end.
+* **`scripts/run_audit_pilot_v7_audit.sh`** (phase 2, ~3-4h, ~$15-20): runs `run --teams A,B,C,D` against `audit_pilot_v7`, extracts the run_id, then `build-reports --run-id <run_id>`. The build-reports step automatically picks up gold labels imported between phases, so the report's κ values are populated when the user has done the v7 review beforehand. If the user runs phase 2 without reviewing, κ shows n=0 for the v2.3 rubrics; running just `build-reports --run-id <run_id>` after a later import refreshes the report at zero LLM cost.
+
+**Why the split:** Cohen's κ requires the same questions to have both human gold labels and agent labels. The pre-existing `data/reports/gold_sheet_v5.csv` was sampled from `audit_pilot_v5` corpus, which (a) was generated *before* the Phase 2g.8 fixes (per-country cap not actually applied, set_corpus_target not enforced, A3 v1.1.0 scoring, Sonnet gate) and (b) is not the corpus audit #7 will run on. Reviewing v5 questions would calibrate the agents against pre-fix generation quality, which doesn't ship. v7 review on freshly-generated v7 questions calibrates against shipping-quality output. Net reviewer time is the same (~2-3h) — just spent on representative questions.
+
+The v5 gold sheet stays in `data/reports/` as a historical artifact (committed in this phase via the `team-delta-gold-sheet` merge); the rubric-definition guide `docs/GOLD_REVIEW_GUIDE_V5.md` is reused for the v7 review since the rubric set is unchanged.
+
 ### Next steps
 
-1. **User: gold review of `data/reports/gold_sheet_v5.csv`** (~120 questions × 10 rubrics, ~2-3h). Re-import: `python -m src.qa.orchestrator import-gold --csv-path data/reports/gold_sheet_v5.csv --reviewer nikita`. Merge `team-delta-gold-sheet`. Rebuild reports — expect κ ≥ 0.6 on `verbatim_copy` and `wine_category_leak`.
-2. **Coordinator: merge `phase-2g.8/cheaper-corpus-build` into `main`** (or open a PR for review).
-3. **Coordinator: run audit #7** via `bash scripts/run_audit_pilot_v7.sh`. Cost ~$15-20. Wall time ~3-4h end-to-end. The harness passes `--per-country-cap 0.10` and uses the Opus 4.7 gate by default.
-4. **Verify Go/No-Go on v7.** Pass criteria: B2 fail rate ≤ 15%, A4 AUC < 0.9 (Team γ A4 v1.2.0 already lands at 0.825 on v5 replay), κ ≥ 0.6 on populated rubrics, D3 max country ratio < 2.0, A3 fail rate < 2% (v1.2.0 expected to deliver), closed-book quota cap properly enforced (≤ 25% of corpus tagged `closed_book_solvable`). If B2 still fails, the residual is structural in scenario_synthesis prompts — fork to a scenario-prompt revision before further model upgrades.
-5. **If v7 passes: decide on full-generation gate model.** Set `OENOBENCH_GATE_MODEL=anthropic/claude-sonnet-4.6` if the audit signal supports reverting; otherwise keep Opus and accept the +$60 cost on the 10k run.
-6. **Kick off the full 10k generation run** at the agreed gate settings.
+1. **Coordinator: run phase 1** via `nohup bash scripts/run_audit_pilot_v7_build.sh &`. ~13h. Outputs `data/reports/gold_sheet_v7.csv`.
+2. **User: gold review of `data/reports/gold_sheet_v7.csv`** using `docs/GOLD_REVIEW_GUIDE_V5.md` (rubric definitions stable across versions; only the corpus tag differs). ~2-3h.
+3. **User: import gold labels:** `python -m src.qa.orchestrator import-gold --csv-path data/reports/gold_sheet_v7.csv --reviewer nikita`.
+4. **Coordinator: run phase 2** via `nohup bash scripts/run_audit_pilot_v7_audit.sh &`. ~3-4h, ~$15-20. Reports auto-rebuilt with κ computed from imported v7 labels.
+5. **Verify Go/No-Go on v7.** Pass criteria: B2 fail rate ≤ 15%, A4 AUC < 0.9 (already at 0.825 on v5 replay), κ ≥ 0.6 on populated rubrics, D3 max country ratio < 2.0, A3 fail rate < 2% (v1.2.0 expected to deliver), closed-book quota cap properly enforced (≤ 25% of corpus tagged `closed_book_solvable`). If B2 still fails, the residual is structural in scenario_synthesis prompts — fork to a scenario-prompt revision before further model upgrades.
+6. **If v7 passes: decide on full-generation gate model.** Set `OENOBENCH_GATE_MODEL=anthropic/claude-sonnet-4.6` if the audit signal supports reverting; otherwise keep Opus and accept the +$60 cost on the 10k run.
+7. **Kick off the full 10k generation run** at the agreed gate settings.

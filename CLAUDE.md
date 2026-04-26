@@ -92,7 +92,8 @@ All significant work on this project must be documented in `docs/PROCESS_LOG.md`
 │   ├── backup.sh                 # PostgreSQL & Neo4j backup
 │   ├── run_audit_pilot_v5.sh     # Audit #5 harness (historical)
 │   ├── run_audit_pilot_v6.sh     # Audit #6 harness (historical)
-│   └── run_audit_pilot_v7.sh     # Audit #7 harness (Phase 2g.8 — per-country cap 0.10, Opus gate)
+│   ├── run_audit_pilot_v7_build.sh # Audit #7 phase 1 — build corpus + export gold-v7
+│   └── run_audit_pilot_v7_audit.sh # Audit #7 phase 2 — run audit teams + build reports
 ├── src/
 │   ├── __init__.py
 │   ├── utils/
@@ -203,7 +204,7 @@ All other planned scrapers have been implemented and rebuilt with genuine data p
 
 ## Current Status (as of April 26, 2026)
 
-**Phase:** 2g.8 — audit #6 ran and exposed three coordinator-layer wire-up regressions; Phase 2g.8 fixes + cost optimizations + gate model upgrade are merged on branch `phase-2g.8/cheaper-corpus-build`. Awaiting (a) user gold review of `data/reports/gold_sheet_v5.csv`, (b) `bash scripts/run_audit_pilot_v7.sh` to validate the fixes.
+**Phase:** 2g.8 — audit #6 ran and exposed three coordinator-layer wire-up regressions; all Phase 2g.8 fixes + cost optimizations + gate model upgrade merged to `main`. Awaiting (a) `bash scripts/run_audit_pilot_v7_build.sh` (~13h) to build the v7 corpus + export the v7 gold sheet, (b) user gold review of `data/reports/gold_sheet_v7.csv` (~2-3h), (c) gold import + `bash scripts/run_audit_pilot_v7_audit.sh` (~3-4h, ~$15-20).
 
 - Phase 1 (Data Collection): ✅ 38,104 facts from 35 genuine scrapers
 - Phase 2 (Question Generation Pipeline): ✅ 5 strategies built and iteratively tuned
@@ -282,7 +283,7 @@ Audit #6 ran on `audit_pilot_v6` (run_id `bfc39e1a-ba6b-471d-bde0-87eead62d1dc`,
 | Quota wire-up | `build_pilot_corpus()` calls `set_corpus_target(per_strategy × 5)` before strategy dispatch with `try/finally` cleanup, so audit pilots actually use `ceil(corpus × 0.25)` cap (66 for 600-Q pilot) instead of the 10k default (2500) | `2a30348` |
 | A3 v1.1.0 → v1.2.0 | Skip `true_false` (T/F's 1-token correct answer breaks LCS denominator); LCS fail threshold `0.60 → 0.65`. Projected v6 fail rate 8/264 = 3.0% → 1/260 = 0.4% | `c4443a9` |
 | Gate v2.2.0 → v2.3.0 | `GATE_MODEL` Sonnet 4.6 → **Opus 4.7**, overridable via `OENOBENCH_GATE_MODEL` env var. Audit-cycle marginal cost: ~+$2. Full 10k decision deferred to post-audit-#7. | `5825aa8` |
-| Audit harness | `scripts/run_audit_pilot_v7.sh` — passes `--per-country-cap 0.10`, seed 44, tag `audit_pilot_v7`. v6 script committed as historical reference. | `846fb8e` |
+| Audit harness | Two-phase harness: `scripts/run_audit_pilot_v7_build.sh` (build-corpus + export-gold-v7) and `scripts/run_audit_pilot_v7_audit.sh` (run audit teams + build-reports). Split because Cohen's κ requires gold labels on the same corpus the audit runs on, so the v7 review must happen on v7 questions (not v5) — between the two phases. v5/v6 scripts retained as historical references. | `846fb8e` (initial single-phase) + 2026-04-26 evening (split) |
 | Tests | 329/329 pass (1 deselected: live-LLM smoke test). Phase 2g.8 net: +9 tests (3 set_corpus_target + 4 A3 v1.2.0 + 2 gate-model env override) plus the +14 tests from `846fb8e` (per-country wire-up across 4 layers) and +15 tests from `d35ee00` (cost opts) | All commits |
 
 Branch state: `phase-2g.8/cheaper-corpus-build` carries 5 commits ready for v7 audit run, not yet merged to `main`.
@@ -444,14 +445,33 @@ See `config/postgres/init.sql` for full schema with enums, indexes, views, and t
 
 ## What to Work On Next
 
-Phase 2g.8 fixes + cost optimizations + gate model upgrade are merged on `phase-2g.8/cheaper-corpus-build` (329/329 tests pass). The immediate sequence:
+All Phase 2g.8 work is merged to `main` (334/334 tests pass). The immediate sequence is two-phase to keep Cohen's κ valid — gold labels must be on v7 questions (post-Phase-2g.8 generation quality), not on v5 questions.
 
-1. **User: gold review of `data/reports/gold_sheet_v5.csv`** using `docs/GOLD_REVIEW_GUIDE_V5.md` (~120 questions × 10 rubrics, 2-3h). Then re-import: `python -m src.qa.orchestrator import-gold --csv-path data/reports/gold_sheet_v5.csv --reviewer nikita`. After re-import, merge `team-delta-gold-sheet` and rebuild reports — expect κ ≥ 0.6 on `verbatim_copy` and `wine_category_leak`.
-2. **Merge Phase 2g.8 to main** (or open a PR for it) so audit #7 runs on the canonical branch.
-3. **Run audit #7:** `bash scripts/run_audit_pilot_v7.sh`. The script passes `--per-country-cap 0.10`, seed 44, tag `audit_pilot_v7`, and uses the Opus 4.7 gate by default. Expected cost: ~$15-20 with the 2g.8 cost optimizations active. Wall time: ~3-4h end-to-end (build + audit + reports).
-4. **Verify Go/No-Go on v7.** Pass criteria: B2 fail rate on non-cb-tagged L1/L2 ≤ 15%; A4 AUC < 0.9 (Team γ A4 v1.2.0 should land that); κ ≥ 0.6 on populated rubrics (depends on gold-v5 review landing); D3 max country ratio < 2.0; A3 fail rate < 2% (v1.2.0 expected to deliver); closed-book quota cap properly enforced (≤ 25% of corpus tagged `closed_book_solvable`). If B2 still fails, the residual is structural in scenario_synthesis prompts — fork to a scenario-prompt revision before considering further model upgrades.
+1. **Phase 1 — build v7 corpus + export gold sheet** (~13h, automated):
+   ```bash
+   nohup bash scripts/run_audit_pilot_v7_build.sh &
+   ```
+   This runs `build-corpus --tag audit_pilot_v7 --per-strategy 120 --seed 44 --per-country-cap 0.10` (with the 2g.8 cost opts + Opus gate active), then exports `data/reports/gold_sheet_v7.csv` (120 rows × 10 rubrics, all rubric columns blank).
+
+2. **User: gold review of `data/reports/gold_sheet_v7.csv`** using `docs/GOLD_REVIEW_GUIDE_V5.md` (the guide's rubric definitions are stable across v5/v7 — only the corpus tag differs). ~2-3h. Then re-import:
+   ```bash
+   python -m src.qa.orchestrator import-gold \
+       --csv-path data/reports/gold_sheet_v7.csv --reviewer nikita
+   ```
+
+3. **Phase 2 — run audit teams + build reports** (~3-4h, ~$15-20):
+   ```bash
+   nohup bash scripts/run_audit_pilot_v7_audit.sh &
+   ```
+   The build-reports step computes Cohen's κ from the imported v7 gold labels, so the report should show populated κ values for `verbatim_copy` and `wine_category_leak` (target ≥ 0.6).
+
+4. **Verify Go/No-Go on v7.** Pass criteria: B2 fail rate on non-cb-tagged L1/L2 ≤ 15%; A4 AUC < 0.9 (already at 0.825 on v5 replay); κ ≥ 0.6 on populated rubrics; D3 max country ratio < 2.0; A3 fail rate < 2% (v1.2.0 expected to deliver); closed-book quota cap properly enforced (≤ 25% of corpus tagged `closed_book_solvable`). If B2 still fails, the residual is structural in scenario_synthesis prompts — fork to a scenario-prompt revision before further model upgrades.
+
 5. **If v7 passes: decide on the full-generation gate model.** Opus gate adds ~$60 to the 10k run (~$120 total vs ~$60 with Sonnet). Set `OENOBENCH_GATE_MODEL=anthropic/claude-sonnet-4.6` to revert to Sonnet for the 10k run if the audit signal supports it.
+
 6. **Kick off the full 10k generation run** (`python -m src.generators.orchestrator generate-all`).
+
+**Skipping the v7 gold review is permitted but discouraged** — phase 2 will still complete (κ shows n=0 for the v2.3 rubrics). You can review later and re-run only `build-reports --run-id <v7_run_id>` to refresh κ.
 
 See `CURRENT_STATUS.md` for detailed phase tracking, `docs/GENERATION_IMPROVEMENT_PLAN.md` for the full ranked defect list and Go/No-Go gates, and `docs/PROCESS_LOG.md` 2026-04-23 (Phase 2g), 2026-04-24 (Phase 2g.5 + 2g.6), 2026-04-25 (Phase 2g.7), and 2026-04-26 (Phase 2g.7 audit #6 + Phase 2g.8) for methodology details.
 
