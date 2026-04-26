@@ -26,6 +26,7 @@ from typing import Iterable
 import click
 from loguru import logger
 
+from src.generators._question_db import set_corpus_target
 from src.qa._findings import upsert_gold_label
 from src.utils.db import get_pg
 
@@ -173,57 +174,73 @@ def build_pilot_corpus(
     counts_before = _existing_corpus_count(tag)
     logger.info("corpus: existing rows with tag {} = {}", tag, counts_before)
 
+    # Phase 2g.8: scope the closed-book quota cap to this pilot's size, not the
+    # 10k full-run default. Without this, a 600-Q pilot's cap is 2500 (i.e.
+    # effectively no cap), which let v6 leak 158 closed-book relabels on a
+    # 264-Q corpus instead of the documented ceil(264 × 0.25) = 66. The
+    # `try/finally` ensures the override is cleared even if a strategy raises,
+    # so subsequent processes (full-gen runs, tests) see clean state.
+    target_size = per_strategy * len(STRATEGY_MODULES)
+    set_corpus_target(target_size)
+    logger.info(
+        "corpus: set closed-book quota target to {} (per-pilot 25% cap)",
+        target_size,
+    )
+
     results: dict[str, dict] = {}
-    for strategy, module in STRATEGY_MODULES.items():
-        if strategy in skip_strategies:
-            logger.info("corpus: skipping {}", strategy)
-            continue
-        already = counts_before.get(strategy, 0)
-        if already >= per_strategy:
-            logger.info("corpus: {} already at {}/{}, skipping", strategy, already, per_strategy)
-            results[strategy] = {"generated": 0, "tagged": 0, "skipped": True}
-            continue
-        want = per_strategy - already
-        strategy_started = datetime.now()
+    try:
+        for strategy, module in STRATEGY_MODULES.items():
+            if strategy in skip_strategies:
+                logger.info("corpus: skipping {}", strategy)
+                continue
+            already = counts_before.get(strategy, 0)
+            if already >= per_strategy:
+                logger.info("corpus: {} already at {}/{}, skipping", strategy, already, per_strategy)
+                results[strategy] = {"generated": 0, "tagged": 0, "skipped": True}
+                continue
+            want = per_strategy - already
+            strategy_started = datetime.now()
 
-        # LLM strategies: split want across 5 generators × 6 domains ≈ 4 each for 120
-        if strategy in LLM_STRATEGIES:
-            per_cell = max(1, want // (len(GENERATORS) * len(DOMAINS)))
-            rem = want - per_cell * len(GENERATORS) * len(DOMAINS)
-            cells = [(g, d) for g in GENERATORS for d in DOMAINS]
-            random.shuffle(cells)
-            for g, d in cells:
-                take = per_cell + (1 if rem > 0 else 0)
-                if rem > 0:
-                    rem -= 1
-                if take <= 0:
-                    continue
-                _run_generator(
-                    module=module, domain=d, count=take, generator=g,
-                    per_country_cap=per_country_cap,
-                )
-        else:
-            per_cell = max(1, want // len(DOMAINS))
-            rem = want - per_cell * len(DOMAINS)
-            doms = DOMAINS[:]
-            random.shuffle(doms)
-            for d in doms:
-                take = per_cell + (1 if rem > 0 else 0)
-                if rem > 0:
-                    rem -= 1
-                _run_generator(
-                    module=module, domain=d, count=take,
-                    per_country_cap=per_country_cap,
-                )
+            # LLM strategies: split want across 5 generators × 6 domains ≈ 4 each for 120
+            if strategy in LLM_STRATEGIES:
+                per_cell = max(1, want // (len(GENERATORS) * len(DOMAINS)))
+                rem = want - per_cell * len(GENERATORS) * len(DOMAINS)
+                cells = [(g, d) for g in GENERATORS for d in DOMAINS]
+                random.shuffle(cells)
+                for g, d in cells:
+                    take = per_cell + (1 if rem > 0 else 0)
+                    if rem > 0:
+                        rem -= 1
+                    if take <= 0:
+                        continue
+                    _run_generator(
+                        module=module, domain=d, count=take, generator=g,
+                        per_country_cap=per_country_cap,
+                    )
+            else:
+                per_cell = max(1, want // len(DOMAINS))
+                rem = want - per_cell * len(DOMAINS)
+                doms = DOMAINS[:]
+                random.shuffle(doms)
+                for d in doms:
+                    take = per_cell + (1 if rem > 0 else 0)
+                    if rem > 0:
+                        rem -= 1
+                    _run_generator(
+                        module=module, domain=d, count=take,
+                        per_country_cap=per_country_cap,
+                    )
 
-        tagged = _tag_rows(
-            generation_method=strategy,
-            since=strategy_started,
-            limit=want,
-            tag=tag,
-        )
-        results[strategy] = {"generated": want, "tagged": tagged, "skipped": False}
-        logger.info("corpus: {} generated={} tagged={}", strategy, want, tagged)
+            tagged = _tag_rows(
+                generation_method=strategy,
+                since=strategy_started,
+                limit=want,
+                tag=tag,
+            )
+            results[strategy] = {"generated": want, "tagged": tagged, "skipped": False}
+            logger.info("corpus: {} generated={} tagged={}", strategy, want, tagged)
+    finally:
+        set_corpus_target(None)
 
     counts_after = _existing_corpus_count(tag)
     logger.info("corpus: post-build totals = {}", counts_after)

@@ -1,6 +1,6 @@
-"""Phase 2g.8 corpus-build cost optimizations.
+"""Phase 2g.8 corpus-build cost optimizations and closed-book quota wiring.
 
-Two changes under test:
+Three categories of test in this file:
 
 1. ``insert_question_gated(pre_screened=...)`` lets the caller hand in a
    ``GateResult`` it already computed, so the wrapper doesn't run the gate
@@ -15,12 +15,27 @@ Two changes under test:
    for the target model — i.e. the standard sub-200K-context tier
    instead of the long-context tier that drove Gemini Pro to $15/MTok
    output pricing on audit_pilot_v6.
+
+3. ``build_pilot_corpus()`` must call ``set_corpus_target()`` before its
+   strategy dispatch loop so the 25% closed-book cap is evaluated against
+   the pilot size (per_strategy × 5 strategies) rather than the full-run
+   10k default. The v6 regression: a 264-Q corpus accumulated 158
+   closed-book relabels (cap should have been ceil(264 × 0.25) = 66 but
+   the process used the global 2500 cap). The override must also be
+   cleared in a ``finally`` block so an exception in a strategy generator
+   does not leak the override into subsequent processes.
+
+   Plus the per-country-cap propagation tests (``_run_generator`` forwards
+   ``--per-country-cap`` to the strategy subprocess, every strategy CLI
+   accepts the flag, etc.) — Phase 2g.8 D3 wire-up.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from types import SimpleNamespace
+
+import pytest
 
 from src.generators import _closed_book_gate, _question_db
 from src.generators._closed_book_gate import GateResult
@@ -551,3 +566,121 @@ def test_orchestrator_build_corpus_cli_accepts_per_country_cap():
     result = runner.invoke(orchestrator_cli, ["build-corpus", "--help"])
     assert result.exit_code == 0, result.output
     assert "--per-country-cap" in result.output
+
+
+# ─── Phase 2g.8 closed-book quota wiring: set_corpus_target propagation ─────
+#
+# `build_pilot_corpus()` must call `set_corpus_target()` before dispatching
+# strategies so the 25% closed-book quota cap is scoped to the pilot size
+# rather than the full-run 10k default. v6 ran with cap=2500 (effectively
+# unbounded for a 600-Q pilot) and accumulated 158 relabels on a 264-Q
+# corpus — should have been bounded at ceil(264 × 0.25) = 66.
+
+
+@pytest.fixture(autouse=True)
+def _reset_corpus_target_override():
+    """Always clear the override before and after each test so a leaky test
+    cannot poison another."""
+    from src.generators import _question_db as _qdb
+    _qdb.set_corpus_target(None)
+    yield
+    _qdb.set_corpus_target(None)
+
+
+def _patch_db_helpers(monkeypatch):
+    """Stub out the DB helpers `build_pilot_corpus` would otherwise hit."""
+    from src.qa import _corpus as _c
+    monkeypatch.setattr(_c, "_existing_corpus_count", lambda tag: {})
+    monkeypatch.setattr(
+        _c,
+        "_tag_rows",
+        lambda *, generation_method, since, limit, tag: limit,
+    )
+
+
+def test_build_pilot_corpus_sets_corpus_target_during_dispatch(monkeypatch):
+    """While the strategy dispatch loop runs, `_CORPUS_TARGET_OVERRIDE` must
+    equal `per_strategy × len(STRATEGY_MODULES)` so the closed-book quota cap
+    is scoped to the pilot, not the global 10k.
+    """
+    from src.generators import _question_db as _qdb
+    from src.qa import _corpus as _c
+    from src.qa._corpus import STRATEGY_MODULES, build_pilot_corpus
+
+    _patch_db_helpers(monkeypatch)
+
+    captured: list[int | None] = []
+
+    def fake_run_generator(*, module, domain, count, generator=None,
+                           difficulty=None, per_country_cap=None):
+        captured.append(_qdb._CORPUS_TARGET_OVERRIDE)
+        return True
+
+    monkeypatch.setattr(_c, "_run_generator", fake_run_generator)
+
+    per_strategy = 60
+    expected_target = per_strategy * len(STRATEGY_MODULES)
+
+    build_pilot_corpus(tag="audit_pilot_test", per_strategy=per_strategy, seed=42)
+
+    assert captured, "_run_generator was never called — dispatch loop did not run"
+    # Every observation during the dispatch loop must show the same scoped
+    # override; the override must NOT be the default 10k or None.
+    assert all(v == expected_target for v in captured), (
+        f"Expected all _CORPUS_TARGET_OVERRIDE samples == {expected_target}, "
+        f"got {set(captured)}"
+    )
+
+
+def test_build_pilot_corpus_resets_corpus_target_after(monkeypatch):
+    """After `build_pilot_corpus` returns, the override must be cleared so a
+    subsequent full-gen run sees the unscoped (None → 10k) default.
+    """
+    from src.generators import _question_db as _qdb
+    from src.qa import _corpus as _c
+    from src.qa._corpus import build_pilot_corpus
+
+    _patch_db_helpers(monkeypatch)
+    monkeypatch.setattr(
+        _c,
+        "_run_generator",
+        lambda *, module, domain, count, generator=None,
+               difficulty=None, per_country_cap=None: True,
+    )
+
+    # Pre-condition: no override leaked from a prior test.
+    assert _qdb._CORPUS_TARGET_OVERRIDE is None
+
+    build_pilot_corpus(tag="audit_pilot_test", per_strategy=30, seed=42)
+
+    assert _qdb._CORPUS_TARGET_OVERRIDE is None, (
+        "build_pilot_corpus must reset _CORPUS_TARGET_OVERRIDE to None on success"
+    )
+
+
+def test_build_pilot_corpus_resets_corpus_target_on_exception(monkeypatch):
+    """If a strategy generator raises, the override must STILL be reset by
+    the `finally` block — otherwise the leak poisons subsequent processes.
+    """
+    from src.generators import _question_db as _qdb
+    from src.qa import _corpus as _c
+    from src.qa._corpus import build_pilot_corpus
+
+    _patch_db_helpers(monkeypatch)
+
+    class _StrategyBoom(RuntimeError):
+        pass
+
+    def boom(*, module, domain, count, generator=None,
+             difficulty=None, per_country_cap=None):
+        raise _StrategyBoom("simulated generator failure")
+
+    monkeypatch.setattr(_c, "_run_generator", boom)
+
+    with pytest.raises(_StrategyBoom):
+        build_pilot_corpus(tag="audit_pilot_test", per_strategy=30, seed=42)
+
+    assert _qdb._CORPUS_TARGET_OVERRIDE is None, (
+        "Override must be reset even when the strategy dispatch loop raises; "
+        "otherwise the leak poisons full-gen runs."
+    )
