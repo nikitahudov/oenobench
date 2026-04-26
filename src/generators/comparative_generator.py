@@ -241,7 +241,18 @@ def _generate_one(
 @click.option("--test-run", is_flag=True, help="Generate 3 questions, print details")
 @click.option("--validate", is_flag=True, help="Quality checks on existing questions")
 @click.option("--all", "run_all", is_flag=True, help="Generate full quota (1500)")
-def main(domain, count, generator, comparison_type, group_size, dry_run, test_run, validate, run_all):
+@click.option(
+    "--per-country-cap",
+    type=float,
+    default=None,
+    help=(
+        "Per-call absolute country cap as a fraction in (0, 1]. "
+        "When set, no single country may exceed ceil(cap * count * group_size) "
+        "of the sampled fact pairs/groups. Default unset (no cap). "
+        "Phase 2g.7 Team ε."
+    ),
+)
+def main(domain, count, generator, comparison_type, group_size, dry_run, test_run, validate, run_all, per_country_cap):
     """Generate comparative benchmark questions from fact pairs via LLM."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger.add(LOG_DIR / f"comparative_{timestamp}.log", rotation="50 MB")
@@ -263,7 +274,7 @@ def main(domain, count, generator, comparison_type, group_size, dry_run, test_ru
         target = 1500
         logger.info(f"--all mode: targeting {target} comparative questions")
 
-    _run_generate(domain, target, generator, comparison_type, dry_run, group_size)
+    _run_generate(domain, target, generator, comparison_type, dry_run, group_size, per_country_cap=per_country_cap)
 
 
 # ─── Generate run ─────────────────────────────────────────────────────────────
@@ -276,12 +287,13 @@ def _run_generate(
     comparison_type: str,
     dry_run: bool,
     group_size: int = 2,
+    per_country_cap: float | None = None,
 ):
     """Main generation loop."""
     logger.info(
         "Starting comparative generation | domain={} | count={} | generator={} | "
-        "comparison_type={} | group_size={} | dry_run={}",
-        domain, count, generator, comparison_type, group_size, dry_run,
+        "comparison_type={} | group_size={} | dry_run={} | per_country_cap={}",
+        domain, count, generator, comparison_type, group_size, dry_run, per_country_cap,
     )
 
     used_fact_ids = get_used_fact_ids()
@@ -297,13 +309,21 @@ def _run_generate(
         batch_size = min(count - generated, 10)
 
         if group_size == 2:
-            pairs = sample_fact_pairs(domain, batch_size, exclude_ids=used_fact_ids | run_used_ids)
+            pairs = sample_fact_pairs(
+                domain, batch_size,
+                exclude_ids=used_fact_ids | run_used_ids,
+                per_country_cap=per_country_cap,
+            )
             if not pairs:
                 logger.warning("No more fact pairs available for domain={}", domain)
                 break
             fact_groups = [[fa, fb] for fa, fb in pairs]
         else:
-            groups = sample_fact_groups(domain, batch_size, group_size=group_size, exclude_ids=used_fact_ids | run_used_ids)
+            groups = sample_fact_groups(
+                domain, batch_size, group_size=group_size,
+                exclude_ids=used_fact_ids | run_used_ids,
+                per_country_cap=per_country_cap,
+            )
             if not groups:
                 logger.warning("No more fact groups available for domain={}", domain)
                 break

@@ -383,3 +383,171 @@ def test_template_paraphrase_pins_cheap_provider(monkeypatch):
     # Sanity: when validation passes, a non-None new stem is returned.
     if out is not None:
         assert "Barolo" in out
+
+
+# ─── Phase 2g.8 D3 wire-up: --per-country-cap propagation ────────────────────
+#
+# The previous wire-up only carried per_country_cap as a Python kwarg on the
+# sampler functions — the audit-pilot orchestrator never passed it through to
+# the strategy subprocesses, so audit_pilot_v6 ran with NO cap (D3 = 4.52
+# despite the cap supposedly being set). These tests pin down the propagation
+# at every layer so the regression cannot return.
+
+
+def test_run_generator_omits_per_country_cap_flag_when_none():
+    """Backwards compatibility: callers that don't pass per_country_cap must
+    not push --per-country-cap onto the subprocess argv."""
+    from unittest.mock import patch
+    from src.qa import _corpus
+
+    with patch("src.qa._corpus.subprocess.run") as fake_run:
+        fake_run.return_value.returncode = 0
+        _corpus._run_generator(module="template_generator", domain="wine_regions", count=10)
+
+    args = fake_run.call_args[0][0]
+    assert "--per-country-cap" not in args
+    # And the basic args we depend on still go through.
+    assert "--domain" in args and "--count" in args
+
+
+def test_run_generator_forwards_per_country_cap_to_subprocess():
+    """Phase 2g.8 fix: when the caller passes per_country_cap, it must
+    appear on the strategy subprocess command line as --per-country-cap N.
+    """
+    from unittest.mock import patch
+    from src.qa import _corpus
+
+    with patch("src.qa._corpus.subprocess.run") as fake_run:
+        fake_run.return_value.returncode = 0
+        _corpus._run_generator(
+            module="template_generator", domain="wine_regions", count=10,
+            per_country_cap=0.10,
+        )
+
+    args = fake_run.call_args[0][0]
+    assert "--per-country-cap" in args
+    idx = args.index("--per-country-cap")
+    assert args[idx + 1] == "0.1"
+
+
+def test_run_generator_forwards_with_generator_and_difficulty():
+    """All flags must coexist on the LLM-strategy path (--generator,
+    --difficulty, --per-country-cap).
+    """
+    from unittest.mock import patch
+    from src.qa import _corpus
+
+    with patch("src.qa._corpus.subprocess.run") as fake_run:
+        fake_run.return_value.returncode = 0
+        _corpus._run_generator(
+            module="fact_to_question", domain="grape_varieties", count=4,
+            generator="claude", difficulty=2, per_country_cap=0.15,
+        )
+
+    args = fake_run.call_args[0][0]
+    assert "--generator" in args and args[args.index("--generator") + 1] == "claude"
+    assert "--difficulty" in args and args[args.index("--difficulty") + 1] == "2"
+    assert "--per-country-cap" in args and args[args.index("--per-country-cap") + 1] == "0.15"
+
+
+def test_build_pilot_corpus_forwards_per_country_cap(monkeypatch):
+    """build_pilot_corpus must hand its per_country_cap down to every
+    strategy subprocess via _run_generator. We don't run the actual builds
+    — we just assert the inner _run_generator calls all carry the kwarg.
+    """
+    from src.qa import _corpus
+
+    captured: list[dict] = []
+
+    def fake_run_generator(*, module, domain, count, generator=None,
+                           difficulty=None, per_country_cap=None):
+        captured.append({
+            "module": module, "domain": domain, "count": count,
+            "generator": generator, "per_country_cap": per_country_cap,
+        })
+        return True
+
+    monkeypatch.setattr(_corpus, "_run_generator", fake_run_generator)
+    monkeypatch.setattr(_corpus, "_existing_corpus_count", lambda tag: {})
+    monkeypatch.setattr(_corpus, "_tag_rows", lambda **kw: 0)
+    # Keep per_strategy tiny so the test is fast — we only need ≥1 call per
+    # strategy to verify propagation.
+    _corpus.build_pilot_corpus(
+        tag="test_v7",
+        per_strategy=1,
+        seed=1,
+        per_country_cap=0.10,
+    )
+
+    assert captured, "build_pilot_corpus must dispatch at least one strategy"
+    for call in captured:
+        assert call["per_country_cap"] == 0.10, (
+            f"per_country_cap not forwarded: {call}"
+        )
+
+
+def test_build_pilot_corpus_omits_cap_when_none(monkeypatch):
+    """Default (None) per_country_cap must reach _run_generator unchanged
+    so the subprocess argv stays clean.
+    """
+    from src.qa import _corpus
+
+    captured: list[dict] = []
+
+    def fake_run_generator(*, module, domain, count, generator=None,
+                           difficulty=None, per_country_cap=None):
+        captured.append({"per_country_cap": per_country_cap})
+        return True
+
+    monkeypatch.setattr(_corpus, "_run_generator", fake_run_generator)
+    monkeypatch.setattr(_corpus, "_existing_corpus_count", lambda tag: {})
+    monkeypatch.setattr(_corpus, "_tag_rows", lambda **kw: 0)
+
+    _corpus.build_pilot_corpus(tag="test_no_cap", per_strategy=1, seed=1)
+
+    assert captured
+    for call in captured:
+        assert call["per_country_cap"] is None
+
+
+def test_strategy_clis_all_accept_per_country_cap_flag():
+    """All 5 strategy CLIs must register --per-country-cap as a click
+    option. Catches the regression where Team ε's merge added the kwarg
+    to the sampler functions but only wired the flag into fact_to_question.
+    """
+    from click.testing import CliRunner
+    from src.generators import (
+        comparative_generator,
+        distractor_miner,
+        fact_to_question,
+        scenario_generator,
+        template_generator,
+    )
+
+    modules = {
+        "fact_to_question": fact_to_question.main,
+        "template_generator": template_generator.main,
+        "scenario_generator": scenario_generator.main,
+        "comparative_generator": comparative_generator.main,
+        "distractor_miner": distractor_miner.main,
+    }
+    runner = CliRunner()
+    for name, cmd in modules.items():
+        result = runner.invoke(cmd, ["--help"])
+        assert result.exit_code == 0, f"{name} --help failed: {result.output}"
+        assert "--per-country-cap" in result.output, (
+            f"{name} missing --per-country-cap in --help output"
+        )
+
+
+def test_orchestrator_build_corpus_cli_accepts_per_country_cap():
+    """The audit-pilot orchestrator's `build-corpus` subcommand must expose
+    --per-country-cap so audit shell scripts can set it.
+    """
+    from click.testing import CliRunner
+    from src.qa.orchestrator import cli as orchestrator_cli
+
+    runner = CliRunner()
+    result = runner.invoke(orchestrator_cli, ["build-corpus", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--per-country-cap" in result.output

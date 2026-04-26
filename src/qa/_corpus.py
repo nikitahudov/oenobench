@@ -113,6 +113,7 @@ def _run_generator(
     count: int,
     generator: str | None = None,
     difficulty: int | None = None,
+    per_country_cap: float | None = None,
 ) -> bool:
     args = [
         sys.executable,
@@ -127,6 +128,13 @@ def _run_generator(
         args += ["--generator", generator]
     if difficulty:
         args += ["--difficulty", str(difficulty)]
+    if per_country_cap is not None:
+        # Phase 2g.8 fix: previously per_country_cap was plumbed only into
+        # the sampler functions; the audit-pilot orchestrator never passed
+        # it through to the strategy subprocesses, so audit_pilot_v6 ran
+        # with NO country cap (D3 ratio = 4.52). All 5 strategy CLIs
+        # accept --per-country-cap as of Phase 2g.8.
+        args += ["--per-country-cap", str(per_country_cap)]
     logger.info("corpus: running {}", " ".join(args[2:]))
     res = subprocess.run(args)
     if res.returncode != 0:
@@ -144,6 +152,7 @@ def build_pilot_corpus(
     per_strategy: int = 120,
     seed: int = 42,
     skip_strategies: Iterable[str] = (),
+    per_country_cap: float | None = None,
 ) -> dict:
     """Generate ~`per_strategy` questions for each strategy and tag them.
 
@@ -151,6 +160,12 @@ def build_pilot_corpus(
     Per-strategy breakdown is round-robin across domains (and generators
     for LLM strategies) so we get reasonable coverage without micro-managing
     difficulty/cognitive cells inside each call.
+
+    Args:
+        per_country_cap: Phase 2g.8. Forwarded to every strategy subprocess
+            via ``--per-country-cap``. Set to a fraction in (0, 1] to enforce
+            a per-call country cap on the sampler (Team ε D3-fix v3); ``None``
+            disables. Audit pilots should typically pass 0.10.
     """
     random.seed(seed)
     started = datetime.now()
@@ -183,7 +198,10 @@ def build_pilot_corpus(
                     rem -= 1
                 if take <= 0:
                     continue
-                _run_generator(module=module, domain=d, count=take, generator=g)
+                _run_generator(
+                    module=module, domain=d, count=take, generator=g,
+                    per_country_cap=per_country_cap,
+                )
         else:
             per_cell = max(1, want // len(DOMAINS))
             rem = want - per_cell * len(DOMAINS)
@@ -193,7 +211,10 @@ def build_pilot_corpus(
                 take = per_cell + (1 if rem > 0 else 0)
                 if rem > 0:
                     rem -= 1
-                _run_generator(module=module, domain=d, count=take)
+                _run_generator(
+                    module=module, domain=d, count=take,
+                    per_country_cap=per_country_cap,
+                )
 
         tagged = _tag_rows(
             generation_method=strategy,
@@ -390,12 +411,28 @@ def cli() -> None:
     type=click.Choice(list(STRATEGY_MODULES)),
     help="Skip one or more strategies",
 )
-def build_cmd(tag: str, per_strategy: int, seed: int, skip: tuple[str, ...]) -> None:
+@click.option(
+    "--per-country-cap",
+    type=float,
+    default=None,
+    help=(
+        "Per-call absolute country cap (fraction in (0, 1]) forwarded to "
+        "every strategy subprocess. Phase 2g.8 wire-up: previously the "
+        "sampler accepted this kwarg but the orchestrator never passed it, "
+        "so audit_pilot_v6 ran with NO cap (D3 = 4.52). Pass 0.10 for "
+        "audit pilots; default unset (no cap)."
+    ),
+)
+def build_cmd(
+    tag: str, per_strategy: int, seed: int,
+    skip: tuple[str, ...], per_country_cap: float | None,
+) -> None:
     summary = build_pilot_corpus(
         tag=tag,
         per_strategy=per_strategy,
         seed=seed,
         skip_strategies=skip,
+        per_country_cap=per_country_cap,
     )
     click.echo(f"Corpus tag: {summary['tag']}")
     click.echo(f"Totals by strategy: {summary['totals']}")

@@ -159,13 +159,29 @@ def cli() -> None:
 @click.option("--per-strategy", default=120, type=int)
 @click.option("--seed", default=DEFAULT_SEED, type=int)
 @click.option("--skip", multiple=True)
-def build_corpus_cmd(tag: str, per_strategy: int, seed: int, skip: tuple[str, ...]) -> None:
+@click.option(
+    "--per-country-cap",
+    type=float,
+    default=None,
+    help=(
+        "Per-call absolute country cap (fraction in (0, 1]) forwarded to "
+        "every strategy subprocess. Phase 2g.8 wire-up fix: audit_pilot_v6 "
+        "ran with NO cap (D3 = 4.52) because this kwarg was not plumbed "
+        "from the orchestrator down to the samplers. Pass 0.10 for audit "
+        "pilots; default unset (no cap)."
+    ),
+)
+def build_corpus_cmd(
+    tag: str, per_strategy: int, seed: int,
+    skip: tuple[str, ...], per_country_cap: float | None,
+) -> None:
     _setup_logging()
     result = build_pilot_corpus(
         tag=tag,
         per_strategy=per_strategy,
         seed=seed,
         skip_strategies=skip,
+        per_country_cap=per_country_cap,
     )
     click.echo(f"Built corpus tag={result['tag']} totals={result['totals']}")
 

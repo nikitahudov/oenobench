@@ -174,7 +174,17 @@ def _generate_one(
 @click.option("--test-run", is_flag=True, help="Generate 3 questions, print details")
 @click.option("--validate", is_flag=True, help="Quality checks on existing questions")
 @click.option("--all", "run_all", is_flag=True, help="Generate full quota (1000)")
-def main(domain, count, generator, scenario_type, dry_run, test_run, validate, run_all):
+@click.option(
+    "--per-country-cap",
+    type=float,
+    default=None,
+    help=(
+        "Per-call absolute country cap as a fraction in (0, 1]. "
+        "When set, no single country may exceed ceil(cap * count) of "
+        "the sampled fact clusters. Default unset (no cap). Phase 2g.7 Team ε."
+    ),
+)
+def main(domain, count, generator, scenario_type, dry_run, test_run, validate, run_all, per_country_cap):
     """Generate scenario-based questions by synthesizing fact clusters via LLM."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger.add(LOG_DIR / f"scenario_{timestamp}.log", rotation="50 MB")
@@ -196,7 +206,7 @@ def main(domain, count, generator, scenario_type, dry_run, test_run, validate, r
         target = 1000
         logger.info(f"--all mode: targeting {target} scenario questions")
 
-    _run_generate(domain, target, generator, scenario_type, dry_run)
+    _run_generate(domain, target, generator, scenario_type, dry_run, per_country_cap=per_country_cap)
 
 
 # ─── Generate run ─────────────────────────────────────────────────────────────
@@ -208,12 +218,13 @@ def _run_generate(
     generator: str,
     scenario_type: str,
     dry_run: bool,
+    per_country_cap: float | None = None,
 ):
     """Main generation loop."""
     logger.info(
         "Starting scenario generation | domain={} | count={} | generator={} | "
-        "scenario_type={} | dry_run={}",
-        domain, count, generator, scenario_type, dry_run,
+        "scenario_type={} | dry_run={} | per_country_cap={}",
+        domain, count, generator, scenario_type, dry_run, per_country_cap,
     )
 
     used_fact_ids = get_used_fact_ids()
@@ -230,6 +241,7 @@ def _run_generate(
         clusters = sample_fact_clusters(
             domain, batch_size, cluster_size=3,
             exclude_ids=used_fact_ids | run_used_ids,
+            per_country_cap=per_country_cap,
         )
         if not clusters:
             logger.warning("No more fact clusters available for domain={}", domain)

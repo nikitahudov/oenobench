@@ -2064,6 +2064,16 @@ def generate_with_diversity_cap(
 @click.option("--no-paraphrase", is_flag=True, help="Disable γ-5 LLM paraphrase post-pass (debug). Default: paraphrase ON.")
 @click.option("--no-embeddings", is_flag=True, help="Disable γ-1 embedding distractors (debug)")
 @click.option("--no-verify", is_flag=True, help="Disable v2.2 fix #8e mandatory Gemini answer-verification (debug).")
+@click.option(
+    "--per-country-cap",
+    type=float,
+    default=None,
+    help=(
+        "Per-call absolute country cap as a fraction in (0, 1]. "
+        "When set, no single country may exceed ceil(cap * count) of "
+        "the sampled facts. Default unset (no cap). Phase 2g.7 Team ε."
+    ),
+)
 def main(
     domain,
     count,
@@ -2076,6 +2086,7 @@ def main(
     no_paraphrase,
     no_embeddings,
     no_verify,
+    per_country_cap,
 ):
     """Template-based question generator (Strategy 2, v2 overhaul)."""
     if list_templates:
@@ -2134,7 +2145,10 @@ def main(
         # γ-2 — high-weight fact-specific templates first
         templates_for_domain = _weighted_template_order(templates_for_domain)
 
-        facts = sample_facts(dom, count=target * 10, exclude_ids=used_facts, strategy="template")
+        facts = sample_facts(
+            dom, count=target * 10, exclude_ids=used_facts, strategy="template",
+            per_country_cap=per_country_cap,
+        )
         if not facts:
             logger.warning(f"No facts available for domain={dom}")
             continue
