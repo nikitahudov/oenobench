@@ -36,8 +36,26 @@ from src.generators._llm_client import _try_parse_json
 
 load_dotenv()
 
-GATE_VERSION = "2.2.0"
-GATE_MODEL = "anthropic/claude-sonnet-4.6"
+GATE_VERSION = "2.3.0"  # 2026-04-26 — gate model upgrade Sonnet 4.6 → Opus 4.7 (audit default)
+
+# Phase 2g.8 (2026-04-26): the gate model is configurable via the
+# OENOBENCH_GATE_MODEL env var so audit pilots can run on the stronger
+# (and 5x more expensive) Opus while the full 10k generation can opt
+# back to Sonnet without a code change. Default = Opus 4.7.
+#
+# Cost rationale:
+#   Sonnet 4.6 — $3/$15 per MTok in/out — ~$0.0015 per gate call
+#   Opus 4.7   — $15/$75 per MTok in/out — ~$0.0075 per gate call (5x)
+#
+# v6 prototype data: Sonnet at threshold 0.6 caught ~50% of the closed-book
+# leakage that the 5-judge audit panel catches; the residual 46% B2 fail
+# rate suggests questions Sonnet itself can't solve but Opus + GPT-5.4 +
+# Gemini collectively can. Opus is projected to close ~half the remaining
+# gap on its own (B2 fail rate ~46% → ~20-25%).
+#
+# Audit-cycle cost delta: ~+$2 per audit pilot. Full 10k run delta: ~+$60.
+# The full-run model is decided after audit #7 lands.
+GATE_MODEL = os.getenv("OENOBENCH_GATE_MODEL", "anthropic/claude-opus-4.7")
 # Phase 2g.7 retune (2026-04-25): threshold lowered 0.7 -> 0.6 and gate
 # extended to L3 multiple-choice. See prototypes/team_alpha_results.json.
 #
