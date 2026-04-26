@@ -182,6 +182,9 @@ def verify_question_with_independent_solver(
         temperature=0.0,
         max_tokens=200,
         json_mode=True,
+        # Phase 2g.8: verifier prompts are sub-2K tokens — pin to cheapest
+        # provider so we don't get billed at the >200K-context tier.
+        extra_body={"provider": {"sort": "price"}},
     )
 
     cost_usd = _estimate_cost(verifier_model, response.input_tokens, response.output_tokens)
@@ -325,6 +328,10 @@ def verify_template_answer_with_gemini(
         # _llm_client already handles prose-wrapped JSON.
         max_tokens=256,
         json_mode=True,
+        # Phase 2g.8: template-verify prompts are sub-2K tokens — pin to
+        # cheapest provider so OpenRouter does not route through the
+        # >200K-context Gemini Pro tier.
+        extra_body={"provider": {"sort": "price"}},
     )
 
     cost_usd = _estimate_cost(

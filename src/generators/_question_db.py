@@ -104,6 +104,7 @@ def insert_question_gated(
     source_ids: list[str],
     apply_gate: bool = True,
     target_size: int | None = None,
+    pre_screened: GateResult | None = None,
 ) -> tuple[str | None, GateResult]:
     """Run the closed-book gate, then route per Phase 2g.6 policy.
 
@@ -121,11 +122,22 @@ def insert_question_gated(
             → set `gate.quota_full=True`. DROP. Return (None, gate).
       * gate.applied=False → INSERT as-is
 
+    Args:
+        pre_screened: Optional `GateResult` from a caller that already ran
+            `screen_question(...)` on this question. When provided, the
+            inner gate call is skipped (Phase 2g.8 cost optimization for
+            template_generator, which gates BEFORE paraphrase + verifier
+            so those Gemini calls can be skipped on flagged questions).
+            Caller is responsible for passing a verdict computed against
+            the same question payload.
+
     Returns:
         (q_uuid_or_none, gate_result). q_uuid is None when the question
         was dropped (quota full) or when the underlying DB insert failed.
     """
-    if apply_gate:
+    if pre_screened is not None:
+        gate = pre_screened
+    elif apply_gate:
         gate = screen_question(
             stem=question_data["question_text"],
             options=question_data.get("options"),

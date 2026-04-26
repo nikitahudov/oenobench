@@ -134,7 +134,7 @@ class LLMClient:
         stop=stop_after_attempt(4),
         reraise=True,
     )
-    def _call_api(self, messages, model_id, temperature, max_tokens, json_mode):
+    def _call_api(self, messages, model_id, temperature, max_tokens, json_mode, extra_body=None):
         """Make the actual API call (with tenacity retry)."""
         kwargs = dict(
             model=model_id,
@@ -144,6 +144,8 @@ class LLMClient:
         )
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
+        if extra_body:
+            kwargs["extra_body"] = extra_body
         return self._client.chat.completions.create(**kwargs)
 
     def generate(
@@ -154,6 +156,7 @@ class LLMClient:
         temperature: float = 0.3,
         max_tokens: int = 2000,
         json_mode: bool = True,
+        extra_body: dict | None = None,
     ) -> LLMResponse:
         """Generate a response from the specified model.
 
@@ -164,6 +167,15 @@ class LLMClient:
             temperature: Sampling temperature.
             max_tokens: Maximum tokens in response.
             json_mode: If True, request JSON output format.
+            extra_body: Optional dict merged into the request body. Used to
+                pass OpenRouter-specific routing hints — e.g.
+                ``{"provider": {"sort": "price"}}`` to force routing through
+                the cheapest available provider for the model. Phase 2g.8
+                introduced this for the verifier + paraphrase calls, which
+                use sub-2K-token prompts and have no need for the >200K
+                context tier that drives Gemini Pro to the $15/MTok output
+                pricing band. See OpenRouter provider-routing docs for the
+                full schema.
 
         Returns:
             LLMResponse with content, parsed JSON, token counts, and timing.
@@ -183,7 +195,8 @@ class LLMClient:
         t0 = time.time()
         try:
             completion = self._call_api(
-                messages, model_id, temperature, max_tokens, json_mode
+                messages, model_id, temperature, max_tokens, json_mode,
+                extra_body=extra_body,
             )
             latency_ms = int((time.time() - t0) * 1000)
 

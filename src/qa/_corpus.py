@@ -26,6 +26,7 @@ from typing import Iterable
 import click
 from loguru import logger
 
+from src.generators._question_db import set_corpus_target
 from src.qa._findings import upsert_gold_label
 from src.utils.db import get_pg
 
@@ -113,6 +114,7 @@ def _run_generator(
     count: int,
     generator: str | None = None,
     difficulty: int | None = None,
+    per_country_cap: float | None = None,
 ) -> bool:
     args = [
         sys.executable,
@@ -127,6 +129,13 @@ def _run_generator(
         args += ["--generator", generator]
     if difficulty:
         args += ["--difficulty", str(difficulty)]
+    if per_country_cap is not None:
+        # Phase 2g.8 fix: previously per_country_cap was plumbed only into
+        # the sampler functions; the audit-pilot orchestrator never passed
+        # it through to the strategy subprocesses, so audit_pilot_v6 ran
+        # with NO country cap (D3 ratio = 4.52). All 5 strategy CLIs
+        # accept --per-country-cap as of Phase 2g.8.
+        args += ["--per-country-cap", str(per_country_cap)]
     logger.info("corpus: running {}", " ".join(args[2:]))
     res = subprocess.run(args)
     if res.returncode != 0:
@@ -144,6 +153,7 @@ def build_pilot_corpus(
     per_strategy: int = 120,
     seed: int = 42,
     skip_strategies: Iterable[str] = (),
+    per_country_cap: float | None = None,
 ) -> dict:
     """Generate ~`per_strategy` questions for each strategy and tag them.
 
@@ -151,6 +161,12 @@ def build_pilot_corpus(
     Per-strategy breakdown is round-robin across domains (and generators
     for LLM strategies) so we get reasonable coverage without micro-managing
     difficulty/cognitive cells inside each call.
+
+    Args:
+        per_country_cap: Phase 2g.8. Forwarded to every strategy subprocess
+            via ``--per-country-cap``. Set to a fraction in (0, 1] to enforce
+            a per-call country cap on the sampler (Team ε D3-fix v3); ``None``
+            disables. Audit pilots should typically pass 0.10.
     """
     random.seed(seed)
     started = datetime.now()
@@ -158,51 +174,73 @@ def build_pilot_corpus(
     counts_before = _existing_corpus_count(tag)
     logger.info("corpus: existing rows with tag {} = {}", tag, counts_before)
 
+    # Phase 2g.8: scope the closed-book quota cap to this pilot's size, not the
+    # 10k full-run default. Without this, a 600-Q pilot's cap is 2500 (i.e.
+    # effectively no cap), which let v6 leak 158 closed-book relabels on a
+    # 264-Q corpus instead of the documented ceil(264 × 0.25) = 66. The
+    # `try/finally` ensures the override is cleared even if a strategy raises,
+    # so subsequent processes (full-gen runs, tests) see clean state.
+    target_size = per_strategy * len(STRATEGY_MODULES)
+    set_corpus_target(target_size)
+    logger.info(
+        "corpus: set closed-book quota target to {} (per-pilot 25% cap)",
+        target_size,
+    )
+
     results: dict[str, dict] = {}
-    for strategy, module in STRATEGY_MODULES.items():
-        if strategy in skip_strategies:
-            logger.info("corpus: skipping {}", strategy)
-            continue
-        already = counts_before.get(strategy, 0)
-        if already >= per_strategy:
-            logger.info("corpus: {} already at {}/{}, skipping", strategy, already, per_strategy)
-            results[strategy] = {"generated": 0, "tagged": 0, "skipped": True}
-            continue
-        want = per_strategy - already
-        strategy_started = datetime.now()
+    try:
+        for strategy, module in STRATEGY_MODULES.items():
+            if strategy in skip_strategies:
+                logger.info("corpus: skipping {}", strategy)
+                continue
+            already = counts_before.get(strategy, 0)
+            if already >= per_strategy:
+                logger.info("corpus: {} already at {}/{}, skipping", strategy, already, per_strategy)
+                results[strategy] = {"generated": 0, "tagged": 0, "skipped": True}
+                continue
+            want = per_strategy - already
+            strategy_started = datetime.now()
 
-        # LLM strategies: split want across 5 generators × 6 domains ≈ 4 each for 120
-        if strategy in LLM_STRATEGIES:
-            per_cell = max(1, want // (len(GENERATORS) * len(DOMAINS)))
-            rem = want - per_cell * len(GENERATORS) * len(DOMAINS)
-            cells = [(g, d) for g in GENERATORS for d in DOMAINS]
-            random.shuffle(cells)
-            for g, d in cells:
-                take = per_cell + (1 if rem > 0 else 0)
-                if rem > 0:
-                    rem -= 1
-                if take <= 0:
-                    continue
-                _run_generator(module=module, domain=d, count=take, generator=g)
-        else:
-            per_cell = max(1, want // len(DOMAINS))
-            rem = want - per_cell * len(DOMAINS)
-            doms = DOMAINS[:]
-            random.shuffle(doms)
-            for d in doms:
-                take = per_cell + (1 if rem > 0 else 0)
-                if rem > 0:
-                    rem -= 1
-                _run_generator(module=module, domain=d, count=take)
+            # LLM strategies: split want across 5 generators × 6 domains ≈ 4 each for 120
+            if strategy in LLM_STRATEGIES:
+                per_cell = max(1, want // (len(GENERATORS) * len(DOMAINS)))
+                rem = want - per_cell * len(GENERATORS) * len(DOMAINS)
+                cells = [(g, d) for g in GENERATORS for d in DOMAINS]
+                random.shuffle(cells)
+                for g, d in cells:
+                    take = per_cell + (1 if rem > 0 else 0)
+                    if rem > 0:
+                        rem -= 1
+                    if take <= 0:
+                        continue
+                    _run_generator(
+                        module=module, domain=d, count=take, generator=g,
+                        per_country_cap=per_country_cap,
+                    )
+            else:
+                per_cell = max(1, want // len(DOMAINS))
+                rem = want - per_cell * len(DOMAINS)
+                doms = DOMAINS[:]
+                random.shuffle(doms)
+                for d in doms:
+                    take = per_cell + (1 if rem > 0 else 0)
+                    if rem > 0:
+                        rem -= 1
+                    _run_generator(
+                        module=module, domain=d, count=take,
+                        per_country_cap=per_country_cap,
+                    )
 
-        tagged = _tag_rows(
-            generation_method=strategy,
-            since=strategy_started,
-            limit=want,
-            tag=tag,
-        )
-        results[strategy] = {"generated": want, "tagged": tagged, "skipped": False}
-        logger.info("corpus: {} generated={} tagged={}", strategy, want, tagged)
+            tagged = _tag_rows(
+                generation_method=strategy,
+                since=strategy_started,
+                limit=want,
+                tag=tag,
+            )
+            results[strategy] = {"generated": want, "tagged": tagged, "skipped": False}
+            logger.info("corpus: {} generated={} tagged={}", strategy, want, tagged)
+    finally:
+        set_corpus_target(None)
 
     counts_after = _existing_corpus_count(tag)
     logger.info("corpus: post-build totals = {}", counts_after)
@@ -390,12 +428,28 @@ def cli() -> None:
     type=click.Choice(list(STRATEGY_MODULES)),
     help="Skip one or more strategies",
 )
-def build_cmd(tag: str, per_strategy: int, seed: int, skip: tuple[str, ...]) -> None:
+@click.option(
+    "--per-country-cap",
+    type=float,
+    default=None,
+    help=(
+        "Per-call absolute country cap (fraction in (0, 1]) forwarded to "
+        "every strategy subprocess. Phase 2g.8 wire-up: previously the "
+        "sampler accepted this kwarg but the orchestrator never passed it, "
+        "so audit_pilot_v6 ran with NO cap (D3 = 4.52). Pass 0.10 for "
+        "audit pilots; default unset (no cap)."
+    ),
+)
+def build_cmd(
+    tag: str, per_strategy: int, seed: int,
+    skip: tuple[str, ...], per_country_cap: float | None,
+) -> None:
     summary = build_pilot_corpus(
         tag=tag,
         per_strategy=per_strategy,
         seed=seed,
         skip_strategies=skip,
+        per_country_cap=per_country_cap,
     )
     click.echo(f"Corpus tag: {summary['tag']}")
     click.echo(f"Totals by strategy: {summary['totals']}")

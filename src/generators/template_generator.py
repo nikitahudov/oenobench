@@ -2064,6 +2064,16 @@ def generate_with_diversity_cap(
 @click.option("--no-paraphrase", is_flag=True, help="Disable γ-5 LLM paraphrase post-pass (debug). Default: paraphrase ON.")
 @click.option("--no-embeddings", is_flag=True, help="Disable γ-1 embedding distractors (debug)")
 @click.option("--no-verify", is_flag=True, help="Disable v2.2 fix #8e mandatory Gemini answer-verification (debug).")
+@click.option(
+    "--per-country-cap",
+    type=float,
+    default=None,
+    help=(
+        "Per-call absolute country cap as a fraction in (0, 1]. "
+        "When set, no single country may exceed ceil(cap * count) of "
+        "the sampled facts. Default unset (no cap). Phase 2g.7 Team ε."
+    ),
+)
 def main(
     domain,
     count,
@@ -2076,6 +2086,7 @@ def main(
     no_paraphrase,
     no_embeddings,
     no_verify,
+    per_country_cap,
 ):
     """Template-based question generator (Strategy 2, v2 overhaul)."""
     if list_templates:
@@ -2134,7 +2145,10 @@ def main(
         # γ-2 — high-weight fact-specific templates first
         templates_for_domain = _weighted_template_order(templates_for_domain)
 
-        facts = sample_facts(dom, count=target * 10, exclude_ids=used_facts, strategy="template")
+        facts = sample_facts(
+            dom, count=target * 10, exclude_ids=used_facts, strategy="template",
+            per_country_cap=per_country_cap,
+        )
         if not facts:
             logger.warning(f"No facts available for domain={dom}")
             continue
@@ -2200,8 +2214,35 @@ def main(
                 if result is None:
                     continue
 
-                # γ-5 — optional LLM paraphrase (default-on in v2.2, fix #1)
-                if paraphrase_fn is not None:
+                # Phase 2g.8 cost optimization (2026-04-26):
+                # Run the closed-book gate BEFORE paraphrase + verifier so we
+                # can skip those Gemini calls on questions the gate will
+                # relabel/drop anyway. On audit_pilot_v6 the gate flagged
+                # ~60% of templates as closed-book-solvable; under the old
+                # ordering each of those incurred two Gemini roundtrips
+                # (paraphrase + answer-verify) before the gate even ran.
+                #
+                # The verdict computed here is passed to insert_question_gated
+                # via pre_screened= so the downstream insert wrapper does NOT
+                # re-screen a second time.
+                from src.generators._closed_book_gate import screen_question
+                pre_gate = screen_question(
+                    stem=result["question_text"],
+                    options=result["options"],
+                    correct_answer=result["correct_answer"],
+                    difficulty=str(result["difficulty"]),
+                    question_type=result["question_type"],
+                )
+                # gate_skipped True ⇔ the gate did not flag this question
+                # (either it ran and passed, or it didn't apply). Only those
+                # questions get the full paraphrase + verifier treatment.
+                gate_skipped = pre_gate.passed
+
+                # γ-5 — optional LLM paraphrase (default-on in v2.2, fix #1).
+                # Skipped on gate-flagged questions (Phase 2g.8): they are
+                # destined for the closed_book_solvable bucket and don't
+                # benefit from A4 stylometric obfuscation.
+                if paraphrase_fn is not None and gate_skipped:
                     rephrased = paraphrase_fn(
                         result["question_text"], result["options"]
                     )
@@ -2211,7 +2252,10 @@ def main(
                 # v2.2 fix #8e — mandatory Gemini answer-verification. One
                 # call per template question before insert; rejects on
                 # disagreement or "N" (fact doesn't support any option).
-                if not no_verify and result["question_type"] == "multiple_choice":
+                # Skipped on gate-flagged questions (Phase 2g.8): the gate's
+                # gold-letter match implicitly verifies the answer key for
+                # questions Sonnet can solve closed-book.
+                if not no_verify and gate_skipped and result["question_type"] == "multiple_choice":
                     from src.generators._verify import verify_template_answer_with_gemini
                     agrees, _vdebug = verify_template_answer_with_gemini(
                         question_text=result["question_text"],
@@ -2270,6 +2314,7 @@ def main(
                     generation_meta,
                     fact_ids=[result["_fact_id"]],
                     source_ids=[result["_source_id"]],
+                    pre_screened=pre_gate,  # Phase 2g.8 — avoid duplicate gate call
                 )
                 if q_uuid and gate.relabeled:
                     generated += 1

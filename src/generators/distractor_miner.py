@@ -67,6 +67,7 @@ DISTRACTOR_TEMPLATE_MAP = {
 def _sample_target_and_distractors(
     domain: str,
     exclude_ids: set[str],
+    per_country_cap: float | None = None,
 ) -> tuple[dict, list[dict], str] | None:
     """Sample 1 target fact and confusable distractor facts.
 
@@ -77,7 +78,10 @@ def _sample_target_and_distractors(
     Returns (target_fact, distractor_facts, distractor_type) or None.
     """
     # Get a random target fact with entities — must have rich wine content
-    targets = sample_facts(domain, 5, min_confidence=0.7, exclude_ids=exclude_ids, strategy="distractor_mining")
+    targets = sample_facts(
+        domain, 5, min_confidence=0.7, exclude_ids=exclude_ids,
+        strategy="distractor_mining", per_country_cap=per_country_cap,
+    )
     target = None
     for t in targets:
         if _is_fact_rich(t["fact_text"]):
@@ -93,6 +97,7 @@ def _sample_target_and_distractors(
     # Get confusable distractors (dimension-aware, same subdomain or shared entity types)
     distractors = sample_confusable_facts(
         target, domain, count=5, exclude_ids=exclude_ids,
+        per_country_cap=per_country_cap,
     )
 
     if len(distractors) < 2:
@@ -254,7 +259,18 @@ def _generate_one(
 @click.option("--test-run", is_flag=True, help="Generate 3 questions, print details")
 @click.option("--validate", is_flag=True, help="Quality checks on existing questions")
 @click.option("--all", "run_all", is_flag=True, help="Generate full quota (1000)")
-def main(domain, count, generator, dry_run, test_run, validate, run_all):
+@click.option(
+    "--per-country-cap",
+    type=float,
+    default=None,
+    help=(
+        "Per-call absolute country cap as a fraction in (0, 1]. "
+        "When set, no single country may exceed ceil(cap * count) of "
+        "the sampled target+distractor facts. Default unset (no cap). "
+        "Phase 2g.7 Team ε."
+    ),
+)
+def main(domain, count, generator, dry_run, test_run, validate, run_all, per_country_cap):
     """Generate distractor-mined questions where wrong answers are real facts about other entities."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger.add(LOG_DIR / f"distractor_{timestamp}.log", rotation="50 MB")
@@ -276,7 +292,7 @@ def main(domain, count, generator, dry_run, test_run, validate, run_all):
         target = 1000
         logger.info(f"--all mode: targeting {target} distractor-mined questions")
 
-    _run_generate(domain, target, generator, dry_run)
+    _run_generate(domain, target, generator, dry_run, per_country_cap=per_country_cap)
 
 
 # ─── Generate run ─────────────────────────────────────────────────────────────
@@ -287,12 +303,13 @@ def _run_generate(
     count: int,
     generator: str,
     dry_run: bool,
+    per_country_cap: float | None = None,
 ):
     """Main generation loop."""
     logger.info(
         "Starting distractor mining | domain={} | count={} | generator={} | "
-        "dry_run={}",
-        domain, count, generator, dry_run,
+        "dry_run={} | per_country_cap={}",
+        domain, count, generator, dry_run, per_country_cap,
     )
 
     used_fact_ids = get_used_fact_ids()
@@ -313,6 +330,7 @@ def _run_generate(
 
         result_tuple = _sample_target_and_distractors(
             domain, exclude_ids=used_fact_ids | run_used_ids,
+            per_country_cap=per_country_cap,
         )
         if result_tuple is None:
             skipped_sample += 1

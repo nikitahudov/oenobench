@@ -9,7 +9,8 @@ These tests mock the OpenRouter call so we never touch the network.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import importlib
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 
 import pytest
@@ -44,7 +45,10 @@ class _FakeUsage:
 class _FakeCompletion:
     choices: list
     usage: _FakeUsage = None
-    model: str = "anthropic/claude-sonnet-4.6"
+    # Phase 2g.8 (2026-04-26): resolve GATE_MODEL at instantiation time
+    # so this fixture follows whatever the module currently exposes
+    # (default Opus 4.7; Sonnet under OENOBENCH_GATE_MODEL override).
+    model: str = field(default_factory=lambda: _closed_book_gate.GATE_MODEL)
 
     def __post_init__(self):
         if self.usage is None:
@@ -322,7 +326,7 @@ def test_insert_question_gated_records_gate_in_metadata(monkeypatch):
     gate_meta = captured["meta"]["raw_response"]["gate"]
     assert gate_meta["selected"] == "B"
     assert gate_meta["matched_gold"] is False
-    assert gate_meta["model"] == "anthropic/claude-sonnet-4.6"
+    assert gate_meta["model"] == _closed_book_gate.GATE_MODEL
 
 
 def test_insert_question_gated_passthrough_for_l4(monkeypatch):
@@ -565,3 +569,41 @@ def test_threshold_parameter_respected(monkeypatch):
     assert low.passed is False
     assert low.matched_gold is True
     assert low.confidence == pytest.approx(0.55)
+
+
+# ─── Phase 2g.8 gate-model upgrade (Sonnet 4.6 → Opus 4.7) ───────────────────
+
+
+def test_gate_model_default_is_opus_4_7(monkeypatch):
+    """Phase 2g.8 (2026-04-26): the default GATE_MODEL must be Opus 4.7
+    when OENOBENCH_GATE_MODEL is unset. Audit pilots run on the stronger
+    (5x more expensive) model so the closed-book gate matches the upper
+    end of what the 5-judge audit panel can solve.
+    """
+    monkeypatch.delenv("OENOBENCH_GATE_MODEL", raising=False)
+    importlib.reload(_closed_book_gate)
+    try:
+        assert _closed_book_gate.GATE_MODEL == "anthropic/claude-opus-4.7"
+        assert _closed_book_gate.GATE_VERSION == "2.3.0"
+    finally:
+        # Reload one more time so the module's GATE_MODEL is at its
+        # default for any tests that run after this one in the same
+        # process. (delenv above already cleared the override.)
+        importlib.reload(_closed_book_gate)
+
+
+def test_gate_model_overridable_via_env(monkeypatch):
+    """OENOBENCH_GATE_MODEL must override the default at import time so
+    the full 10k generation can opt back to Sonnet without a code change.
+    """
+    monkeypatch.setenv("OENOBENCH_GATE_MODEL", "anthropic/claude-sonnet-4.6")
+    importlib.reload(_closed_book_gate)
+    try:
+        assert _closed_book_gate.GATE_MODEL == "anthropic/claude-sonnet-4.6"
+    finally:
+        # Restore the default so subsequent tests in the same process
+        # see Opus 4.7 again. monkeypatch will undo the env var on
+        # teardown; the reload here uses the cleared env.
+        monkeypatch.delenv("OENOBENCH_GATE_MODEL", raising=False)
+        importlib.reload(_closed_book_gate)
+        assert _closed_book_gate.GATE_MODEL == "anthropic/claude-opus-4.7"

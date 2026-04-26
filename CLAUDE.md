@@ -89,7 +89,10 @@ All significant work on this project must be documented in `docs/PROCESS_LOG.md`
 ├── scripts/
 │   ├── setup.sh                  # First-time infrastructure setup
 │   ├── health.sh                 # Service health check
-│   └── backup.sh                 # PostgreSQL & Neo4j backup
+│   ├── backup.sh                 # PostgreSQL & Neo4j backup
+│   ├── run_audit_pilot_v5.sh     # Audit #5 harness (historical)
+│   ├── run_audit_pilot_v6.sh     # Audit #6 harness (historical)
+│   └── run_audit_pilot_v7.sh     # Audit #7 harness (Phase 2g.8 — per-country cap 0.10, Opus gate)
 ├── src/
 │   ├── __init__.py
 │   ├── utils/
@@ -174,6 +177,10 @@ All significant work on this project must be documented in `docs/PROCESS_LOG.md`
 │       └── __init__.py           # Placeholder — future validation pipeline
 ├── tests/
 │   ├── __init__.py
+│   ├── generators/               # pytest tests for src/generators/
+│   │   ├── test_closed_book_gate.py, test_corpus_build_cost.py,
+│   │   ├── test_country_quota.py, test_fact_sampler.py, test_paraphrase.py,
+│   │   ├── test_template_*.py, test_verifier.py, test_vague_regex.py, …
 │   └── qa/                       # pytest fixtures + tests for src/qa/
 │       ├── fixtures/sample_questions.py
 │       ├── test_scoring.py, test_team_a.py, test_team_c.py, test_findings.py
@@ -194,20 +201,22 @@ All significant work on this project must be documented in `docs/PROCESS_LOG.md`
 
 All other planned scrapers have been implemented and rebuilt with genuine data provenance.
 
-## Current Status (as of April 25, 2026)
+## Current Status (as of April 26, 2026)
 
-**Phase:** 2g.7 — audit #5 + four-team retune shipped on engineering side. v6 build is **blocked on OpenRouter API key cap exhaustion**. Awaiting (a) user top-up of OpenRouter key, (b) gold review of `data/reports/gold_sheet_v5.csv`, and (c) Team γ A4 reference set ship before audit #6.
+**Phase:** 2g.8 — audit #6 ran and exposed three coordinator-layer wire-up regressions; Phase 2g.8 fixes + cost optimizations + gate model upgrade are merged on branch `phase-2g.8/cheaper-corpus-build`. Awaiting (a) user gold review of `data/reports/gold_sheet_v5.csv`, (b) `bash scripts/run_audit_pilot_v7.sh` to validate the fixes.
 
 - Phase 1 (Data Collection): ✅ 38,104 facts from 35 genuine scrapers
 - Phase 2 (Question Generation Pipeline): ✅ 5 strategies built and iteratively tuned
 - Phase 2c (Quality Audit Framework): ✅ 9 agents across 4 teams under `src/qa/`
 - Phase 2d–2f (Audit runs #1–#3 + gold-v1–v3 sign-off): ✅
 - Phase 2g (v2.3 §5b/§5c fixes): ✅ Three parallel worktree teams merged
-- Phase 2g (audit #4 on `audit_pilot_v4`): ✅ B2 dropped 66% → 36% — improved but missed ≤15% gate
-- Phase 2g.5 (closed-book MC gate v1.0): ✅ Sonnet 4.6 wired into all 5 generators; 282/282 tests pass; smoke test 65% reject rate matches prototype prediction
-- Phase 2g.6 (gate v2.0 — label+quota): ✅ Routes gate-flagged L1/L2 to `closed_book_solvable` tag at L1, capped at 25% of corpus; new `score_by_cb_split()` eval helper; 285+/285+ tests pass
-- Phase 2g (audit #5 on `audit_pilot_v5`): ✅ B2 non-cb-tagged L1/L2 dropped 53.9% → **33.7%** (still above ≤15% gate); A4 AUC 0.954 trips 0.9 escalation; κ n=0 for new v2.3 rubrics (gold predates Phase 2g)
-- Phase 2g.7 (four-team retune): ✅ Gate threshold 0.7→0.6 + L1/L2/L3 + multiple_choice+scenario_based; quota math fixed to per-corpus; scenario HARD RULE; `per_country_cap` sampler kwarg; gold sheet v5 ready for review (Team δ); 289/289 tests pass; Team γ (A4 external reference set via WSET/CMS scrape) running in background
+- Phase 2g (audit #4 on `audit_pilot_v4`): ✅ B2 dropped 66% → 36%
+- Phase 2g.5 (closed-book MC gate v1.0): ✅ Sonnet 4.6 wired into all 5 generators
+- Phase 2g.6 (gate v2.0 — label+quota): ✅ relabel + 25% cap; `score_by_cb_split()` helper
+- Phase 2g (audit #5 on `audit_pilot_v5`): ✅ B2 53.9% → **33.7%**; A4 AUC 0.954
+- Phase 2g.7 (four-team retune): ✅ Gate threshold 0.6 + L1/L2/L3 + scenario_based; per-corpus quota math; scenario HARD RULE; `per_country_cap` sampler kwarg; A4 v1.2.0 fixed-reference (104-Q human set)
+- Phase 2g (audit #6 on `audit_pilot_v6`): ✅ Run completed (run_id `bfc39e1a…`, $4.82, 2,612 LLM calls). **Failed Go/No-Go on B2 (46% > 15%) and D3 (4.52× > 2.0×).** Investigation found three coordinator-layer regressions: (i) Team ε's `per_country_cap` kwarg was never passed by the orchestrator → `_run_generator` → strategy CLIs (3 layers of missing wire-up); (ii) `set_corpus_target()` was defined but never called by `build_pilot_corpus()`, so v6 used the 10k default cap of 2500 instead of the per-pilot cap of 66 → 158 closed-book relabels leaked through; (iii) A3 over-flagging on T/F templates and borderline LCS=0.60 cases (8 fails / 264 = 3% > 2% gate, but 7/8 are measurement artifacts).
+- Phase 2g.8 (cost optimizations + wire-up fixes): ✅ Branch `phase-2g.8/cheaper-corpus-build` (5 commits, 329/329 tests pass). Cost optimizations: gate-before-paraphrase reorder for templates (~60% Gemini call reduction); OpenRouter `provider.sort=price` routing for verifier + paraphrase calls (drops Gemini Pro from >200K-context tier). D3 wire-up: `--per-country-cap` flag on all 5 strategy CLIs + `_run_generator` propagation + orchestrator `build-corpus` exposure. Quota wire-up: `set_corpus_target(per_strategy × 5)` called from `build_pilot_corpus()` with try/finally cleanup. A3 v1.2.0: skip T/F + LCS fail threshold 0.60 → 0.65. Gate v2.3.0: model Sonnet 4.6 → Opus 4.7 (env-overridable via `OENOBENCH_GATE_MODEL`).
 
 ### Phase 2g shipped (2026-04-23)
 
@@ -260,6 +269,23 @@ Audit #5 ran on `audit_pilot_v5` (run_id `541d1d1d…`); B2 non-cb-tagged L1/L2 
 | Tests | 289/289 pass (1 deselected: live-LLM smoke test 403'd by OpenRouter cap) | Phase 2g.7 net: +14 sampler + 5 gold + 4 gate + 1 scenario_based |
 
 Reports: `docs/QUALITY_AUDIT_REPORT.md`, `docs/GENERATION_IMPROVEMENT_PLAN.md`, `docs/PROCESS_LOG.md` (Phase 2g + 2g.5 + 2g.6 + 2g.7 entries).
+
+### Phase 2g.8 shipped (2026-04-26)
+
+Audit #6 ran on `audit_pilot_v6` (run_id `bfc39e1a-ba6b-471d-bde0-87eead62d1dc`, 264 questions, $4.82, 2,612 LLM calls); B2 fail rate 46% (still > 15% gate), D3 max country ratio 4.52× (> 2.0× gate), A3 8/264 = 3% (> 2% gate). Investigation showed all three were dominated by coordinator-layer wire-up regressions or measurement artifacts — not the underlying generation logic. Phase 2g.8 lands the wire-up fixes + cost optimizations + gate model upgrade.
+
+| Area | Change | Artifact |
+|---|---|---|
+| Build-corpus cost opt 1 | Gate-before-paraphrase reorder for templates: `_question_db.insert_question_gated()` accepts `pre_screened: GateResult \| None`; `template_generator.py` runs `screen_question()` first, skips Gemini paraphrase + verifier on gate-flagged questions (saves ~60% of those calls) | `d35ee00` |
+| Build-corpus cost opt 3 | `LLMClient.generate(extra_body=...)` forwards OpenRouter routing hints; `_verify.py` + `_template_paraphrase.py` pass `{"provider": {"sort": "price"}}` to drop Gemini Pro from >200K-context tier | `d35ee00` |
+| D3 wire-up | `--per-country-cap` `click.option` added to `template_generator`, `scenario_generator`, `comparative_generator`, `distractor_miner` (was already on `fact_to_question`); `_run_generator()` propagates it to subprocess argv; `build_pilot_corpus()` accepts `per_country_cap` kwarg; orchestrator `build-corpus` CLI exposes `--per-country-cap` | `846fb8e` |
+| Quota wire-up | `build_pilot_corpus()` calls `set_corpus_target(per_strategy × 5)` before strategy dispatch with `try/finally` cleanup, so audit pilots actually use `ceil(corpus × 0.25)` cap (66 for 600-Q pilot) instead of the 10k default (2500) | `2a30348` |
+| A3 v1.1.0 → v1.2.0 | Skip `true_false` (T/F's 1-token correct answer breaks LCS denominator); LCS fail threshold `0.60 → 0.65`. Projected v6 fail rate 8/264 = 3.0% → 1/260 = 0.4% | `c4443a9` |
+| Gate v2.2.0 → v2.3.0 | `GATE_MODEL` Sonnet 4.6 → **Opus 4.7**, overridable via `OENOBENCH_GATE_MODEL` env var. Audit-cycle marginal cost: ~+$2. Full 10k decision deferred to post-audit-#7. | `5825aa8` |
+| Audit harness | `scripts/run_audit_pilot_v7.sh` — passes `--per-country-cap 0.10`, seed 44, tag `audit_pilot_v7`. v6 script committed as historical reference. | `846fb8e` |
+| Tests | 329/329 pass (1 deselected: live-LLM smoke test). Phase 2g.8 net: +9 tests (3 set_corpus_target + 4 A3 v1.2.0 + 2 gate-model env override) plus the +14 tests from `846fb8e` (per-country wire-up across 4 layers) and +15 tests from `d35ee00` (cost opts) | All commits |
+
+Branch state: `phase-2g.8/cheaper-corpus-build` carries 5 commits ready for v7 audit run, not yet merged to `main`.
 
 See `CURRENT_STATUS.md` for detailed phase tracking and the regeneration Go/No-Go gate.
 
@@ -418,15 +444,16 @@ See `config/postgres/init.sql` for full schema with enums, indexes, views, and t
 
 ## What to Work On Next
 
-Phase 2g.7 four-team retune is merged and green (289/289 tests excluding the OpenRouter-403'd live-LLM smoke test). The immediate sequence is gated on user actions and external signals:
+Phase 2g.8 fixes + cost optimizations + gate model upgrade are merged on `phase-2g.8/cheaper-corpus-build` (329/329 tests pass). The immediate sequence:
 
-1. **User: top up OpenRouter API key.** `test_c4_calibration::test_c4_live_roundtrip_on_representative_fewshot` and any v6 build/audit will return HTTP 403 "Key limit exceeded" until this is resolved. Until then, all LLM-dependent work is paused.
-2. **User: gold review of `data/reports/gold_sheet_v5.csv`** using `docs/GOLD_REVIEW_GUIDE_V5.md` (~120 questions × 10 rubrics, 2-3h). Then re-import: `python -m src.qa.orchestrator import-gold --csv-path data/reports/gold_sheet_v5.csv --reviewer nikita`. After re-import, merge `team-delta-gold-sheet` and rebuild reports — expect κ ≥ 0.6 on `verbatim_copy` and `wine_category_leak`.
-3. **Coordinator: build `audit_pilot_v6`** once OpenRouter is unblocked: `python -m src.qa.orchestrator build-corpus --tag audit_pilot_v6 --per-strategy 120 --seed 43` (passing `per_country_cap=0.10` where supported) → `run --teams A,B,C,D`. Cost ≈ $6.
-4. **Verify Go/No-Go on v6.** Pass criteria: B2 fail rate on non-cb-tagged L1/L2 ≤ 15%; A4 AUC < 0.9 (or A4 fixed via Team γ); κ ≥ 0.6 on populated rubrics; D3 max country ratio < 2.0. If failing, fork to (a) gate model upgrade Sonnet 4.6 → Opus 4.7 (Decision 4), (b) build C1 + B4 audit agents (deferred Decision 3), or (c) accept and ship.
-5. **If v6 passes: kick off the full 10k generation run** (`python -m src.generators.orchestrator generate-all`, revised cost estimate ≈$90 with v2.2 gate at threshold 0.6 + scenario type coverage).
+1. **User: gold review of `data/reports/gold_sheet_v5.csv`** using `docs/GOLD_REVIEW_GUIDE_V5.md` (~120 questions × 10 rubrics, 2-3h). Then re-import: `python -m src.qa.orchestrator import-gold --csv-path data/reports/gold_sheet_v5.csv --reviewer nikita`. After re-import, merge `team-delta-gold-sheet` and rebuild reports — expect κ ≥ 0.6 on `verbatim_copy` and `wine_category_leak`.
+2. **Merge Phase 2g.8 to main** (or open a PR for it) so audit #7 runs on the canonical branch.
+3. **Run audit #7:** `bash scripts/run_audit_pilot_v7.sh`. The script passes `--per-country-cap 0.10`, seed 44, tag `audit_pilot_v7`, and uses the Opus 4.7 gate by default. Expected cost: ~$15-20 with the 2g.8 cost optimizations active. Wall time: ~3-4h end-to-end (build + audit + reports).
+4. **Verify Go/No-Go on v7.** Pass criteria: B2 fail rate on non-cb-tagged L1/L2 ≤ 15%; A4 AUC < 0.9 (Team γ A4 v1.2.0 should land that); κ ≥ 0.6 on populated rubrics (depends on gold-v5 review landing); D3 max country ratio < 2.0; A3 fail rate < 2% (v1.2.0 expected to deliver); closed-book quota cap properly enforced (≤ 25% of corpus tagged `closed_book_solvable`). If B2 still fails, the residual is structural in scenario_synthesis prompts — fork to a scenario-prompt revision before considering further model upgrades.
+5. **If v7 passes: decide on the full-generation gate model.** Opus gate adds ~$60 to the 10k run (~$120 total vs ~$60 with Sonnet). Set `OENOBENCH_GATE_MODEL=anthropic/claude-sonnet-4.6` to revert to Sonnet for the 10k run if the audit signal supports it.
+6. **Kick off the full 10k generation run** (`python -m src.generators.orchestrator generate-all`).
 
-See `CURRENT_STATUS.md` for detailed phase tracking, `docs/GENERATION_IMPROVEMENT_PLAN.md` for the full ranked defect list and Go/No-Go gates, and `docs/PROCESS_LOG.md` 2026-04-23 (Phase 2g), 2026-04-24 (Phase 2g.5 + 2g.6 — closed-book gate v1.0 + v2.0), and 2026-04-25 (Phase 2g.7 — four-team retune) for methodology details.
+See `CURRENT_STATUS.md` for detailed phase tracking, `docs/GENERATION_IMPROVEMENT_PLAN.md` for the full ranked defect list and Go/No-Go gates, and `docs/PROCESS_LOG.md` 2026-04-23 (Phase 2g), 2026-04-24 (Phase 2g.5 + 2g.6), 2026-04-25 (Phase 2g.7), and 2026-04-26 (Phase 2g.7 audit #6 + Phase 2g.8) for methodology details.
 
 ## Important Links
 

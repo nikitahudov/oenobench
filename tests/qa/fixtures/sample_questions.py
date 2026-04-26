@@ -81,6 +81,103 @@ VERBATIM_QUESTION = _mk(
     "Barolo DOCG in Piedmont Italy must be made from 100% Nebbiolo grapes — which grape?",
 )
 
+# 4a — True/false question over a short source fact. Without the v1.2.0 skip,
+# the LCS metric over-flags T/F because the 1-token correct option ("True"/
+# "False") doesn't dilute the LCS denominator. With v1.2.0, A3 should skip
+# entirely and emit a PASS finding with a "skipped: true_false" note.
+TRUE_FALSE_HIGH_OVERLAP_QUESTION = _mk(
+    "00000000-0000-0000-0000-0000000000a4",
+    "True or false: Barolo DOCG in Piedmont Italy must be made from 100% Nebbiolo grapes.",
+    question_type="true_false",
+    options=[
+        {"id": "A", "text": "True"},
+        {"id": "B", "text": "False"},
+    ],
+    correct_answer="A",
+    correct_answer_text="True",
+)
+
+# 4b — Borderline LCS case (LCS computes to 0.625, longest n-gram = 4).
+# Under v1.1.0 (`_A3_FAIL_LCS = 0.60`) this would FAIL. Under v1.2.0
+# (`_A3_FAIL_LCS = 0.65`) this should PASS or WARN, NOT FAIL — a hair-
+# trigger LCS overlap with no extended verbatim span isn't a real defect.
+A3_BORDERLINE_LCS_QUESTION = _mk(
+    "00000000-0000-0000-0000-0000000000b4",
+    "Is Barolo located in northern Italy?",
+    options=[
+        {"id": "A", "text": "Red wine"},
+        {"id": "B", "text": "White wine"},
+        {"id": "C", "text": "Sparkling"},
+        {"id": "D", "text": "Rosé"},
+    ],
+    correct_answer="A",
+    correct_answer_text="Red wine",
+    facts=[{
+        "fact_id": "f-borderline",
+        "fact_text": "The Barolo wine region is located in northern Italy.",
+        "domain": "wine_regions",
+        "subdomain": "italy_piedmont",
+        "entities": [{"type": "country", "name": "Italy"}],
+        "source_name": "Wikipedia",
+        "source_url": "https://en.wikipedia.org/wiki/Barolo",
+    }],
+)
+
+# 4c — High LCS, low n-gram (LCS = 0.6667, longest n-gram = 2). Above the
+# v1.2.0 fail threshold (0.65); should FAIL even though the contiguous
+# match is short — exercises the LCS-only fail path at the new threshold.
+A3_HIGH_LCS_QUESTION = _mk(
+    "00000000-0000-0000-0000-0000000000c4",
+    "Where is Barolo located?",
+    options=[
+        {"id": "A", "text": "northern Italy"},
+        {"id": "B", "text": "southern Spain"},
+        {"id": "C", "text": "central France"},
+        {"id": "D", "text": "western Greece"},
+    ],
+    correct_answer="A",
+    correct_answer_text="northern Italy",
+    facts=[{
+        "fact_id": "f-highlcs",
+        "fact_text": "The Barolo wine region is located in northern Italy.",
+        "domain": "wine_regions",
+        "subdomain": "italy_piedmont",
+        "entities": [{"type": "country", "name": "Italy"}],
+        "source_name": "Wikipedia",
+        "source_url": "https://en.wikipedia.org/wiki/Barolo",
+    }],
+)
+
+# 4d — Long contiguous verbatim span (12 tokens) embedded in a longer
+# question that pads the LCS denominator down. LCS = 0.5714 (below the
+# 0.65 fail threshold) but n-gram = 12 (≥ 8) → must FAIL on the n-gram
+# path. Mirrors the WB-VIT-0300 v6 case.
+A3_LONG_NGRAM_QUESTION = _mk(
+    "00000000-0000-0000-0000-0000000000d4",
+    "Phylloxera vastatrix is a sap sucking insect that feeds on grape vine.",
+    options=[
+        {"id": "A", "text": "Some other padding tokens here yes more padding tokens"},
+        {"id": "B", "text": "Botrytis cinerea fungus"},
+        {"id": "C", "text": "Mealybug colony"},
+        {"id": "D", "text": "Powdery mildew spores"},
+    ],
+    correct_answer="A",
+    correct_answer_text="Some other padding tokens here yes more padding tokens",
+    facts=[{
+        "fact_id": "f-longngram",
+        "fact_text": (
+            "Phylloxera vastatrix is a sap sucking insect that feeds on grape "
+            "vine roots and leaves causing widespread devastation in European "
+            "vineyards starting in the late nineteenth century"
+        ),
+        "domain": "viticulture",
+        "subdomain": "phylloxera",
+        "entities": [{"type": "pest", "name": "Phylloxera"}],
+        "source_name": "Wikipedia",
+        "source_url": "https://en.wikipedia.org/wiki/Phylloxera",
+    }],
+)
+
 # 5 — Length-biased correct option (A2 length warn on cell)
 LENGTH_BIAS_QUESTION = _mk(
     "00000000-0000-0000-0000-000000000005",
@@ -189,6 +286,10 @@ ALL_FIXTURES = [
     VAGUE_STEM_QUESTION,
     BLEND_QUESTION,
     VERBATIM_QUESTION,
+    TRUE_FALSE_HIGH_OVERLAP_QUESTION,
+    A3_BORDERLINE_LCS_QUESTION,
+    A3_HIGH_LCS_QUESTION,
+    A3_LONG_NGRAM_QUESTION,
     LENGTH_BIAS_QUESTION,
     *POSITION_BIAS_BATCH,
     CATEGORY_LEAK_QUESTION,

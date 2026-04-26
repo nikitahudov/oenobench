@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from tests.qa.fixtures.sample_questions import (
+    A3_BORDERLINE_LCS_QUESTION,
+    A3_HIGH_LCS_QUESTION,
+    A3_LONG_NGRAM_QUESTION,
     BLEND_QUESTION,
     CATEGORY_LEAK_QUESTION,
     CLEAN_QUESTION,
@@ -10,6 +13,7 @@ from tests.qa.fixtures.sample_questions import (
     LLM_FREEFORM_QUESTIONS,
     POSITION_BIAS_BATCH,
     TEMPLATE_QUESTIONS,
+    TRUE_FALSE_HIGH_OVERLAP_QUESTION,
     VAGUE_STEM_QUESTION,
     VERBATIM_QUESTION,
 )
@@ -99,6 +103,81 @@ def test_a3_passes_paraphrased_question():
 
     findings = run_a3_fact_echo(RUN_ID, [CLEAN_QUESTION])
     assert findings[0]["severity"] in {"pass", "warn"}
+
+
+def test_a3_skips_true_false():
+    """v1.2.0 — A3 must skip true_false entirely. The LCS-with-correct-option
+    metric is structurally unsuited because T/F's 1-token correct option does
+    not dilute the denominator, so any well-paraphrased T/F over a short
+    source fact over-flags as verbatim copy. With v1.2.0, T/F yields a PASS
+    finding with a 'skipped: true_false' note in payload."""
+    from src.qa.agents.team_a_static import (
+        A3_VERSION,
+        _A3_RUBRIC_MEASURED,
+        run_a3_fact_echo,
+    )
+
+    findings = run_a3_fact_echo(RUN_ID, [TRUE_FALSE_HIGH_OVERLAP_QUESTION])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["severity"] == "pass"
+    assert f["score"] == 0.0
+    assert f["agent_version"] == A3_VERSION
+    assert "skipped: true_false" in f["payload"]["note"]
+    assert f["payload"]["rubric_measured"] == _A3_RUBRIC_MEASURED
+    # And critically, the LCS / n-gram details from the regular path must
+    # NOT be present — we never measured them.
+    assert "lcs_ratio" not in f["payload"]
+    assert "longest_ngram" not in f["payload"]
+
+
+def test_a3_passes_at_lcs_0_64():
+    """v1.2.0 — borderline-LCS questions (LCS in 0.62-0.64 with low n-gram)
+    must NOT FAIL. Under v1.1.0 (`_A3_FAIL_LCS = 0.60`) this would have
+    failed; under v1.2.0 (`_A3_FAIL_LCS = 0.65`) it should be PASS or WARN.
+    The n-gram path still catches genuine extended verbatim spans, so
+    raising the LCS threshold does not lose sensitivity."""
+    from src.qa.agents.team_a_static import run_a3_fact_echo
+
+    findings = run_a3_fact_echo(RUN_ID, [A3_BORDERLINE_LCS_QUESTION])
+    assert len(findings) == 1
+    f = findings[0]
+    # Sanity: confirm we're actually in the borderline regime the test
+    # is designed to exercise.
+    assert 0.60 <= f["payload"]["lcs_ratio"] < 0.65
+    assert f["payload"]["longest_ngram"] < 6  # below WARN n-gram threshold
+    assert f["severity"] in {"pass", "warn"}
+    assert f["severity"] != "fail"
+
+
+def test_a3_fails_at_lcs_0_66():
+    """v1.2.0 — questions at or above the new LCS fail threshold (0.65)
+    must still FAIL on the LCS path even when the longest contiguous
+    n-gram is short (≤ 6). Confirms the threshold bump didn't accidentally
+    disable LCS-based detection."""
+    from src.qa.agents.team_a_static import run_a3_fact_echo
+
+    findings = run_a3_fact_echo(RUN_ID, [A3_HIGH_LCS_QUESTION])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["payload"]["lcs_ratio"] >= 0.65
+    assert f["severity"] == "fail"
+
+
+def test_a3_fails_on_long_ngram_below_lcs_threshold():
+    """v1.2.0 — the n-gram path must remain the primary detector for
+    genuine extended verbatim spans. A 12-token contiguous match with
+    LCS < 0.65 (because the question pads the LCS denominator) must
+    still FAIL. Mirrors the WB-VIT-0300 v6 case (12-token verbatim
+    copy by Llama, correctly caught by `_A3_FAIL_NGRAM = 8`)."""
+    from src.qa.agents.team_a_static import run_a3_fact_echo
+
+    findings = run_a3_fact_echo(RUN_ID, [A3_LONG_NGRAM_QUESTION])
+    assert len(findings) == 1
+    f = findings[0]
+    assert f["payload"]["lcs_ratio"] < 0.65
+    assert f["payload"]["longest_ngram"] >= 8
+    assert f["severity"] == "fail"
 
 
 # ─── A4 ─────────────────────────────────────────────────────────────────────
