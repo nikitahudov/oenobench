@@ -38,6 +38,16 @@ _CORPUS_TARGET_OVERRIDE: int | None = None
 # book relabels on a 242-Q corpus instead of the intended 150 ceiling.
 CORPUS_TARGET_ENV_VAR = "OENOBENCH_CORPUS_TARGET"
 
+# Env-var fallback for scoping the closed-book count to the current build.
+# `count_closed_book_solvable()` queries the entire `questions` table; without
+# scoping, every prior audit pilot's `closed_book_solvable`-tagged questions
+# count toward the new build's cap. v8's first attempt hit `427/50` immediately
+# because v5+v6+v7 had already accumulated 427 cb-tagged questions in the DB.
+# The orchestrator exports this env var as an ISO-8601 timestamp before
+# dispatching strategies; child subprocesses resolve it and pass it to the
+# count query as a `created_at >= since` filter.
+CORPUS_BUILD_SINCE_ENV_VAR = "OENOBENCH_CORPUS_BUILD_SINCE"
+
 
 def set_corpus_target(size: int | None) -> None:
     """Override the corpus size used to compute the closed-book quota cap.
@@ -107,18 +117,48 @@ def _closed_book_quota_cap(target_size: int | None = None) -> int:
     return math.ceil(int(target_size) * CLOSED_BOOK_QUOTA_FRACTION)
 
 
-def count_closed_book_solvable() -> int:
+def _resolve_default_build_since() -> str | None:
+    """Return the build-start ISO-8601 timestamp, or None for unscoped count.
+
+    Used by `count_closed_book_solvable()` so the quota cap is evaluated
+    against questions created during the current build only — not against
+    every historical pilot's `closed_book_solvable`-tagged questions still
+    sitting in the DB. A blank or malformed env var falls through to None
+    (unscoped, backwards-compatible behaviour).
+    """
+    raw = os.environ.get(CORPUS_BUILD_SINCE_ENV_VAR)
+    if not raw:
+        return None
+    return raw.strip() or None
+
+
+def count_closed_book_solvable(since: str | None = None) -> int:
     """Count questions currently tagged `closed_book_solvable`.
 
     Used by `insert_question_gated` to enforce the 25% corpus cap. Cheap
     enough to call per-insert thanks to the GIN index on `questions.tags`.
+
+    Args:
+        since: Optional ISO-8601 timestamp string. When provided, only
+            questions with `created_at >= since` are counted. When None,
+            the env var `OENOBENCH_CORPUS_BUILD_SINCE` is consulted; if
+            unset/blank, the count is unscoped (legacy behaviour).
     """
+    if since is None:
+        since = _resolve_default_build_since()
     conn = get_pg()
     cur = conn.cursor()
-    cur.execute(
-        "SELECT count(*) AS cnt FROM questions WHERE %s = ANY(tags)",
-        (CLOSED_BOOK_TAG,),
-    )
+    if since:
+        cur.execute(
+            "SELECT count(*) AS cnt FROM questions "
+            "WHERE %s = ANY(tags) AND created_at >= %s::timestamptz",
+            (CLOSED_BOOK_TAG, since),
+        )
+    else:
+        cur.execute(
+            "SELECT count(*) AS cnt FROM questions WHERE %s = ANY(tags)",
+            (CLOSED_BOOK_TAG,),
+        )
     row = cur.fetchone()
     return int(row["cnt"]) if row else 0
 

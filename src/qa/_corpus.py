@@ -27,7 +27,11 @@ from typing import Iterable
 import click
 from loguru import logger
 
-from src.generators._question_db import CORPUS_TARGET_ENV_VAR, set_corpus_target
+from src.generators._question_db import (
+    CORPUS_BUILD_SINCE_ENV_VAR,
+    CORPUS_TARGET_ENV_VAR,
+    set_corpus_target,
+)
 from src.qa._findings import upsert_gold_label
 from src.utils.db import get_pg
 
@@ -191,9 +195,17 @@ def build_pilot_corpus(
     set_corpus_target(target_size)
     prev_env_target = os.environ.get(CORPUS_TARGET_ENV_VAR)
     os.environ[CORPUS_TARGET_ENV_VAR] = str(target_size)
+    # Phase 2g.9 hotfix: scope the closed-book count to questions created
+    # during this build only. Without this, the global query in
+    # `count_closed_book_solvable()` totals every historical pilot's
+    # cb-tagged questions; v8's first launch saw 427/50 immediately because
+    # v5+v6+v7 had already accumulated 427 cb-tagged questions in the DB.
+    prev_env_since = os.environ.get(CORPUS_BUILD_SINCE_ENV_VAR)
+    os.environ[CORPUS_BUILD_SINCE_ENV_VAR] = started.isoformat()
     logger.info(
-        "corpus: set closed-book quota target to {} (per-pilot 25% cap)",
-        target_size,
+        "corpus: set closed-book quota target to {} (per-pilot 25% cap), "
+        "scoped to questions created since {}",
+        target_size, started.isoformat(),
     )
 
     results: dict[str, dict] = {}
@@ -254,6 +266,10 @@ def build_pilot_corpus(
             os.environ.pop(CORPUS_TARGET_ENV_VAR, None)
         else:
             os.environ[CORPUS_TARGET_ENV_VAR] = prev_env_target
+        if prev_env_since is None:
+            os.environ.pop(CORPUS_BUILD_SINCE_ENV_VAR, None)
+        else:
+            os.environ[CORPUS_BUILD_SINCE_ENV_VAR] = prev_env_since
 
     counts_after = _existing_corpus_count(tag)
     logger.info("corpus: post-build totals = {}", counts_after)

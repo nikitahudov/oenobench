@@ -668,3 +668,117 @@ def test_invalid_env_var_falls_through_to_default(monkeypatch):
             assert _closed_book_quota_cap() == 2500, f"bad value {bad!r} should fall through"
         finally:
             monkeypatch.delenv("OENOBENCH_CORPUS_TARGET", raising=False)
+
+
+# ─── Phase 2g.9 hotfix — scope cb count by build-start timestamp ─────────────
+#
+# `count_closed_book_solvable()` queries the entire `questions` table; without
+# scoping, every historical pilot's cb-tagged questions accrue toward the new
+# build's cap. v8's first launch hit 427/50 immediately. The hotfix reads
+# OENOBENCH_CORPUS_BUILD_SINCE and applies it as a `created_at >= since`
+# filter when set; behaviour is unchanged when the var is unset/blank.
+
+
+def test_resolve_default_build_since_returns_none_when_unset(monkeypatch):
+    from src.generators._question_db import _resolve_default_build_since
+
+    monkeypatch.delenv("OENOBENCH_CORPUS_BUILD_SINCE", raising=False)
+    assert _resolve_default_build_since() is None
+
+
+def test_resolve_default_build_since_returns_iso_when_set(monkeypatch):
+    from src.generators._question_db import _resolve_default_build_since
+
+    monkeypatch.setenv("OENOBENCH_CORPUS_BUILD_SINCE", "2026-04-27T22:00:00+00:00")
+    assert _resolve_default_build_since() == "2026-04-27T22:00:00+00:00"
+
+
+def test_resolve_default_build_since_treats_blank_as_none(monkeypatch):
+    """Blank or whitespace-only env var must NOT crash and must NOT be
+    interpreted as a literal `''` filter (which would match no rows)."""
+    from src.generators._question_db import _resolve_default_build_since
+
+    for blank in ("", "   ", "\n"):
+        monkeypatch.setenv("OENOBENCH_CORPUS_BUILD_SINCE", blank)
+        assert _resolve_default_build_since() is None, f"{blank!r} should resolve to None"
+
+
+def test_count_closed_book_solvable_unscoped_when_since_is_none(monkeypatch):
+    """Backwards compat: with no since arg and no env var, count globally."""
+    from src.generators import _question_db
+
+    monkeypatch.delenv("OENOBENCH_CORPUS_BUILD_SINCE", raising=False)
+    captured: dict = {}
+
+    class _FakeCursor:
+        def execute(self, sql, params):
+            captured["sql"] = sql
+            captured["params"] = params
+        def fetchone(self):
+            return {"cnt": 999}
+
+    class _FakeConn:
+        def cursor(self):
+            return _FakeCursor()
+
+    monkeypatch.setattr(_question_db, "get_pg", lambda: _FakeConn())
+
+    n = _question_db.count_closed_book_solvable()
+    assert n == 999
+    assert "created_at" not in captured["sql"], (
+        "unscoped call should NOT include a created_at filter"
+    )
+
+
+def test_count_closed_book_solvable_scoped_when_since_present(monkeypatch):
+    """When the env var is set, the SQL must include a `created_at >= since`
+    filter and pass the timestamp as the second parameter."""
+    from src.generators import _question_db
+
+    monkeypatch.setenv("OENOBENCH_CORPUS_BUILD_SINCE", "2026-04-27T22:00:00+00:00")
+    captured: dict = {}
+
+    class _FakeCursor:
+        def execute(self, sql, params):
+            captured["sql"] = sql
+            captured["params"] = params
+        def fetchone(self):
+            return {"cnt": 7}
+
+    class _FakeConn:
+        def cursor(self):
+            return _FakeCursor()
+
+    monkeypatch.setattr(_question_db, "get_pg", lambda: _FakeConn())
+
+    n = _question_db.count_closed_book_solvable()
+    assert n == 7
+    assert "created_at >= " in captured["sql"], (
+        f"scoped call must include created_at filter; got SQL: {captured['sql']!r}"
+    )
+    assert captured["params"][1] == "2026-04-27T22:00:00+00:00", (
+        f"scoped call must pass the since timestamp; got params: {captured['params']!r}"
+    )
+
+
+def test_count_closed_book_solvable_explicit_since_overrides_env(monkeypatch):
+    """An explicit `since` arg always takes precedence over the env var."""
+    from src.generators import _question_db
+
+    monkeypatch.setenv("OENOBENCH_CORPUS_BUILD_SINCE", "2099-01-01T00:00:00Z")
+    captured: dict = {}
+
+    class _FakeCursor:
+        def execute(self, sql, params):
+            captured["params"] = params
+        def fetchone(self):
+            return {"cnt": 1}
+
+    class _FakeConn:
+        def cursor(self):
+            return _FakeCursor()
+
+    monkeypatch.setattr(_question_db, "get_pg", lambda: _FakeConn())
+
+    _question_db.count_closed_book_solvable(since="2026-04-27T22:00:00+00:00")
+    assert captured["params"][1] == "2026-04-27T22:00:00+00:00"

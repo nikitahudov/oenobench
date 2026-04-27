@@ -772,3 +772,80 @@ def test_build_pilot_corpus_restores_pre_existing_env_var(monkeypatch):
     assert os.environ.get(CORPUS_TARGET_ENV_VAR) == "12345", (
         "Pre-existing env-var value must be restored, not stripped"
     )
+
+
+# ─── Phase 2g.9 hotfix — OENOBENCH_CORPUS_BUILD_SINCE export ────────────────
+
+
+def test_build_pilot_corpus_exports_build_since_env_var_during_dispatch(monkeypatch):
+    """While the dispatch loop runs, OENOBENCH_CORPUS_BUILD_SINCE must be set
+    to the build's start timestamp (ISO-8601) so subprocesses scope their
+    cb-count query to the current build only."""
+    from src.generators._question_db import CORPUS_BUILD_SINCE_ENV_VAR
+    from src.qa import _corpus as _c
+    from src.qa._corpus import build_pilot_corpus
+
+    _patch_db_helpers(monkeypatch)
+    monkeypatch.delenv(CORPUS_BUILD_SINCE_ENV_VAR, raising=False)
+
+    captured: list[str | None] = []
+
+    def fake_run_generator(*, module, domain, count, generator=None,
+                           difficulty=None, per_country_cap=None):
+        captured.append(os.environ.get(CORPUS_BUILD_SINCE_ENV_VAR))
+        return True
+
+    monkeypatch.setattr(_c, "_run_generator", fake_run_generator)
+
+    build_pilot_corpus(tag="audit_pilot_test", per_strategy=10, seed=42)
+
+    assert captured, "_run_generator was never called"
+    assert all(v for v in captured), (
+        f"OENOBENCH_CORPUS_BUILD_SINCE must be set during every _run_generator; "
+        f"saw {captured!r}"
+    )
+    # All values must be identical across the dispatch loop (single build).
+    assert len(set(captured)) == 1, f"timestamp must be stable; saw {set(captured)}"
+    # Must be parseable as an ISO-8601 timestamp.
+    from datetime import datetime
+    datetime.fromisoformat(captured[0])  # raises if malformed
+
+
+def test_build_pilot_corpus_clears_build_since_env_var_after(monkeypatch):
+    """After return, the env var must be removed (when previously unset)."""
+    from src.generators._question_db import CORPUS_BUILD_SINCE_ENV_VAR
+    from src.qa import _corpus as _c
+    from src.qa._corpus import build_pilot_corpus
+
+    _patch_db_helpers(monkeypatch)
+    monkeypatch.delenv(CORPUS_BUILD_SINCE_ENV_VAR, raising=False)
+    monkeypatch.setattr(
+        _c,
+        "_run_generator",
+        lambda *, module, domain, count, generator=None,
+               difficulty=None, per_country_cap=None: True,
+    )
+
+    build_pilot_corpus(tag="audit_pilot_test", per_strategy=10, seed=42)
+
+    assert CORPUS_BUILD_SINCE_ENV_VAR not in os.environ
+
+
+def test_build_pilot_corpus_restores_pre_existing_build_since(monkeypatch):
+    """Pre-existing env var value must be restored on exit, not stripped."""
+    from src.generators._question_db import CORPUS_BUILD_SINCE_ENV_VAR
+    from src.qa import _corpus as _c
+    from src.qa._corpus import build_pilot_corpus
+
+    _patch_db_helpers(monkeypatch)
+    monkeypatch.setenv(CORPUS_BUILD_SINCE_ENV_VAR, "2024-01-01T00:00:00Z")
+    monkeypatch.setattr(
+        _c,
+        "_run_generator",
+        lambda *, module, domain, count, generator=None,
+               difficulty=None, per_country_cap=None: True,
+    )
+
+    build_pilot_corpus(tag="audit_pilot_test", per_strategy=10, seed=42)
+
+    assert os.environ.get(CORPUS_BUILD_SINCE_ENV_VAR) == "2024-01-01T00:00:00Z"
