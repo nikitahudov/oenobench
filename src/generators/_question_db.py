@@ -6,6 +6,7 @@ linkage in a single transaction, plus query helpers for quota tracking.
 """
 
 import math
+import os
 import uuid
 
 import orjson
@@ -28,6 +29,14 @@ _OVERALL_TARGET_DEFAULT = 10_000
 # questions → cap 74) rather than the global 10k → 2500. None means "use the
 # orchestrator default".
 _CORPUS_TARGET_OVERRIDE: int | None = None
+
+# Env-var fallback for the quota target. `set_corpus_target()` only mutates
+# the module-global above, which does not survive the `subprocess.run` boundary
+# between `_corpus._run_generator()` and each strategy CLI. The orchestrator
+# also exports this env var so child processes resolve the same scoped cap.
+# Audit #7 shipped without this and ran with the default 10k cap → 172 closed-
+# book relabels on a 242-Q corpus instead of the intended 150 ceiling.
+CORPUS_TARGET_ENV_VAR = "OENOBENCH_CORPUS_TARGET"
 
 
 def set_corpus_target(size: int | None) -> None:
@@ -54,12 +63,29 @@ def _resolve_default_target_size() -> int:
     """Resolve the effective `target_size` when a caller does not pass one.
 
     Priority:
-      1. `_CORPUS_TARGET_OVERRIDE` set via `set_corpus_target()` (audit pilots).
-      2. `OVERALL_TARGET` imported from the orchestrator (full 10k run).
-      3. `_OVERALL_TARGET_DEFAULT = 10_000` (final fallback).
+      1. `_CORPUS_TARGET_OVERRIDE` set via `set_corpus_target()` (audit pilots,
+         in-process callers).
+      2. `OENOBENCH_CORPUS_TARGET` env var (audit pilots, subprocess workers
+         spawned by `_corpus._run_generator`). Subprocesses don't inherit
+         the in-process module-global, so the orchestrator exports the env
+         var alongside `set_corpus_target()` and child processes pick it up
+         via this branch.
+      3. `OVERALL_TARGET` imported from the orchestrator (full 10k run).
+      4. `_OVERALL_TARGET_DEFAULT = 10_000` (final fallback).
     """
     if _CORPUS_TARGET_OVERRIDE is not None:
         return _CORPUS_TARGET_OVERRIDE
+    env_target = os.environ.get(CORPUS_TARGET_ENV_VAR)
+    if env_target:
+        try:
+            parsed = int(env_target)
+            if parsed > 0:
+                return parsed
+        except ValueError:
+            logger.warning(
+                "{} is set but not a positive int (got {!r}); falling back",
+                CORPUS_TARGET_ENV_VAR, env_target,
+            )
     try:
         from src.generators.orchestrator import OVERALL_TARGET
         return int(OVERALL_TARGET)

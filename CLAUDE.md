@@ -92,8 +92,10 @@ All significant work on this project must be documented in `docs/PROCESS_LOG.md`
 │   ├── backup.sh                 # PostgreSQL & Neo4j backup
 │   ├── run_audit_pilot_v5.sh     # Audit #5 harness (historical)
 │   ├── run_audit_pilot_v6.sh     # Audit #6 harness (historical)
-│   ├── run_audit_pilot_v7_build.sh # Audit #7 phase 1 — build corpus + export gold-v7
-│   └── run_audit_pilot_v7_audit.sh # Audit #7 phase 2 — run audit teams + build reports
+│   ├── run_audit_pilot_v7_build.sh # Audit #7 phase 1 — build corpus + export gold-v7 (historical)
+│   ├── run_audit_pilot_v7_audit.sh # Audit #7 phase 2 — run audit teams + build reports (historical)
+│   ├── run_audit_pilot_v8_build.sh # Audit #8 phase 1 — Phase 2g.9 fixes, per-country-cap 0.30
+│   └── run_audit_pilot_v8_audit.sh # Audit #8 phase 2 — run audit teams + build reports
 ├── src/
 │   ├── __init__.py
 │   ├── utils/
@@ -202,9 +204,9 @@ All significant work on this project must be documented in `docs/PROCESS_LOG.md`
 
 All other planned scrapers have been implemented and rebuilt with genuine data provenance.
 
-## Current Status (as of April 26, 2026)
+## Current Status (as of April 27, 2026)
 
-**Phase:** 2g.8 — audit #6 ran and exposed three coordinator-layer wire-up regressions; all Phase 2g.8 fixes + cost optimizations + gate model upgrade merged to `main`. Awaiting (a) `bash scripts/run_audit_pilot_v7_build.sh` (~13h) to build the v7 corpus + export the v7 gold sheet, (b) user gold review of `data/reports/gold_sheet_v7.csv` (~2-3h), (c) gold import + `bash scripts/run_audit_pilot_v7_audit.sh` (~3-4h, ~$15-20).
+**Phase:** 2g.9 — audit #7 ran on the post-2g.8 v7 corpus and failed Go/No-Go on B2 (53%), D3 (10.61×), and A1 (2.9%). Investigation traced all three to coordinator-layer wire-up + metric-denominator bugs: `set_corpus_target()` doesn't survive the `subprocess.run` boundary (so the closed-book quota cap silently defaulted to 2500), `--per-country-cap 0.10` was too aggressive at small per-call counts (gutted multi-fact strategies down to 30-40% of target), D3's `max_overrep_ratio` denominator collapses under sparse country annotation (16 of 242 questions tagged), and A1 `_EXTRA_VAGUE` flagged "celebrated" + "notable for" in factual contexts. Phase 2g.9 lands four targeted fixes (env-var fallback, per-country-cap default 0.30, D3 coverage guard, A1 v2.3.1 pattern trim), reverts the gate to Sonnet 4.6 for v8, and ships a v8 audit harness with smaller corpus (per_strategy 40, total 200) to halve audit time + cost. 347/347 tests pass. Awaiting (a) `bash scripts/run_audit_pilot_v8_build.sh` (~4-5h), (b) user gold review of `data/reports/gold_sheet_v8.csv` (~1h, 40 rows), (c) `import-gold` + `bash scripts/run_audit_pilot_v8_audit.sh` (~1-1.5h, ~$5-7).
 
 - Phase 1 (Data Collection): ✅ 38,104 facts from 35 genuine scrapers
 - Phase 2 (Question Generation Pipeline): ✅ 5 strategies built and iteratively tuned
@@ -218,6 +220,8 @@ All other planned scrapers have been implemented and rebuilt with genuine data p
 - Phase 2g.7 (four-team retune): ✅ Gate threshold 0.6 + L1/L2/L3 + scenario_based; per-corpus quota math; scenario HARD RULE; `per_country_cap` sampler kwarg; A4 v1.2.0 fixed-reference (104-Q human set)
 - Phase 2g (audit #6 on `audit_pilot_v6`): ✅ Run completed (run_id `bfc39e1a…`, $4.82, 2,612 LLM calls). **Failed Go/No-Go on B2 (46% > 15%) and D3 (4.52× > 2.0×).** Investigation found three coordinator-layer regressions: (i) Team ε's `per_country_cap` kwarg was never passed by the orchestrator → `_run_generator` → strategy CLIs (3 layers of missing wire-up); (ii) `set_corpus_target()` was defined but never called by `build_pilot_corpus()`, so v6 used the 10k default cap of 2500 instead of the per-pilot cap of 66 → 158 closed-book relabels leaked through; (iii) A3 over-flagging on T/F templates and borderline LCS=0.60 cases (8 fails / 264 = 3% > 2% gate, but 7/8 are measurement artifacts).
 - Phase 2g.8 (cost optimizations + wire-up fixes): ✅ Branch `phase-2g.8/cheaper-corpus-build` (5 commits, 329/329 tests pass). Cost optimizations: gate-before-paraphrase reorder for templates (~60% Gemini call reduction); OpenRouter `provider.sort=price` routing for verifier + paraphrase calls (drops Gemini Pro from >200K-context tier). D3 wire-up: `--per-country-cap` flag on all 5 strategy CLIs + `_run_generator` propagation + orchestrator `build-corpus` exposure. Quota wire-up: `set_corpus_target(per_strategy × 5)` called from `build_pilot_corpus()` with try/finally cleanup. A3 v1.2.0: skip T/F + LCS fail threshold 0.60 → 0.65. Gate v2.3.0: model Sonnet 4.6 → Opus 4.7 (env-overridable via `OENOBENCH_GATE_MODEL`).
+- Phase 2g (audit #7 on `audit_pilot_v7`): ✅ Run completed (run_id `9ba6f760-5a6c-4403-9709-412c13eac30c`, 242 questions, $4.42, 2,436 LLM calls). **Failed Go/No-Go on B2 (52.9%), D3 (10.61×), A1 (2.9%); D1 also fails (claude Δ = +0.16); Cohen's κ = n=0 (gold review not done).** Investigation found: (i) `set_corpus_target()` doesn't survive `subprocess.run`, so the closed-book quota cap defaulted to 2500 across all strategy workers (172 GATE RELABEL events, 0 GATE QUOTA FULL); (ii) `--per-country-cap 0.10` × `count=4` × `cluster_size=2-3` rounded to 1-2 facts/country/call, gutting multi-fact strategies (template 30, comparative 34, scenario 42, distractor 16 of 120 each); (iii) D3's `max_overrep_ratio` denominator was 16 of 242 country-tagged questions, inflating the metric by ~4×; (iv) A1 bare `\bcelebrated\b` and bare `notable for` flagged factual past-tense and historical phrasings.
+- Phase 2g.9 (audit #7 follow-up fixes): ✅ Four targeted fixes shipped, 347/347 tests pass. Env-var fallback `OENOBENCH_CORPUS_TARGET` for closed-book quota cap that crosses subprocess boundaries; v8 build script with `--per-country-cap 0.30` default; D3 v1.1.0 coverage guard (downgrades FAIL→WARN below 50% country annotation coverage); A1 `_EXTRA_VAGUE` v2.3.1 (drop bare `celebrated`, drop `notable for`, keep `celebrated for`).
 
 ### Phase 2g shipped (2026-04-23)
 
@@ -287,6 +291,22 @@ Audit #6 ran on `audit_pilot_v6` (run_id `bfc39e1a-ba6b-471d-bde0-87eead62d1dc`,
 | Tests | 329/329 pass (1 deselected: live-LLM smoke test). Phase 2g.8 net: +9 tests (3 set_corpus_target + 4 A3 v1.2.0 + 2 gate-model env override) plus the +14 tests from `846fb8e` (per-country wire-up across 4 layers) and +15 tests from `d35ee00` (cost opts) | All commits |
 
 Branch state: `phase-2g.8/cheaper-corpus-build` carries 5 commits ready for v7 audit run, not yet merged to `main`.
+
+### Phase 2g.9 shipped (2026-04-27)
+
+Audit #7 ran on `audit_pilot_v7` (run_id `9ba6f760-5a6c-4403-9709-412c13eac30c`, 242 questions, $4.42, 2,436 LLM calls); failed three Go/No-Go gates and exposed four root causes — all coordinator-layer wire-up or metric-denominator bugs, not generation regressions. Phase 2g.9 lands the four targeted fixes plus a v8 audit harness.
+
+| Area | Change | Notes |
+|---|---|---|
+| Closed-book quota propagation | `_resolve_default_target_size()` in `_question_db.py` reads `OENOBENCH_CORPUS_TARGET` env var between in-process override and `OVERALL_TARGET` fallback. `build_pilot_corpus()` exports it alongside `set_corpus_target()` and restores prior value in `finally`. | Env vars cross `subprocess.run` for free; no need for the four-layer CLI wire-up that broke audit #6's `--per-country-cap` |
+| Per-country cap default | `scripts/run_audit_pilot_v8_build.sh` uses `--per-country-cap 0.30` (was 0.10 in v7). | At per-call `count=4`, `0.30 × 4 × cluster_size 2-3 = 3-4`, vs `0.10 × ... = 1-2` that disqualified multi-fact bundles. Structural sampler-math fix deferred until D3 denominator is calibrated. |
+| D3 v1.1.0 coverage guard | `team_d_population.py`: when country-tag coverage < 50%, severity downgrades FAIL → WARN. Always-emitted payload fields: `country_annotation_coverage`, `country_coverage_sufficient`, `country_coverage_threshold`, `country_tagged_questions`, `total_questions`. | One-directional: never upgrades severity. The metric is still reported so reviewers see the inflated number alongside the coverage flag. |
+| A1 `_EXTRA_VAGUE` v2.3.1 | Removed bare `\bcelebrated\b` (kept `celebrated for`) and removed `notable for` entirely. | v7 fail #5 (Roman poet "celebrated" the landscape) and v7 fail #7 ("notable for being the country's first" Tetra Pak) were clean false positives. Marketing usage of `notable for` overlaps with `acclaimed`/`world-class`/`quintessential` patterns that remain. |
+| v8 audit harness | New `scripts/run_audit_pilot_v8_build.sh` and `_audit.sh`; `TAG=audit_pilot_v8`, `SEED=45`, `GOLD_OUT=data/reports/gold_sheet_v8.csv`. v7 scripts retained as historical references. | Phase 1 (~13h), gold review (~2-3h), phase 2 (~3-4h, ~$15-20). Same two-phase shape as v7. |
+| Gate model for v8 | v8 build script exports `OENOBENCH_GATE_MODEL=anthropic/claude-sonnet-4.6` to revert the gate from Opus 4.7 (Phase 2g.8 default) back to Sonnet 4.6. Module default in `_closed_book_gate.py` unchanged (still Opus). | v6 → v7 (Sonnet → Opus, both with broken cap) only added +14 relabels; with Phase 2g.9 cap fix saturating at 150 either way, Opus's marginal pickup is small. Sonnet isolates the cap-fix effect and saves ~$60 on the 10k run if v8 passes B2. |
+| Tests | 347/347 pass. Phase 2g.9 net: +13 new tests (6 env-var: 3 in `test_closed_book_gate.py` + 3 in `test_corpus_build_cost.py`; 3 D3 in new `tests/qa/test_team_d.py`; 3 A1 v2.3.1 in `test_team_a.py`). | All four fixes shipped with positive + negative test coverage. |
+
+Reports: `docs/QUALITY_AUDIT_REPORT.md` (audit #7 results), `docs/PROCESS_LOG.md` 2026-04-27 (Phase 2g.7 audit run #7 + Phase 2g.9 fixes), `docs/GENERATION_IMPROVEMENT_PLAN_AUTO.md`.
 
 See `CURRENT_STATUS.md` for detailed phase tracking and the regeneration Go/No-Go gate.
 
@@ -445,35 +465,44 @@ See `config/postgres/init.sql` for full schema with enums, indexes, views, and t
 
 ## What to Work On Next
 
-All Phase 2g.8 work is merged to `main` (334/334 tests pass). The immediate sequence is two-phase to keep Cohen's κ valid — gold labels must be on v7 questions (post-Phase-2g.8 generation quality), not on v5 questions.
+Phase 2g.9 fixes are committed and tested (347/347 pass). The v7 corpus is superseded; v8 is the next audit cycle.
 
-1. **Phase 1 — build v7 corpus + export gold sheet** (~13h, automated):
+1. **Phase 1 — build v8 corpus + export gold sheet** (~4-5h, automated):
    ```bash
-   nohup bash scripts/run_audit_pilot_v7_build.sh &
+   nohup bash scripts/run_audit_pilot_v8_build.sh &
    ```
-   This runs `build-corpus --tag audit_pilot_v7 --per-strategy 120 --seed 44 --per-country-cap 0.10` (with the 2g.8 cost opts + Opus gate active), then exports `data/reports/gold_sheet_v7.csv` (120 rows × 10 rubrics, all rubric columns blank).
+   This runs `build-corpus --tag audit_pilot_v8 --per-strategy 40 --seed 45 --per-country-cap 0.30` (with all Phase 2g.8 + 2g.9 fixes active, gate reverted to Sonnet 4.6), then exports `data/reports/gold_sheet_v8.csv` (40 rows × 10 rubrics, all rubric columns blank).
 
-2. **User: gold review of `data/reports/gold_sheet_v7.csv`** using `docs/GOLD_REVIEW_GUIDE_V5.md` (the guide's rubric definitions are stable across v5/v7 — only the corpus tag differs). ~2-3h. Then re-import:
+   **Sanity-check the build output before launching phase 2:**
+   - Corpus size close to 200 (not 242/600).
+   - `grep -c "GATE QUOTA FULL" data/logs/audit_pilot_v8_build_*.log` > 0.
+   - `closed_book_solvable` count in DB ≤ 50 (= ceil(200 × 0.25)).
+
+   If those don't hold, the Phase 2g.9 fixes didn't take and audit #8 should not launch.
+
+2. **User: gold review of `data/reports/gold_sheet_v8.csv`** using `docs/GOLD_REVIEW_GUIDE_V5.md` (rubric definitions stable across v5/v7/v8). ~1h (40 rows instead of v7's 120). Then re-import:
    ```bash
    python -m src.qa.orchestrator import-gold \
-       --csv-path data/reports/gold_sheet_v7.csv --reviewer nikita
+       --csv-path data/reports/gold_sheet_v8.csv --reviewer nikita
    ```
 
-3. **Phase 2 — run audit teams + build reports** (~3-4h, ~$15-20):
+3. **Phase 2 — run audit teams + build reports** (~1-1.5h, ~$5-7):
    ```bash
-   nohup bash scripts/run_audit_pilot_v7_audit.sh &
+   nohup bash scripts/run_audit_pilot_v8_audit.sh &
    ```
-   The build-reports step computes Cohen's κ from the imported v7 gold labels, so the report should show populated κ values for `verbatim_copy` and `wine_category_leak` (target ≥ 0.6).
+   The build-reports step computes Cohen's κ from the imported v8 gold labels.
 
-4. **Verify Go/No-Go on v7.** Pass criteria: B2 fail rate on non-cb-tagged L1/L2 ≤ 15%; A4 AUC < 0.9 (already at 0.825 on v5 replay); κ ≥ 0.6 on populated rubrics; D3 max country ratio < 2.0; A3 fail rate < 2% (v1.2.0 expected to deliver); closed-book quota cap properly enforced (≤ 25% of corpus tagged `closed_book_solvable`). If B2 still fails, the residual is structural in scenario_synthesis prompts — fork to a scenario-prompt revision before further model upgrades.
+4. **Verify Go/No-Go on v8.** Pass criteria: B2 fail rate on non-cb-tagged L1/L2/L3 ≤ 15%; A1 ≤ 2%; A4 AUC < 0.9; κ ≥ 0.6 on populated rubrics; D3 either < 2.0× max country ratio OR `country_coverage_sufficient=false` with WARN severity; closed-book quota cap properly enforced (≤ 25% of corpus tagged `closed_book_solvable`). If B2 still fails, the residual is structural in scenario_synthesis prompts — fork to a scenario-prompt revision before further model upgrades.
 
-5. **If v7 passes: decide on the full-generation gate model.** Opus gate adds ~$60 to the 10k run (~$120 total vs ~$60 with Sonnet). Set `OENOBENCH_GATE_MODEL=anthropic/claude-sonnet-4.6` to revert to Sonnet for the 10k run if the audit signal supports it.
+5. **Re-measure D1 on v8.** With the v8 corpus mix likely changing under the Phase 2g.9 fixes, the Claude over-preference Δ may resolve naturally. If it doesn't, design a per-generator share cap before the 10k run.
 
-6. **Kick off the full 10k generation run** (`python -m src.generators.orchestrator generate-all`).
+6. **If v8 passes: decide on the full-generation gate model.** v8 already runs on Sonnet (via the build script's env-var export), so if B2 passes the cheaper gate is the proven path — no change needed for the 10k run, which falls back to the module default. If v8 fails B2, retry by deleting the env-var export from the v8 build script; `_closed_book_gate.py`'s module default is still Opus 4.7.
 
-**Skipping the v7 gold review is permitted but discouraged** — phase 2 will still complete (κ shows n=0 for the v2.3 rubrics). You can review later and re-run only `build-reports --run-id <v7_run_id>` to refresh κ.
+7. **Kick off the full 10k generation run** (`python -m src.generators.orchestrator generate-all`). The `OVERALL_TARGET` fallback in `_question_db.py` already resolves to 10,000, so the closed-book quota cap math uses 2,500 — no env var needed. If you switch to Opus for the 10k, set `OENOBENCH_GATE_MODEL=anthropic/claude-opus-4.7` (or unset for the module default).
 
-See `CURRENT_STATUS.md` for detailed phase tracking, `docs/GENERATION_IMPROVEMENT_PLAN.md` for the full ranked defect list and Go/No-Go gates, and `docs/PROCESS_LOG.md` 2026-04-23 (Phase 2g), 2026-04-24 (Phase 2g.5 + 2g.6), 2026-04-25 (Phase 2g.7), and 2026-04-26 (Phase 2g.7 audit #6 + Phase 2g.8) for methodology details.
+**Skipping the v8 gold review is permitted but discouraged** — phase 2 will still complete (κ shows n=0 for the v2.3 rubrics). You can review later and re-run only `build-reports --run-id <v8_run_id>` to refresh κ.
+
+See `CURRENT_STATUS.md` for detailed phase tracking, `docs/GENERATION_IMPROVEMENT_PLAN.md` for the full ranked defect list and Go/No-Go gates, and `docs/PROCESS_LOG.md` 2026-04-23 (Phase 2g), 2026-04-24 (Phase 2g.5 + 2g.6), 2026-04-25 (Phase 2g.7), 2026-04-26 (Phase 2g.7 audit #6 + Phase 2g.8), and 2026-04-27 (Phase 2g.7 audit #7 + Phase 2g.9) for methodology details.
 
 ## Important Links
 

@@ -26,7 +26,14 @@ from src.utils.db import get_pg
 D1_ID = "D1_SelfPreference"
 D1_VERSION = "v1.0.0"
 D3_ID = "D3_SkewAudit"
-D3_VERSION = "v1.0.0"
+D3_VERSION = "v1.1.0"  # 2026-04-27 Phase 2g.9 — coverage guard on max_overrep_ratio
+
+# When fewer than this fraction of audited questions carry a country-tagged
+# fact, max_overrep_ratio is computed against a tiny denominator and overstates
+# the true skew (audit #7 reported 10.61× from 16/242 country-tagged questions
+# while the actual ratio over all 242 was ~2.5×). Below this coverage we
+# downgrade severity to WARN and surface the coverage as the headline signal.
+COUNTRY_COVERAGE_MIN = 0.5
 
 
 def _options_list(q: dict) -> list[dict]:
@@ -278,6 +285,17 @@ def run_d3_skew_audit(run_id: str, questions: list[dict]) -> list[dict]:
     if max_ratio >= 2.0:
         severity = SEVERITY_FAIL
 
+    # Coverage guard (Phase 2g.9): when most questions lack a country tag,
+    # max_overrep_ratio inflates against a tiny denominator. Audit #7 had
+    # 16/242 country-tagged questions and reported 10.61× — but the metric
+    # is inactionable when the denominator is that thin. Downgrade to WARN
+    # and let the reviewer see the coverage value alongside the ratio.
+    total_questions = max(len(questions), 1)
+    country_coverage = total_q / total_questions if observed else 0.0
+    coverage_sufficient = country_coverage >= COUNTRY_COVERAGE_MIN
+    if not coverage_sufficient and severity == SEVERITY_FAIL:
+        severity = SEVERITY_WARN
+
     finding = {
         "run_id": run_id,
         "question_id": None,
@@ -291,11 +309,23 @@ def run_d3_skew_audit(run_id: str, questions: list[dict]) -> list[dict]:
             "chi2": round(chi2, 3),
             "p": round(p, 4),
             "max_overrep_ratio": round(max_ratio, 3),
+            "country_annotation_coverage": round(country_coverage, 3),
+            "country_coverage_sufficient": coverage_sufficient,
+            "country_coverage_threshold": COUNTRY_COVERAGE_MIN,
+            "country_tagged_questions": int(total_q) if observed else 0,
+            "total_questions": int(total_questions),
             "domain_by_strategy": {f"{m}/{d}": c for (m, d), c in domain_counter.items()},
             "subdomain_herfindahl_by_strategy": herfindahl,
         },
     }
-    logger.info("D3: max country over-representation ratio = {:.2f}", max_ratio)
+    if coverage_sufficient:
+        logger.info("D3: max country over-representation ratio = {:.2f}", max_ratio)
+    else:
+        logger.warning(
+            "D3: country annotation coverage {:.1%} (< {:.0%} threshold); "
+            "max_overrep_ratio={:.2f} downgraded — denominator too sparse",
+            country_coverage, COUNTRY_COVERAGE_MIN, max_ratio,
+        )
     return [finding]
 
 

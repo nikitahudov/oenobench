@@ -16,6 +16,7 @@ Design notes:
 from __future__ import annotations
 
 import csv
+import os
 import random
 import subprocess
 import sys
@@ -26,7 +27,7 @@ from typing import Iterable
 import click
 from loguru import logger
 
-from src.generators._question_db import set_corpus_target
+from src.generators._question_db import CORPUS_TARGET_ENV_VAR, set_corpus_target
 from src.qa._findings import upsert_gold_label
 from src.utils.db import get_pg
 
@@ -180,8 +181,16 @@ def build_pilot_corpus(
     # 264-Q corpus instead of the documented ceil(264 × 0.25) = 66. The
     # `try/finally` ensures the override is cleared even if a strategy raises,
     # so subsequent processes (full-gen runs, tests) see clean state.
+    #
+    # Phase 2g.9 (audit #7 follow-up): in addition to the in-process module-
+    # global, also export an env var so child subprocesses spawned by
+    # `_run_generator` resolve the same scoped cap. The module-global alone
+    # only works for in-process callers; v7 ran with the default 10k cap and
+    # accumulated 172 closed-book relabels on a 242-Q corpus.
     target_size = per_strategy * len(STRATEGY_MODULES)
     set_corpus_target(target_size)
+    prev_env_target = os.environ.get(CORPUS_TARGET_ENV_VAR)
+    os.environ[CORPUS_TARGET_ENV_VAR] = str(target_size)
     logger.info(
         "corpus: set closed-book quota target to {} (per-pilot 25% cap)",
         target_size,
@@ -241,6 +250,10 @@ def build_pilot_corpus(
             logger.info("corpus: {} generated={} tagged={}", strategy, want, tagged)
     finally:
         set_corpus_target(None)
+        if prev_env_target is None:
+            os.environ.pop(CORPUS_TARGET_ENV_VAR, None)
+        else:
+            os.environ[CORPUS_TARGET_ENV_VAR] = prev_env_target
 
     counts_after = _existing_corpus_count(tag)
     logger.info("corpus: post-build totals = {}", counts_after)

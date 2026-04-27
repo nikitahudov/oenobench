@@ -61,9 +61,19 @@ A1_VERSION = "v1.0.0"
 # redundant: `renowned for` (subsumed by `renowned`), `world-class`
 # (already `world[- ]class`), `premier` / `prestigious` / `celebrated`
 # (already listed as bare tokens).
+#
+# v2.3.1 — 2026-04-27 (Phase 2g.9): removed two over-matching patterns flagged
+# by audit #7 false-positive analysis:
+#   * bare `celebrated` matched the past-tense verb in "Roman poet celebrated
+#     the landscape during harvest". `celebrated for` (kept below) covers the
+#     marketing usage; bare `celebrated` is too noisy on its own.
+#   * `notable for` matched factual constructions like "notable for being the
+#     country's first to ship in Tetra Pak". Marketing usage of "notable for"
+#     overlaps with `acclaimed` / `world-class` / `quintessential` patterns
+#     that remain, so dropping it is safe.
 _EXTRA_VAGUE = re.compile(
     r"\b("
-    r"acclaimed|esteemed|storied|legendary|revered|beloved|celebrated|"
+    r"acclaimed|esteemed|storied|legendary|revered|beloved|"
     r"signature blend|signature wine|flagship (wine|cuvée|label)|"
     r"the wines of the region|jewel of|crown jewel|"
     r"pride of|heart and soul|unmistakable|quintessential|"
@@ -73,7 +83,6 @@ _EXTRA_VAGUE = re.compile(
     r"|highly prized"
     r"|distinguished by its"
     r"|celebrated for"
-    r"|notable for"
     r"|sought[- ]after"
     r"|one of the most"
     r")\b",

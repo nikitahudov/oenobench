@@ -607,3 +607,64 @@ def test_gate_model_overridable_via_env(monkeypatch):
         monkeypatch.delenv("OENOBENCH_GATE_MODEL", raising=False)
         importlib.reload(_closed_book_gate)
         assert _closed_book_gate.GATE_MODEL == "anthropic/claude-opus-4.7"
+
+
+# ─── Phase 2g.9 OENOBENCH_CORPUS_TARGET subprocess fallback ──────────────────
+#
+# Audit #7 ran with a 600-Q target but the closed-book quota cap defaulted to
+# 2500 in every strategy subprocess: `set_corpus_target()` mutates a module-
+# global that does not survive `subprocess.run`. The fix exports an env var
+# alongside the in-process override so child processes resolve the same cap.
+
+
+def test_quota_cap_uses_env_var_when_override_unset(monkeypatch):
+    """When the in-process override is None, the env var must be honoured.
+
+    This is the audit-pilot subprocess case: the parent exports the env var
+    before `subprocess.run`, the child boots with `_CORPUS_TARGET_OVERRIDE =
+    None`, and `_resolve_default_target_size()` must read the env var rather
+    than falling through to the 10k default.
+    """
+    from src.generators import _question_db
+    from src.generators._question_db import _closed_book_quota_cap
+
+    _question_db.set_corpus_target(None)  # ensure in-process override is clear
+    monkeypatch.setenv("OENOBENCH_CORPUS_TARGET", "600")
+    try:
+        # ceil(600 × 0.25) = 150 — the v8 audit pilot's intended cap.
+        assert _closed_book_quota_cap() == 150
+    finally:
+        monkeypatch.delenv("OENOBENCH_CORPUS_TARGET", raising=False)
+
+
+def test_in_process_override_wins_over_env_var(monkeypatch):
+    """`set_corpus_target()` takes precedence over the env var so unit tests
+    and in-process callers can pin a specific value regardless of what the
+    surrounding shell exported."""
+    from src.generators import _question_db
+    from src.generators._question_db import _closed_book_quota_cap
+
+    monkeypatch.setenv("OENOBENCH_CORPUS_TARGET", "9999")
+    _question_db.set_corpus_target(400)
+    try:
+        # ceil(400 × 0.25) = 100; env-var 9999 must NOT be read.
+        assert _closed_book_quota_cap() == 100
+    finally:
+        _question_db.set_corpus_target(None)
+        monkeypatch.delenv("OENOBENCH_CORPUS_TARGET", raising=False)
+
+
+def test_invalid_env_var_falls_through_to_default(monkeypatch):
+    """A malformed env var (non-numeric, zero, negative) must NOT crash the
+    insert path. It is logged and we fall through to OVERALL_TARGET / 10k.
+    """
+    from src.generators import _question_db
+    from src.generators._question_db import _closed_book_quota_cap
+
+    _question_db.set_corpus_target(None)
+    for bad in ("not-a-number", "0", "-50", ""):
+        monkeypatch.setenv("OENOBENCH_CORPUS_TARGET", bad)
+        try:
+            assert _closed_book_quota_cap() == 2500, f"bad value {bad!r} should fall through"
+        finally:
+            monkeypatch.delenv("OENOBENCH_CORPUS_TARGET", raising=False)

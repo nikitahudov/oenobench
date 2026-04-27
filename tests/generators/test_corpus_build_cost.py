@@ -32,6 +32,7 @@ Three categories of test in this file:
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -683,4 +684,91 @@ def test_build_pilot_corpus_resets_corpus_target_on_exception(monkeypatch):
     assert _qdb._CORPUS_TARGET_OVERRIDE is None, (
         "Override must be reset even when the strategy dispatch loop raises; "
         "otherwise the leak poisons full-gen runs."
+    )
+
+
+# ─── Phase 2g.9 OENOBENCH_CORPUS_TARGET subprocess propagation ──────────────
+#
+# `set_corpus_target()` only mutates an in-process module-global, which does
+# not survive `subprocess.run`. The orchestrator must also export an env var
+# so child strategy CLIs resolve the same scoped quota cap. Without this, v7
+# ran with the default 2500 cap and accumulated 172 closed-book relabels on
+# a 242-Q corpus instead of the intended 150.
+
+
+def test_build_pilot_corpus_exports_env_var_during_dispatch(monkeypatch):
+    """While the dispatch loop runs, OENOBENCH_CORPUS_TARGET must be set in
+    the process environment so any subprocess inherits the scoped value.
+    """
+    from src.generators._question_db import CORPUS_TARGET_ENV_VAR
+    from src.qa import _corpus as _c
+    from src.qa._corpus import STRATEGY_MODULES, build_pilot_corpus
+
+    _patch_db_helpers(monkeypatch)
+    monkeypatch.delenv(CORPUS_TARGET_ENV_VAR, raising=False)
+
+    captured: list[str | None] = []
+
+    def fake_run_generator(*, module, domain, count, generator=None,
+                           difficulty=None, per_country_cap=None):
+        captured.append(os.environ.get(CORPUS_TARGET_ENV_VAR))
+        return True
+
+    monkeypatch.setattr(_c, "_run_generator", fake_run_generator)
+
+    per_strategy = 60
+    expected_target = str(per_strategy * len(STRATEGY_MODULES))
+
+    build_pilot_corpus(tag="audit_pilot_test", per_strategy=per_strategy, seed=42)
+
+    assert captured, "_run_generator was never called"
+    assert all(v == expected_target for v in captured), (
+        f"OENOBENCH_CORPUS_TARGET must equal {expected_target} during every "
+        f"_run_generator call; saw distinct values {set(captured)}"
+    )
+
+
+def test_build_pilot_corpus_clears_env_var_after(monkeypatch):
+    """After return, the env var must be removed (when previously unset) so
+    subsequent unrelated processes don't inherit a stale value.
+    """
+    from src.generators._question_db import CORPUS_TARGET_ENV_VAR
+    from src.qa import _corpus as _c
+    from src.qa._corpus import build_pilot_corpus
+
+    _patch_db_helpers(monkeypatch)
+    monkeypatch.delenv(CORPUS_TARGET_ENV_VAR, raising=False)
+    monkeypatch.setattr(
+        _c,
+        "_run_generator",
+        lambda *, module, domain, count, generator=None,
+               difficulty=None, per_country_cap=None: True,
+    )
+
+    build_pilot_corpus(tag="audit_pilot_test", per_strategy=30, seed=42)
+
+    assert CORPUS_TARGET_ENV_VAR not in os.environ
+
+
+def test_build_pilot_corpus_restores_pre_existing_env_var(monkeypatch):
+    """If the caller already had OENOBENCH_CORPUS_TARGET set (e.g. CI rig),
+    the original value must be restored on exit, not stripped to None.
+    """
+    from src.generators._question_db import CORPUS_TARGET_ENV_VAR
+    from src.qa import _corpus as _c
+    from src.qa._corpus import build_pilot_corpus
+
+    _patch_db_helpers(monkeypatch)
+    monkeypatch.setenv(CORPUS_TARGET_ENV_VAR, "12345")
+    monkeypatch.setattr(
+        _c,
+        "_run_generator",
+        lambda *, module, domain, count, generator=None,
+               difficulty=None, per_country_cap=None: True,
+    )
+
+    build_pilot_corpus(tag="audit_pilot_test", per_strategy=30, seed=42)
+
+    assert os.environ.get(CORPUS_TARGET_ENV_VAR) == "12345", (
+        "Pre-existing env-var value must be restored, not stripped"
     )

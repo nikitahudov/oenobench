@@ -53,6 +53,87 @@ def test_a1_fails_blend_as_variety():
     assert findings[0]["severity"] != "pass"
 
 
+# ─── A1 v2.3.1 — Phase 2g.9 false-positive fixes ─────────────────────────────
+# Audit #7 surfaced two regex over-matches: bare `celebrated` flagged the
+# past-tense verb in factual prose, and `notable for` flagged factual "notable
+# for being the country's first" constructions. These tests pin those FPs so
+# we don't regress the loosened patterns.
+
+
+def _mk_for_regex(qtext: str) -> dict:
+    """Minimal question dict that A1 will accept; only question_text matters."""
+    return {
+        "uuid": "00000000-0000-0000-0000-0000a1regex01",
+        "question_text": qtext,
+        "options": [
+            {"id": "A", "text": "Option A"},
+            {"id": "B", "text": "Option B"},
+            {"id": "C", "text": "Option C"},
+            {"id": "D", "text": "Option D"},
+        ],
+        "correct_answer": "A",
+        "correct_answer_text": "Option A",
+        "explanation": "",
+        "question_type": "multiple_choice",
+        "difficulty": "2",
+        "domain": "wine_regions",
+    }
+
+
+def test_a1_does_not_flag_celebrated_as_past_tense_verb():
+    """v2.3.1: 'celebrated' as a past-tense verb (factual narrative) must
+    not match. Fixture mirrors v7 fail #5 (a5564a29...): a Roman poet
+    'celebrated the landscape during harvest'."""
+    from src.qa.agents.team_a_static import run_a1_lexical_hygiene
+
+    q = _mk_for_regex(
+        "Which wine region had a Roman-era poet who celebrated the landscape "
+        "during harvest in his published verses?"
+    )
+    findings = run_a1_lexical_hygiene(RUN_ID, [q])
+    f = findings[0]
+    matches = (f.get("payload") or {}).get("matches", {})
+    qtext_hits = matches.get("question_text", [])
+    assert not any("celebrated" in h.lower() for h in qtext_hits), (
+        f"bare 'celebrated' (past-tense verb) should not be flagged; got hits {qtext_hits}"
+    )
+
+
+def test_a1_still_flags_celebrated_for_marketing_usage():
+    """`celebrated for` remains in the regex — it's the marketing usage we
+    want to keep catching ('celebrated for its terroir', etc.)."""
+    from src.qa.agents.team_a_static import run_a1_lexical_hygiene
+
+    q = _mk_for_regex(
+        "Which Italian region is celebrated for its limestone-rich terroir?"
+    )
+    findings = run_a1_lexical_hygiene(RUN_ID, [q])
+    f = findings[0]
+    matches = (f.get("payload") or {}).get("matches", {})
+    qtext_hits = matches.get("question_text", [])
+    assert any("celebrated for" in h.lower() for h in qtext_hits), (
+        f"'celebrated for' (marketing) should still be flagged; got hits {qtext_hits}"
+    )
+
+
+def test_a1_does_not_flag_notable_for_factual_statement():
+    """v2.3.1: 'notable for' followed by a factual construction ('being the
+    country's first...') must not match. Mirrors v7 fail #7 (ddf60bd8...)."""
+    from src.qa.agents.team_a_static import run_a1_lexical_hygiene
+
+    q = _mk_for_regex(
+        "Which Italian wine brand was notable for being the country's first "
+        "to be packaged in Tetra Pak?"
+    )
+    findings = run_a1_lexical_hygiene(RUN_ID, [q])
+    f = findings[0]
+    matches = (f.get("payload") or {}).get("matches", {})
+    qtext_hits = matches.get("question_text", [])
+    assert not any("notable for" in h.lower() for h in qtext_hits), (
+        f"factual 'notable for being...' must not flag; got hits {qtext_hits}"
+    )
+
+
 # ─── A2 ─────────────────────────────────────────────────────────────────────
 
 
