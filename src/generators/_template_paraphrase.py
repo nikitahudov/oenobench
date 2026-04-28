@@ -30,11 +30,40 @@ Usage:
 
 from __future__ import annotations
 
+import os
+
 from loguru import logger
 
 from src.generators import _llm_cache
 
-# Default model. Caller can override via the ``model`` argument.
+# Lever C2 (2026-04-28): swap default Gemini variant from Pro to Flash.
+# Gemini Pro averaged 13.6s on v8 (p95 33s, max 195s) for sub-2K-token
+# JSON tasks like paraphrase (~500 tokens). Flash variants typically run
+# 3-5× faster on these. Default ON; revert via env var.
+PARAPHRASE_MODEL_ENV_VAR = "OENOBENCH_PARAPHRASE_MODEL"
+_PARAPHRASE_FLASH_DEFAULT = "google/gemini-3.1-flash-preview-20260219"
+_PARAPHRASE_PRO_FALLBACK = "google/gemini-3.1-pro-preview"
+
+
+def _resolve_paraphrase_model() -> str:
+    """Return the OpenRouter model id for the paraphrase call.
+
+    Resolution order:
+        1. OENOBENCH_PARAPHRASE_MODEL env var (full openrouter slug).
+        2. _PARAPHRASE_FLASH_DEFAULT.
+
+    Resolved per call so tests that monkeypatch the env var see the
+    change immediately.
+    """
+    env = os.environ.get(PARAPHRASE_MODEL_ENV_VAR, "").strip()
+    if env:
+        return env
+    return _PARAPHRASE_FLASH_DEFAULT
+
+
+# Legacy default for backwards compatibility — still resolved through the
+# env-var-aware helper above when actually used. The "gemini" short-name
+# resolution path is preserved for callers that pass it explicitly.
 _DEFAULT_MODEL = "gemini"
 
 # Lever B1 (2026-04-28): cache version tag for paraphrase outputs. Bump
@@ -90,13 +119,21 @@ def _tf_format_preserved(orig: str, new: str) -> bool:
 def paraphrase_question_text(
     question_text: str,
     options: list[dict],
-    model: str = _DEFAULT_MODEL,
+    model: str | None = None,
 ) -> str | None:
     """γ-5 — Paraphrase a template-generated stem via Gemini.
 
     Returns the new stem string on success, or ``None`` if the LLM call
     failed or any validation check rejected the rephrasing. The caller
     keeps the original text on None.
+
+    Lever C2 (2026-04-28): when ``model`` is None, the default is the
+    Flash variant resolved via OENOBENCH_PARAPHRASE_MODEL → Flash. If
+    the Flash call fails (success=False or raises), the call is retried
+    once on Gemini Pro as a defensive fallback. Callers that pass
+    ``model="gemini"`` (the legacy short-name) are routed through the
+    GENERATOR_MODELS table as before — no behaviour change for that
+    code path.
     """
     if not question_text or not options:
         return None
@@ -107,10 +144,25 @@ def paraphrase_question_text(
         logger.warning(f"_llm_client unavailable for paraphrase: {e}")
         return None
 
+    # Lever C2: resolve the runtime model. If caller passed None (the new
+    # default) we use the Flash variant; otherwise honour the explicit
+    # request (which may be a short-name or a full slug).
+    if model is None:
+        primary_model = _resolve_paraphrase_model()
+        fallback_model = _PARAPHRASE_PRO_FALLBACK
+    else:
+        # Legacy path — short-name resolves through GENERATOR_MODELS, full
+        # slugs pass through as-is. No fallback in this path.
+        primary_model = model
+        fallback_model = None
+
     # Lever B1: cache lookup before we even build the prompt. Includes the
     # text + options because option text can leak into the entity-
     # preservation guard and change whether a paraphrase is accepted.
-    _cache_model_id = GENERATOR_MODELS.get(model, model)
+    # Cache key uses the resolved primary model id so Pro-keyed entries
+    # are bypassed when Flash is the default — perfect, no manual
+    # invalidation needed.
+    _cache_model_id = GENERATOR_MODELS.get(primary_model, primary_model)
     _cache_key = _llm_cache.cache_key({
         "text": question_text,
         "options": options,
@@ -141,11 +193,11 @@ def paraphrase_question_text(
         logger.warning(f"Paraphrase client init failed: {e}")
         return None
 
-    try:
-        resp = client.generate(
+    def _call(model_id: str):
+        return client.generate(
             prompt=prompt,
             system="You are a careful technical editor for a wine knowledge benchmark.",
-            model=model,
+            model=model_id,
             temperature=0.3,
             max_tokens=300,
             json_mode=True,
@@ -155,9 +207,35 @@ def paraphrase_question_text(
             # MTok) that the unpinned route was hitting on audit_pilot_v6.
             extra_body={"provider": {"sort": "price"}},
         )
+
+    try:
+        resp = _call(primary_model)
     except Exception as e:
-        logger.warning(f"Paraphrase LLM call raised: {e}")
-        return None
+        if fallback_model is not None:
+            logger.info(
+                f"Paraphrase Flash raised ({e}); retrying on Pro fallback"
+            )
+            try:
+                resp = _call(fallback_model)
+                _cache_model_id = GENERATOR_MODELS.get(fallback_model, fallback_model)
+            except Exception as e2:
+                logger.warning(f"Paraphrase Pro fallback also raised: {e2}")
+                return None
+        else:
+            logger.warning(f"Paraphrase LLM call raised: {e}")
+            return None
+
+    if (not resp.success or not resp.parsed) and fallback_model is not None:
+        logger.info(
+            "Paraphrase Flash failover | flash={} | error={} | retrying on Pro",
+            primary_model, getattr(resp, "error", None),
+        )
+        try:
+            resp = _call(fallback_model)
+            _cache_model_id = GENERATOR_MODELS.get(fallback_model, fallback_model)
+        except Exception as e2:
+            logger.warning(f"Paraphrase Pro fallback raised: {e2}")
+            return None
 
     if not resp.success or not resp.parsed:
         logger.debug(f"Paraphrase LLM returned no parsed JSON; keeping original")

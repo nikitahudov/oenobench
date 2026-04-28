@@ -1,7 +1,5 @@
-"""Tests for lever B5 (skip verifier when gate + generator agree).
-
-Lever C2 (Flash variant for paraphrase + verifier) tests are added in
-the C2 commit and live in this same file.
+"""Tests for lever B5 (skip verifier when gate + generator agree) and
+lever C2 (faster Gemini Flash variant for paraphrase + verifier).
 
 B5 short-circuit:
     - Helper `should_skip_verifier(...)` is a pure predicate of (gate_passed,
@@ -9,6 +7,13 @@ B5 short-circuit:
       whether the call sites actually consult it.
     - Skip happens BEFORE the B1 cache lookup so confident gate-passed
       questions never even hit the cache (let alone the API).
+
+C2 model swap:
+    - Default model in `_template_paraphrase.paraphrase_question_text` and
+      in `_verify.verify_template_answer_with_gemini` is now Gemini Flash.
+    - OENOBENCH_PARAPHRASE_MODEL / OENOBENCH_VERIFIER_MODEL allow override.
+    - On a `success=False` response, the call is retried once on the Pro
+      fallback (`google/gemini-3.1-pro-preview`).
 
 The tests mock LLMClient.generate / _llm_cache to avoid network + DB.
 """
@@ -19,7 +24,7 @@ from unittest.mock import patch
 
 import pytest
 
-from src.generators import _verify
+from src.generators import _template_paraphrase, _verify
 from src.generators._llm_client import LLMResponse
 
 
@@ -212,3 +217,226 @@ def test_verifier_skip_runs_before_cache_lookup(monkeypatch):
         generator_confidence=0.95,
     )
     assert consulted["n"] == 1, "Cache must be consulted when skip cannot apply"
+
+
+# ─── C2: paraphrase model swap ────────────────────────────────────────────────
+
+
+def test_paraphrase_uses_flash_by_default(monkeypatch):
+    """With no env override, paraphrase must call the Flash variant."""
+    monkeypatch.delenv("OENOBENCH_PARAPHRASE_MODEL", raising=False)
+    monkeypatch.delenv("OENOBENCH_LLM_CACHE", raising=False)
+
+    captured = {}
+
+    def fake_generate(self, **kwargs):
+        captured.update(kwargs)
+        return LLMResponse(
+            content='{"question_text": "Which red grape variety is required for Barolo?"}',
+            parsed={"question_text": "Which red grape variety is required for Barolo?"},
+            model=kwargs.get("model", "?"),
+            input_tokens=200, output_tokens=20,
+            latency_ms=400, success=True, error=None,
+        )
+
+    monkeypatch.setattr(
+        "src.generators._llm_client.LLMClient.generate",
+        fake_generate,
+    )
+
+    _ = _template_paraphrase.paraphrase_question_text(
+        "Barolo requires which red grape variety?",
+        _OPTIONS,
+    )
+    # Paraphrase may return None if validation rejects; only assert the
+    # MODEL argument we sent.
+    assert captured.get("model") == "google/gemini-3.1-flash-preview-20260219"
+
+
+def test_paraphrase_env_override(monkeypatch):
+    """OENOBENCH_PARAPHRASE_MODEL overrides the default."""
+    custom = "google/some-experimental-flash-x"
+    monkeypatch.setenv("OENOBENCH_PARAPHRASE_MODEL", custom)
+    monkeypatch.delenv("OENOBENCH_LLM_CACHE", raising=False)
+
+    captured = {}
+
+    def fake_generate(self, **kwargs):
+        captured.update(kwargs)
+        return LLMResponse(
+            content='{"question_text": "Which grape variety must Barolo use?"}',
+            parsed={"question_text": "Which grape variety must Barolo use?"},
+            model=kwargs.get("model", "?"),
+            input_tokens=200, output_tokens=20,
+            latency_ms=400, success=True, error=None,
+        )
+
+    monkeypatch.setattr(
+        "src.generators._llm_client.LLMClient.generate",
+        fake_generate,
+    )
+
+    _ = _template_paraphrase.paraphrase_question_text(
+        "Barolo requires which red grape variety?",
+        _OPTIONS,
+    )
+    assert captured.get("model") == custom
+
+
+def test_paraphrase_falls_back_to_pro_on_failure(monkeypatch):
+    """First call fails → second call uses Pro; final result reflects Pro response."""
+    monkeypatch.delenv("OENOBENCH_PARAPHRASE_MODEL", raising=False)
+    monkeypatch.delenv("OENOBENCH_LLM_CACHE", raising=False)
+
+    call_log: list[str] = []
+
+    def fake_generate(self, **kwargs):
+        model = kwargs.get("model", "")
+        call_log.append(model)
+        if "flash" in model:
+            # Flash fails → triggers Pro fallback.
+            return LLMResponse(
+                content="",
+                parsed=None,
+                model=model,
+                input_tokens=0, output_tokens=0,
+                latency_ms=100, success=False, error="flash_5xx",
+            )
+        # Pro succeeds.
+        return LLMResponse(
+            content='{"question_text": "Pro paraphrase: which grape variety must Barolo use?"}',
+            parsed={
+                "question_text": "Pro paraphrase: which grape variety must Barolo use?"
+            },
+            model=model,
+            input_tokens=200, output_tokens=20,
+            latency_ms=600, success=True, error=None,
+        )
+
+    monkeypatch.setattr(
+        "src.generators._llm_client.LLMClient.generate",
+        fake_generate,
+    )
+
+    out = _template_paraphrase.paraphrase_question_text(
+        "Barolo requires which red grape variety?",
+        _OPTIONS,
+    )
+    # Two calls total: Flash, then Pro.
+    assert len(call_log) == 2
+    assert "flash" in call_log[0]
+    assert call_log[1] == "google/gemini-3.1-pro-preview"
+    # The output (if validation passes) reflects the Pro response.
+    if out is not None:
+        assert "Pro paraphrase" in out
+
+
+# ─── C2: template-verifier model swap ─────────────────────────────────────────
+
+
+def _make_template_verify_response(parsed: dict | None, *, success: bool = True,
+                                   error: str | None = None) -> LLMResponse:
+    """Convenience for the template-verify tests below."""
+    import orjson
+    return LLMResponse(
+        content=orjson.dumps(parsed or {}).decode() if parsed else "",
+        parsed=parsed,
+        model="mocked",
+        input_tokens=120,
+        output_tokens=15,
+        latency_ms=400,
+        success=success,
+        error=error if error else (None if success else "mocked failure"),
+    )
+
+
+def test_verifier_uses_flash_by_default(monkeypatch):
+    """Default model for verify_template_answer_with_gemini is Flash."""
+    monkeypatch.delenv("OENOBENCH_VERIFIER_MODEL", raising=False)
+    monkeypatch.delenv("OENOBENCH_VERIFIER_SKIP", raising=False)
+    monkeypatch.delenv("OENOBENCH_LLM_CACHE", raising=False)
+
+    captured = {}
+
+    def fake_generate(self, **kwargs):
+        captured.update(kwargs)
+        return _make_template_verify_response({"chosen": "A"})
+
+    monkeypatch.setattr(
+        "src.generators._llm_client.LLMClient.generate",
+        fake_generate,
+    )
+
+    agrees, debug = _verify.verify_template_answer_with_gemini(
+        question_text="Q?",
+        options=_OPTIONS,
+        correct_answer_id="A",
+        source_fact_text="Barolo requires 100% Nebbiolo.",
+    )
+    assert agrees is True
+    assert captured.get("model") == "google/gemini-3.1-flash-preview-20260219"
+
+
+def test_verifier_env_override(monkeypatch):
+    """OENOBENCH_VERIFIER_MODEL overrides the default."""
+    custom = "google/some-experimental-flash-y"
+    monkeypatch.setenv("OENOBENCH_VERIFIER_MODEL", custom)
+    monkeypatch.delenv("OENOBENCH_VERIFIER_SKIP", raising=False)
+    monkeypatch.delenv("OENOBENCH_LLM_CACHE", raising=False)
+
+    captured = {}
+
+    def fake_generate(self, **kwargs):
+        captured.update(kwargs)
+        return _make_template_verify_response({"chosen": "A"})
+
+    monkeypatch.setattr(
+        "src.generators._llm_client.LLMClient.generate",
+        fake_generate,
+    )
+
+    _ = _verify.verify_template_answer_with_gemini(
+        question_text="Q?",
+        options=_OPTIONS,
+        correct_answer_id="A",
+        source_fact_text="Some fact.",
+    )
+    assert captured.get("model") == custom
+
+
+def test_verifier_falls_back_to_pro_on_failure(monkeypatch):
+    """Flash failure → retry on Pro; final verdict reflects Pro response."""
+    monkeypatch.delenv("OENOBENCH_VERIFIER_MODEL", raising=False)
+    monkeypatch.delenv("OENOBENCH_VERIFIER_SKIP", raising=False)
+    monkeypatch.delenv("OENOBENCH_LLM_CACHE", raising=False)
+
+    call_log: list[str] = []
+
+    def fake_generate(self, **kwargs):
+        model = kwargs.get("model", "")
+        call_log.append(model)
+        if "flash" in model:
+            return _make_template_verify_response(
+                None, success=False, error="flash_503",
+            )
+        # Pro succeeds with chosen=A.
+        return _make_template_verify_response({"chosen": "A"})
+
+    monkeypatch.setattr(
+        "src.generators._llm_client.LLMClient.generate",
+        fake_generate,
+    )
+
+    agrees, debug = _verify.verify_template_answer_with_gemini(
+        question_text="Q?",
+        options=_OPTIONS,
+        correct_answer_id="A",
+        source_fact_text="Barolo requires 100% Nebbiolo.",
+    )
+    # Two calls: Flash (fail), Pro (success).
+    assert len(call_log) == 2
+    assert "flash" in call_log[0]
+    assert call_log[1] == "google/gemini-3.1-pro-preview"
+    assert agrees is True
+    # Debug payload records the actually-used model (Pro).
+    assert debug.get("verifier_model") == "google/gemini-3.1-pro-preview"

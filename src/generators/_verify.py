@@ -82,6 +82,38 @@ def should_skip_verifier(
         return False
     return conf >= confidence_threshold
 
+
+# ─── Lever C2 (2026-04-28) — Faster Gemini variant for verifier ──────────────
+#
+# Gemini Pro (3.1-pro-preview-20260219, the OpenRouter id is shorter
+# 'google/gemini-3.1-pro-preview') averaged 13.6s on v8 (p95 33s, max
+# 195s) for sub-2K-token JSON tasks like template verification. Flash
+# variants typically run 3-5× faster on these. Default to Flash; revert
+# via OENOBENCH_VERIFIER_MODEL=google/gemini-3.1-pro-preview. If the
+# Flash call returns success=False, retry once on Pro as a defensive
+# fallback (Flash may not honour json_mode or extra_body provider hints
+# on every OpenRouter route).
+
+VERIFIER_MODEL_ENV_VAR = "OENOBENCH_VERIFIER_MODEL"
+# OpenRouter listing chosen at lever-C2 time (2026-04-28). If the
+# `*-preview-20260219` slug is not yet listed at runtime, the failover
+# below kicks in and the Pro fallback runs.
+_VERIFIER_FLASH_DEFAULT = "google/gemini-3.1-flash-preview-20260219"
+_VERIFIER_PRO_FALLBACK = "google/gemini-3.1-pro-preview"
+
+
+def _resolve_template_verifier_model() -> str:
+    """Return the OpenRouter model id for the template verifier.
+
+    Resolution order:
+        1. OENOBENCH_VERIFIER_MODEL env var (full openrouter slug).
+        2. _VERIFIER_FLASH_DEFAULT.
+    """
+    env = os.environ.get(VERIFIER_MODEL_ENV_VAR, "").strip()
+    if env:
+        return env
+    return _VERIFIER_FLASH_DEFAULT
+
 # Generators whose questions must be independently verified.
 GENERATORS_REQUIRING_VERIFICATION = {"llama", "qwen"}
 
@@ -372,7 +404,15 @@ def verify_question_with_independent_solver(
 # "completely incorrect" despite passing all existing gates — this verifier
 # catches that class. At ~1000 templates × ~$0.001 = ~$1 for the run.
 
-_TEMPLATE_VERIFIER_MODEL = "gemini"
+# Lever C2 (2026-04-28): the short-name "gemini" used to resolve via
+# GENERATOR_MODELS to Gemini Pro. We now resolve directly to a full
+# OpenRouter slug so we can swap to the Flash variant by default and
+# fall back to Pro on failure. The short-name "gemini" is preserved
+# elsewhere (verifier-rotation in verify_question_with_independent_solver
+# still uses GENERATOR_MODELS for cost-pricing keys).
+_TEMPLATE_VERIFIER_MODEL = "gemini"  # short-name kept for cost lookup
+_TEMPLATE_VERIFIER_FLASH = _VERIFIER_FLASH_DEFAULT
+_TEMPLATE_VERIFIER_PRO = _VERIFIER_PRO_FALLBACK
 
 _TEMPLATE_VERIFIER_SYSTEM = """\
 You are verifying a multiple-choice wine question. Choose the option most \
@@ -422,6 +462,11 @@ def verify_template_answer_with_gemini(
     Lever B5 (2026-04-28): if OENOBENCH_VERIFIER_SKIP=1 AND the closed-book
     gate passed AND generator_confidence >= 0.9, skip the Gemini call
     entirely and return (True, {"skipped": True, ...}). Default OFF.
+
+    Lever C2 (2026-04-28): the model is now ``OENOBENCH_VERIFIER_MODEL``
+    (default Gemini Flash). On Flash failure (success=False), the call is
+    retried once on Gemini Pro as a defensive fallback. Cost / cache
+    accounting follow the actually-used model.
     """
     if not options or not correct_answer_id:
         return True, {"skipped": True, "reason": "missing options or key"}
@@ -443,9 +488,14 @@ def verify_template_answer_with_gemini(
             "generator_confidence": generator_confidence,
         }
 
+    # Lever C2: resolve the runtime model. Cache key includes the model_id
+    # so cached entries written under Pro will be ignored once we swap to
+    # Flash by default — no manual invalidation needed.
+    flash_model = _resolve_template_verifier_model()
+    pro_model = _VERIFIER_PRO_FALLBACK
+
     # Lever B1: cache lookup. fn name in the key so this path doesn't
     # collide with verify_question_with_independent_solver.
-    _cache_model_id = GENERATOR_MODELS.get(_TEMPLATE_VERIFIER_MODEL, _TEMPLATE_VERIFIER_MODEL)
     _cache_key = _llm_cache.cache_key({
         "fn": "verify_template_answer_with_gemini",
         "stem": question_text,
@@ -456,7 +506,7 @@ def verify_template_answer_with_gemini(
     _cached = _llm_cache.lookup(
         kind="verifier",
         key=_cache_key,
-        model_id=_cache_model_id,
+        model_id=flash_model,
         version_tag=_VERIFY_CACHE_VERSION,
     )
     if _cached is not None:
@@ -468,23 +518,36 @@ def verify_template_answer_with_gemini(
         source_fact_text=source_fact_text or "",
     )
     client = get_client()
-    response: LLMResponse = client.generate(
-        prompt=prompt,
-        system=_TEMPLATE_VERIFIER_SYSTEM,
-        model=_TEMPLATE_VERIFIER_MODEL,
-        temperature=0.0,
-        # v2.3 fix: Gemini 3.1 Pro opens with "Here is my answer…" prose and
-        # runs out of 40 tokens before emitting JSON; measured ~96% reject
-        # rate on audit_pilot_v4. Bumped to 256 so the model can finish its
-        # lead-in AND emit the JSON. Downstream JSON extraction in
-        # _llm_client already handles prose-wrapped JSON.
-        max_tokens=256,
-        json_mode=True,
-        # Phase 2g.8: template-verify prompts are sub-2K tokens — pin to
-        # cheapest provider so OpenRouter does not route through the
-        # >200K-context Gemini Pro tier.
-        extra_body={"provider": {"sort": "price"}},
-    )
+
+    def _call(model_id: str) -> "LLMResponse":
+        return client.generate(
+            prompt=prompt,
+            system=_TEMPLATE_VERIFIER_SYSTEM,
+            model=model_id,
+            temperature=0.0,
+            # v2.3 fix: Gemini 3.1 Pro opens with "Here is my answer…" prose
+            # and runs out of 40 tokens before emitting JSON; measured ~96%
+            # reject rate on audit_pilot_v4. Bumped to 256 so the model can
+            # finish its lead-in AND emit the JSON. Downstream JSON
+            # extraction in _llm_client already handles prose-wrapped JSON.
+            max_tokens=256,
+            json_mode=True,
+            # Phase 2g.8: template-verify prompts are sub-2K tokens — pin
+            # to cheapest provider so OpenRouter does not route through the
+            # >200K-context Gemini Pro tier.
+            extra_body={"provider": {"sort": "price"}},
+        )
+
+    response: LLMResponse = _call(flash_model)
+    used_model = flash_model
+
+    if not response.success:
+        logger.info(
+            "template-verify: Flash failover | flash={} | error={} | retrying on Pro",
+            flash_model, response.error,
+        )
+        response = _call(pro_model)
+        used_model = pro_model
 
     cost_usd = _estimate_cost(
         _TEMPLATE_VERIFIER_MODEL, response.input_tokens, response.output_tokens
@@ -492,11 +555,11 @@ def verify_template_answer_with_gemini(
 
     if not response.success:
         logger.warning(
-            "template-verify: LLM call failed | error={} | question={!r}",
-            response.error, question_text[:80],
+            "template-verify: LLM call failed | model={} | error={} | question={!r}",
+            used_model, response.error, question_text[:80],
         )
         return False, {
-            "verifier_model": _TEMPLATE_VERIFIER_MODEL,
+            "verifier_model": used_model,
             "chosen": None,
             "error": response.error,
             "cost_usd": cost_usd,
@@ -507,7 +570,7 @@ def verify_template_answer_with_gemini(
     expected = (correct_answer_id or "").strip().upper()[:1]
 
     debug = {
-        "verifier_model": _TEMPLATE_VERIFIER_MODEL,
+        "verifier_model": used_model,
         "chosen": chosen,
         "expected": expected,
         "raw": response.content[:300],
@@ -528,21 +591,23 @@ def verify_template_answer_with_gemini(
     agrees = chosen == expected
     if agrees:
         logger.debug(
-            "template-verify: AGREE | chosen={} | cost=${:.4f}", chosen, cost_usd
+            "template-verify: AGREE | model={} | chosen={} | cost=${:.4f}",
+            used_model, chosen, cost_usd,
         )
     else:
         logger.warning(
-            "template-verify: DISAGREE | chosen={} | expected={} | q={!r}",
-            chosen, expected, question_text[:80],
+            "template-verify: DISAGREE | model={} | chosen={} | expected={} | q={!r}",
+            used_model, chosen, expected, question_text[:80],
         )
 
     # Lever B1: cache only successful parses. The N-no-support path,
     # unparseable-response path, and API-error path all returned earlier
-    # without reaching here.
+    # without reaching here. Cache key uses the actually-used model so
+    # Flash and Pro have separate cache rows.
     _llm_cache.store(
         kind="verifier",
         key=_cache_key,
-        model_id=_cache_model_id,
+        model_id=used_model,
         version_tag=_VERIFY_CACHE_VERSION,
         payload={"agrees": bool(agrees), "debug": debug},
     )
