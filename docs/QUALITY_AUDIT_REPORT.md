@@ -1,164 +1,153 @@
 # OenoBench Quality Audit Report
 
-- Run ID: `9ba6f760-5a6c-4403-9709-412c13eac30c`
-- Corpus tag: `audit_pilot_v7`
-- Corpus size: 242
-- Config hash: `3d56b7d99fe9f153...`
-- Started: 2026-04-27 06:36:29.754043+00:00
-- Completed: 2026-04-27 09:41:06.917793+00:00
-- LLM calls: 2436
-- Cost: $4.42
+- Run ID: `7dc2ab81-bc9a-40b1-a1a4-3ddf66a6e6fe`
+- Corpus tag: `audit_pilot_v8`
+- Corpus size: 111
+- Config hash: `f8a1b4b7b85a8e63...`
+- Started: 2026-04-28 19:40:08.030940+00:00
+- Completed: 2026-04-28 21:16:44.857129+00:00
+- LLM calls: 1313
+- Cost: $2.33
 
 ## 1 · Executive summary
 
-- Findings across 9 agents: 908 pass · 208 warn · 228 fail · 0 error
+- Findings across 9 agents: 413 pass · 94 warn · 53 fail · 0 error
 
 | Agent | pass | warn | fail | error | total |
 |---|---:|---:|---:|---:|---:|
-| A1_LexicalHygiene | 228 | 7 | 7 | 0 | 242 |
+| A1_LexicalHygiene | 110 | 0 | 1 | 0 | 111 |
 | A2_BiasStats | 0 | 1 | 0 | 0 | 1 |
-| A3_FactEcho | 136 | 102 | 4 | 0 | 242 |
-| A4_TemplateFingerprint | 1 | 45 | 85 | 0 | 131 |
-| B1_TriJudgeAnswer | 229 | 11 | 2 | 0 | 242 |
-| B2_ClosedBookSolvability | 77 | 37 | 128 | 0 | 242 |
-| C2_CategoryLeak | 237 | 5 | 0 | 0 | 242 |
+| A3_FactEcho | 55 | 56 | 0 | 0 | 111 |
+| A4_TemplateFingerprint | 0 | 2 | 0 | 0 | 2 |
+| B1_TriJudgeAnswer | 97 | 13 | 1 | 0 | 111 |
+| B2_ClosedBookSolvability | 42 | 19 | 50 | 0 | 111 |
+| C2_CategoryLeak | 109 | 2 | 0 | 0 | 111 |
 | D1_SelfPreference | 0 | 0 | 1 | 0 | 1 |
-| D3_SkewAudit | 0 | 0 | 1 | 0 | 1 |
+| D3_SkewAudit | 0 | 1 | 0 | 0 | 1 |
 
 ## 2 · Methodology
 
-- Corpus: 242 questions tagged `audit_pilot_v7`, seed 44.
+- Corpus: 111 questions tagged `audit_pilot_v8`, seed 45.
 - Agents: ['A1_LexicalHygiene', 'A2_BiasStats', 'A3_FactEcho', 'A4_TemplateFingerprint', 'B1_TriJudgeAnswer', 'B2_ClosedBookSolvability', 'C2_CategoryLeak', 'C4_DifficultyAudit', 'D1_SelfPreference', 'D3_SkewAudit']
 - Judge models: ['claude', 'chatgpt', 'gemini']
-- Thresholds and seeds encoded in config hash (full hash: `3d56b7d99fe9f15340ff1b8289a32785b42a031fed43696a9d70d4a31cd57e72`).
+- Thresholds and seeds encoded in config hash (full hash: `f8a1b4b7b85a8e6344e14558c5e2d4d680e6d91034f2c169847c70cbecef57bb`).
 
 ## 3 · Per-strategy deep dive
 
 ### template
 
-- Question count: **30**
-- Severity rollup: pass=112, warn=16, fail=22
+- Question count: **20**
+- Severity rollup: pass=74, warn=14, fail=12
 - Failures by agent:
-  - B2_ClosedBookSolvability: 21
-  - A3_FactEcho: 1
+  - B2_ClosedBookSolvability: 12
 - Sample failures:
-  - WB-REG-0397-L1  ·  B2_ClosedBookSolvability  ·  
-    > A buyer is routing a shipment of Clements Hills AVA wine. Based on the fact, which US state is the origin?
-  - WB-REG-0398-L1  ·  B2_ClosedBookSolvability  ·  
-    > A buyer is routing a shipment of Kelsey Bench-Lake County AVA wine. Based on the fact, which US state is the origin?
-  - WB-GRP-0434-L1  ·  B2_ClosedBookSolvability  ·  
-    > Per the fact, which country hosts cultivation of Malbec?
+  - WB-REG-0439-L1  ·  B2_ClosedBookSolvability  ·  
+    > A critic reviewing Chehalem Mountains AVA wines wants to verify the state of origin. The fact identifies which state?
+  - WB-REG-0440-L3  ·  B2_ClosedBookSolvability  ·  
+    > Which parent region encompasses Montefalco Sagrantino?
+  - WB-PRD-0361-L1  ·  B2_ClosedBookSolvability  ·  
+    > A wine writer placing Paolo Scavino on a country-by-country map turns to the fact. Which country is specified?
 
 ### fact_to_question
 
-- Question count: **120**
-- Severity rollup: pass=458, warn=102, fail=97
+- Question count: **40**
+- Severity rollup: pass=155, warn=25, fail=20
 - Failures by agent:
-  - B2_ClosedBookSolvability: 67
-  - A4_TemplateFingerprint: 27
-  - A3_FactEcho: 2
-  - A1_LexicalHygiene: 1
+  - B2_ClosedBookSolvability: 20
 - Sample failures:
-  - WB-BIZ-0260-L2  ·  A4_TemplateFingerprint  ·  
-    > What is the role of the South African Wine Evaluation Committee in the country's wine industry?
-  - WB-VIT-0345-L2  ·  A4_TemplateFingerprint  ·  
-    > During which stage of development do grapevines typically not produce flowers, based on their physiological maturation pattern?
-  - WB-WMK-0291-L2  ·  A4_TemplateFingerprint  ·  
-    > When dealing with underripe fruit during red wine production, what is the observed impact of prolonging skin contact time?
+  - WB-WMK-0317-L2  ·  B2_ClosedBookSolvability  ·  
+    > Which of the following methods can be used to introduce carbon dioxide into a sparkling wine, according to winemaking regulations?
+  - WB-WMK-0320-L2  ·  B2_ClosedBookSolvability  ·  
+    > Which country includes the Slavonian oak forest, a notable source of oak in cooperage?
+  - WB-VIT-0393-L2  ·  B2_ClosedBookSolvability  ·  
+    > Which Italian wine production area is noted for having basalt-derived volcanic earth, a geological feature that is credited with giving its wines a distinct mineral profile?
 
 ### comparative
 
-- Question count: **34**
-- Severity rollup: pass=128, warn=35, fail=28
+- Question count: **14**
+- Severity rollup: pass=53, warn=12, fail=5
 - Failures by agent:
-  - B2_ClosedBookSolvability: 12
-  - A4_TemplateFingerprint: 12
-  - A1_LexicalHygiene: 3
-  - B1_TriJudgeAnswer: 1
+  - B2_ClosedBookSolvability: 5
 - Sample failures:
-  - WB-VIT-0368-L2  ·  B2_ClosedBookSolvability  ·  
-    > An American Viticultural Area situated entirely within a single California county, taking its identity from the state's largest natural freshwater lake, best matches which of the f
-  - WB-GRP-0462-L2  ·  B2_ClosedBookSolvability  ·  
-    > Which grape variety is associated with wines that have high acidity and tannin?
-  - WB-VIT-0370-L3  ·  A4_TemplateFingerprint  ·  
-    > Which of these wine regions is defined by its location within a specific county in California and recognized as a distinct viticultural area due to its unique geographic setting in
+  - WB-VIT-0406-L2  ·  B2_ClosedBookSolvability  ·  
+    > One of these regions is characterized by roughly two extra daylight hours per day during the growing season, along with relatively steady temperatures, while the other is noted for
+  - WB-VIT-0400-L2  ·  B2_ClosedBookSolvability  ·  
+    > Which American Viticultural Area was originally approved under a different name and later became the first to undergo an official name change, covering approximately 33,000 acres i
+  - WB-GRP-0515-L2  ·  B2_ClosedBookSolvability  ·  
+    > Which grape variety is described by UC Davis FPS as having grey-colored berries?
 
 ### scenario_synthesis
 
-- Question count: **42**
-- Severity rollup: pass=149, warn=37, fail=65
+- Question count: **23**
+- Severity rollup: pass=80, warn=26, fail=10
 - Failures by agent:
-  - A4_TemplateFingerprint: 40
-  - B2_ClosedBookSolvability: 23
-  - A1_LexicalHygiene: 2
+  - B2_ClosedBookSolvability: 9
+  - B1_TriJudgeAnswer: 1
 - Sample failures:
-  - WB-REG-0419-L3  ·  A4_TemplateFingerprint  ·  
-    > A viticultural team in Quebec is preparing for their inaugural late-season sweet wine harvest. Because they plan to pick during the freezing pre-dawn hours, they are finalizing the
-  - WB-REG-0427-L2  ·  A4_TemplateFingerprint  ·  
-    > A viticulturist is evaluating two Chilean coastal wine regions for a new planting of aromatic white varieties. Both regions benefit from maritime influence, but in one region, the 
-  - WB-REG-0420-L4  ·  A4_TemplateFingerprint  ·  
-    > A production director at a California wine estate is finalizing the bottling schedule for three distinct single-appellation red wines. To align with a new 'Heritage Timeline' marke
+  - WB-GRP-0521-L3  ·  B2_ClosedBookSolvability  ·  
+    > A consulting winemaker is helping a Mediterranean estate redesign a red blend built around Sangiovese. The brief is to use a historically established approach for this grape, take 
+  - WB-GRP-0536-L4  ·  B1_TriJudgeAnswer  ·  majority_matches_key=False
+    > A winemaker in northern Italy wants to produce a sparkling rosé using a traditional local grape variety. Which grape should they select to make a rosé sparkling wine that showcases
+  - WB-VIT-0402-L3  ·  B2_ClosedBookSolvability  ·  
+    > A winemaker in Pennsylvania is concerned about potential pest issues in their vineyard as harvest approaches. They have noticed some insect activity on the edges of the vineyard an
 
 ### distractor_mining
 
-- Question count: **16**
-- Severity rollup: pass=60, warn=17, fail=14
+- Question count: **14**
+- Severity rollup: pass=51, warn=14, fail=5
 - Failures by agent:
-  - A4_TemplateFingerprint: 6
-  - B2_ClosedBookSolvability: 5
+  - B2_ClosedBookSolvability: 4
   - A1_LexicalHygiene: 1
-  - B1_TriJudgeAnswer: 1
-  - A3_FactEcho: 1
 - Sample failures:
-  - WB-GRP-0501-L3  ·  B2_ClosedBookSolvability  ·  
-    > Which grape variety was historically cultivated across Catalonia and remained in use both prior to and following the phylloxera epidemic, distinguishing it by its long-standing pre
-  - WB-GRP-0502-L4  ·  A4_TemplateFingerprint  ·  
-    > Which historical figure is associated with the development of disease-resistant grape varieties that enabled viticulture in regions where phylloxera and fungal pressures had previo
-  - WB-REG-0430-L4  ·  A4_TemplateFingerprint  ·  
-    > Which of the following American Viticultural Areas received its official federal designation during the year 1981?
+  - WB-BIZ-0285-L3  ·  B2_ClosedBookSolvability  ·  
+    > Which German wine entity is described by this classification detail: it is organized into 2 Bereiche, containing 11 Großlagen and 111 Einzellagen?
+  - WB-REG-0452-L3  ·  A1_LexicalHygiene  ·  matches=['question_text']
+    > Elevation to DOCG status in 1980 placed which appellation among the earliest Italian wines to receive that top-tier designation?
+  - WB-PRD-0375-L3  ·  B2_ClosedBookSolvability  ·  
+    > Which Georgian estate was home to a fashionable 19th century salon?
 
 ## 4 · Per-generator deep dive
 
 ### chatgpt
 
-- Authored question count: **40**
-- Total fails: 40, warns: 37
+- Authored question count: **15**
+- Total fails: 8, warns: 14
 
 ### claude
 
-- Authored question count: **39**
-- Total fails: 36, warns: 36
+- Authored question count: **17**
+- Total fails: 8, warns: 13
 
 ### gemini
 
-- Authored question count: **38**
-- Total fails: 32, warns: 25
+- Authored question count: **13**
+- Total fails: 2, warns: 8
 
 ### llama
 
-- Authored question count: **48**
-- Total fails: 43, warns: 43
+- Authored question count: **26**
+- Total fails: 12, warns: 24
 
 ### qwen
 
-- Authored question count: **47**
-- Total fails: 53, warns: 50
+- Authored question count: **20**
+- Total fails: 10, warns: 18
 
 ### template_only
 
-- Authored question count: **30**
-- Total fails: 22, warns: 16
+- Authored question count: **20**
+- Total fails: 12, warns: 14
 
 ## 5 · Cross-cutting findings
 
 ### Template detectability (A4)
-- Held-out AUC: **0.7417**
-- Top discriminative features: `len:tokens` (+1.24), `len:sentences` (-0.61), `bg:PUN-WORD` (-0.57), `len:avg_word` (+0.52), `bg:SHORT-PUN` (-0.42), `bg:WORD-SHORT` (-0.25), `bg:DET-WORD` (+0.18), `bg:PUN-DET` (-0.18)
+- Held-out AUC: **0.9068**
+- Top discriminative features: `len:tokens` (+1.35), `len:sentences` (-0.63), `bg:PUN-WORD` (-0.55), `bg:SHORT-PUN` (-0.41), `bg:WORD-SHORT` (-0.32), `len:avg_word` (+0.26), `bg:PUN-DET` (-0.20), `bg:WORD-WORD` (+0.18)
 
 ### Country / domain skew (D3)
-- Max country over-representation ratio: **10.613**
-- Question country counts (top 10): {'US': 1, 'Italy': 4, 'Spain': 1, 'Canada': 2, 'France': 3, 'Germany': 1, 'Hungary': 1, 'Uruguay': 1, 'Bulgaria': 1, 'Portugal': 1}
-- Subdomain Herfindahl per strategy: template=0.0911, comparative=0.4948, fact_to_question=0.0561, distractor_mining=0.1094, scenario_synthesis=0.0816
+- Max country over-representation ratio: **4.185**
+- Question country counts (top 10): {'US': 2, 'Chile': 1, 'Italy': 3, 'Australia': 2, 'New Zealand': 1, 'South Africa': 1}
+- Subdomain Herfindahl per strategy: template=0.135, comparative=0.3367, fact_to_question=0.0675, distractor_mining=0.0918, scenario_synthesis=0.0851
 
 ## 6 · Gold calibration
 
@@ -195,10 +184,10 @@ Escalation triggers (if the audit finds these, run the deferred agents):
 
 ```sql
 -- All findings for this run
-SELECT agent_id, severity, count(*) FROM audit_findings WHERE run_id = '9ba6f760-5a6c-4403-9709-412c13eac30c' GROUP BY 1,2;
+SELECT agent_id, severity, count(*) FROM audit_findings WHERE run_id = '7dc2ab81-bc9a-40b1-a1a4-3ddf66a6e6fe' GROUP BY 1,2;
 
 -- Per-question rollup
-SELECT * FROM v_question_audit_summary WHERE id IN (SELECT question_id FROM audit_findings WHERE run_id = '9ba6f760-5a6c-4403-9709-412c13eac30c');
+SELECT * FROM v_question_audit_summary WHERE id IN (SELECT question_id FROM audit_findings WHERE run_id = '7dc2ab81-bc9a-40b1-a1a4-3ddf66a6e6fe');
 ```
 
-_Generated 2026-04-27T09:41:08.196647_
+_Generated 2026-04-28T21:16:45.990277_

@@ -324,6 +324,32 @@ What this fix does **not** address: the cap-vs-actual-yield mismatch (cap comput
 
 See `CURRENT_STATUS.md` for detailed phase tracking and the regeneration Go/No-Go gate.
 
+### Phase 2g.11 shipped (2026-04-28)
+
+Generation-pipeline speedup. Audit pilot v8 ran in **~11.4 hours wall, ~16k LLM calls, kept 111 questions** (~99% rejection rate, ~150 calls per accepted question). Linear extrapolation to the 10k full run was ~1,000 hours = 42 days, blocking the NeurIPS deadline. 10 levers shipped across parallel agent teams; v8 reproducibility preserved via env-var gating on each lever.
+
+| Lever | Commit | What | Activated by |
+|---|---|---|---|
+| A1 | `f728974` | Drop hardcoded `time.sleep(1.5)` in `_llm_client.py` (was ~6.7h of v8 wall) | `OENOBENCH_LLM_THROTTLE_MS=0` (default 100ms) |
+| C1 | `f728974` | `LLMClient.generate(timeout=...)` + APITimeoutError → retry once with `provider.sort=throughput` | `timeout` kwarg at call site |
+| A2 | `0550511` | Each strategy module exposes `run_generate(...)`; `_corpus._run_generator` and `orchestrator._run_strategy` call in-process (no subprocess cold starts) | default ON; `OENOBENCH_USE_SUBPROCESS_DISPATCH=1` reverts |
+| A3 | `f2f6389` | `ThreadPoolExecutor` over (generator × domain) cells; `_QUOTA_LOCK` in `_question_db.py` for the count-then-insert race | `--max-workers N` / `OENOBENCH_MAX_WORKERS=N` (default 1) |
+| A4 | `6b4bee0` | `ThreadPoolExecutor` over top-level strategies | `--strategy-workers N` / `OENOBENCH_STRATEGY_WORKERS=N` (default 1) |
+| B1 | `ca13b2d` | Postgres `llm_decisions` cache for gate / verifier / paraphrase verdicts; key = SHA-256 of canonical-JSON of `(stem, options, answer, model_id, version_tag)` | `OENOBENCH_LLM_CACHE=1` |
+| B2 | `0b190a0` | Substantiveness pre-filter at sampler + iconic-filter extension to all 5 strategies | `OENOBENCH_FACT_SUBSTANTIVE_FILTER=1` |
+| B3 | `49e2fe3` | Per-cell circuit breaker (K=20 window, M=10 min attempts, 5% threshold) + budget reallocation (capped 2× original) | `OENOBENCH_CIRCUIT_BREAKER=1` |
+| B4 | `5f3247d` | Tier-aware gate model: Haiku L1 / Sonnet L2 / Opus L3 (was single Opus default). `GATE_VERSION 2.3.0 → 2.4.0` | per-tier env vars `OENOBENCH_GATE_MODEL_L{1,2,3}` or global `OENOBENCH_GATE_MODEL` |
+| C2 | `aca5932` | Gemini Flash variant for paraphrase + template verifier (Pro fallback on failure) | default ON; `OENOBENCH_PARAPHRASE_MODEL` / `OENOBENCH_VERIFIER_MODEL` revert |
+| B5 (dormant) | `7393e9b` | `should_skip_verifier(gate_passed, generator_confidence)` helper | `OENOBENCH_VERIFIER_SKIP=1` — dormant: pipeline runs verifier BEFORE gate, so `gate_passed=False` always until a Phase 2g.12 reorder |
+
+**Audit pilot v9 harness:** `scripts/run_audit_pilot_v9_build.sh` and `_audit.sh` activate every non-dormant lever. v9 mirrors v8's `per_strategy=40 / target=200 / per_country_cap=0.30` so the corpus is directly comparable for B2/A1/A4/D3 metrics. Expected wall: ~1–3h (vs v8's 11.4h).
+
+**Tests: 472/472 pass** (was 373 before Phase 2g.11). +99 new tests across the 10 levers.
+
+### Phase 2g.11 audit pilot v8 — phase 2 results (2026-04-28)
+
+Audit phase 2 on `audit_pilot_v8` (run_id `7dc2ab81-bc9a-40b1-a1a4-3ddf66a6e6fe`) completed in 1h 36min. D3 max country ratio 4.19× was correctly downgraded to WARN by the Phase 2g.9 coverage guard (country annotation coverage 9.0%, < 50% threshold). Reports at `docs/QUALITY_AUDIT_REPORT.md` and `docs/GENERATION_IMPROVEMENT_PLAN_AUTO.md`.
+
 ## Documentation Maintenance — MANDATORY
 
 After every PR or significant change, update all relevant documentation before committing. This is not optional — accurate docs are critical for this multi-session project where each Claude Code session relies on CLAUDE.md and other docs to understand the current state.
@@ -479,42 +505,47 @@ See `config/postgres/init.sql` for full schema with enums, indexes, views, and t
 
 ## What to Work On Next
 
-Phase 2g.9 fixes are committed and tested (347/347 pass). The v7 corpus is superseded; v8 is the next audit cycle.
+Phase 2g.11 speedup levers are committed and tested (472/472 pass). The v8 corpus + audit are complete; v9 is the next audit cycle on the new pipeline.
 
-1. **Phase 1 — build v8 corpus + export gold sheet** (~4-5h, automated):
+1. **Phase 1 — build v9 corpus + export gold sheet** (~1–3h, automated; vs v8's 11.4h):
    ```bash
-   nohup bash scripts/run_audit_pilot_v8_build.sh &
+   nohup bash scripts/run_audit_pilot_v9_build.sh &
    ```
-   This runs `build-corpus --tag audit_pilot_v8 --per-strategy 40 --seed 45 --per-country-cap 0.30` (with all Phase 2g.8 + 2g.9 fixes active, gate reverted to Sonnet 4.6), then exports `data/reports/gold_sheet_v8.csv` (40 rows × 10 rubrics, all rubric columns blank).
+   This script exports the speedup env vars (`OENOBENCH_LLM_THROTTLE_MS=0`, `OENOBENCH_LLM_CACHE=1`, `OENOBENCH_FACT_SUBSTANTIVE_FILTER=1`, `OENOBENCH_CIRCUIT_BREAKER=1`, `OENOBENCH_MAX_WORKERS=8`, `OENOBENCH_STRATEGY_WORKERS=3`), then runs `build-corpus --tag audit_pilot_v9 --per-strategy 40 --seed 46 --per-country-cap 0.30 --max-workers 8 --strategy-workers 3`, then exports `data/reports/gold_sheet_v9.csv` (40 rows × 10 rubrics).
 
-   **Sanity-check the build output before launching phase 2:**
-   - Corpus size close to 200 (not 242/600).
-   - `grep -c "GATE QUOTA FULL" data/logs/audit_pilot_v8_build_*.log` > 0.
-   - `closed_book_solvable` count in DB ≤ 50 (= ceil(200 × 0.25)).
+   **Sanity-check the build output:**
+   - Corpus size close to 200 (circuit breaker may undershoot on low-yield strategies).
+   - `grep -c "LLM call" data/logs/audit_pilot_v9_build_*.log` should be **significantly < 16k** (v8 baseline).
+   - `grep "CIRCUIT BREAKER" data/logs/audit_pilot_v9_build_*.log | wc -l` shows abandoned cells.
+   - `grep "LLM cache HIT" data/logs/audit_pilot_v9_build_*.log | wc -l` shows cache hit-rate (B1).
+   - `grep "GATE QUOTA FULL\\|GATE RELABEL" data/logs/audit_pilot_v9_build_*.log` for closed-book quota events.
 
-   If those don't hold, the Phase 2g.9 fixes didn't take and audit #8 should not launch.
-
-2. **User: gold review of `data/reports/gold_sheet_v8.csv`** using `docs/GOLD_REVIEW_GUIDE_V5.md` (rubric definitions stable across v5/v7/v8). ~1h (40 rows instead of v7's 120). Then re-import:
+2. **User: gold review of `data/reports/gold_sheet_v9.csv`** using `docs/GOLD_REVIEW_GUIDE_V5.md` (rubric definitions stable across v5/v7/v8/v9). ~1h (40 rows). Then re-import:
    ```bash
    python -m src.qa.orchestrator import-gold \
-       --csv-path data/reports/gold_sheet_v8.csv --reviewer nikita
+       --csv-path data/reports/gold_sheet_v9.csv --reviewer nikita
    ```
 
-3. **Phase 2 — run audit teams + build reports** (~1-1.5h, ~$5-7):
+3. **Phase 2 — run audit teams + build reports** (~30–60 min, ~$2–4):
    ```bash
-   nohup bash scripts/run_audit_pilot_v8_audit.sh &
+   nohup bash scripts/run_audit_pilot_v9_audit.sh &
    ```
-   The build-reports step computes Cohen's κ from the imported v8 gold labels.
+   The build-reports step computes Cohen's κ from the imported v9 gold labels.
 
-4. **Verify Go/No-Go on v8.** Pass criteria: B2 fail rate on non-cb-tagged L1/L2/L3 ≤ 15%; A1 ≤ 2%; A4 AUC < 0.9; κ ≥ 0.6 on populated rubrics; D3 either < 2.0× max country ratio OR `country_coverage_sufficient=false` with WARN severity; closed-book quota cap properly enforced (≤ 25% of corpus tagged `closed_book_solvable`). If B2 still fails, the residual is structural in scenario_synthesis prompts — fork to a scenario-prompt revision before further model upgrades.
+4. **Verify Go/No-Go on v9.** Pass criteria same as v8: B2 fail rate on non-cb-tagged L1/L2/L3 ≤ 15%; A1 ≤ 2%; A4 AUC < 0.9; κ ≥ 0.6 on populated rubrics; D3 either < 2.0× max country ratio OR `country_coverage_sufficient=false` with WARN severity; closed-book quota cap properly enforced (≤ 25% of corpus tagged `closed_book_solvable`).
 
-5. **Re-measure D1 on v8.** With the v8 corpus mix likely changing under the Phase 2g.9 fixes, the Claude over-preference Δ may resolve naturally. If it doesn't, design a per-generator share cap before the 10k run.
+5. **Compare v9 wall + LLM-call counts against v8** to validate the speedup. v8 baseline: 11.4h / 16k LLM calls / 111 q. v9 target: ~1–3h / significantly < 16k calls / similar or larger corpus. If v9 underdelivers, the most likely culprits are OpenRouter rate-limit pushback (lower `OENOBENCH_MAX_WORKERS` and `OENOBENCH_STRATEGY_WORKERS`) or a regression in one of the levers (disable individually via env vars).
 
-6. **If v8 passes: decide on the full-generation gate model.** v8 already runs on Sonnet (via the build script's env-var export), so if B2 passes the cheaper gate is the proven path — no change needed for the 10k run, which falls back to the module default. If v8 fails B2, retry by deleting the env-var export from the v8 build script; `_closed_book_gate.py`'s module default is still Opus 4.7.
+6. **Re-measure D1 on v9.** With the v9 corpus mix likely changing under the speedup levers (substantiveness filter, circuit breaker, tier-aware gate), the Claude over-preference Δ may resolve naturally.
 
-7. **Kick off the full 10k generation run** (`python -m src.generators.orchestrator generate-all`). The `OVERALL_TARGET` fallback in `_question_db.py` already resolves to 10,000, so the closed-book quota cap math uses 2,500 — no env var needed. If you switch to Opus for the 10k, set `OENOBENCH_GATE_MODEL=anthropic/claude-opus-4.7` (or unset for the module default).
+7. **Kick off the full 10k generation run** (`python -m src.generators.orchestrator generate-all --max-workers 8 --strategy-workers 3`). Set the same env vars as v9 (or copy them from `scripts/run_audit_pilot_v9_build.sh`). The `OVERALL_TARGET` fallback in `_question_db.py` resolves to 10,000.
 
-**Skipping the v8 gold review is permitted but discouraged** — phase 2 will still complete (κ shows n=0 for the v2.3 rubrics). You can review later and re-run only `build-reports --run-id <v8_run_id>` to refresh κ.
+**Phase 2g.12 candidates** (deferred from 2g.11):
+- B5 architecture refactor — reorder pipeline so gate runs before verifier, then `should_skip_verifier` actually fires.
+- C3 budget pooling — soft strategy floors with a fungible residual to highest-yield strategies (requires user sign-off; affects corpus diversity).
+- C4 batched dedup embeddings — only if profiling shows dedup as remaining bottleneck.
+
+**Skipping the v9 gold review is permitted but discouraged** — phase 2 will still complete (κ shows n=0 for the v2.3 rubrics). You can review later and re-run only `build-reports --run-id <v9_run_id>` to refresh κ.
 
 See `CURRENT_STATUS.md` for detailed phase tracking, `docs/GENERATION_IMPROVEMENT_PLAN.md` for the full ranked defect list and Go/No-Go gates, and `docs/PROCESS_LOG.md` 2026-04-23 (Phase 2g), 2026-04-24 (Phase 2g.5 + 2g.6), 2026-04-25 (Phase 2g.7), 2026-04-26 (Phase 2g.7 audit #6 + Phase 2g.8), and 2026-04-27 (Phase 2g.7 audit #7 + Phase 2g.9) for methodology details.
 
