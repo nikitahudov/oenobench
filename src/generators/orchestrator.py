@@ -42,6 +42,10 @@ USE_SUBPROCESS_ENV_VAR = "OENOBENCH_USE_SUBPROCESS_DISPATCH"
 # cell dispatch ThreadPoolExecutor. Default 1.
 MAX_WORKERS_ENV_VAR = "OENOBENCH_MAX_WORKERS"
 
+# Phase 2g.10 (Team Golf A4): worker count for the *top-level* strategy-
+# dispatch ThreadPoolExecutor. Default 1 (sequential).
+STRATEGY_WORKERS_ENV_VAR = "OENOBENCH_STRATEGY_WORKERS"
+
 # ─── Logging setup ────────────────────────────────────────────────────────────
 
 LOG_DIR = Path("data/logs")
@@ -248,6 +252,28 @@ def _resolve_max_workers(arg: int | None) -> int:
     return 1
 
 
+def _resolve_strategy_workers(arg: int | None) -> int:
+    """Resolve the top-level strategy-dispatch worker count.
+
+    Priority: explicit arg > OENOBENCH_STRATEGY_WORKERS env var > default 1.
+    Phase 2g.10 (Team Golf A4).
+    """
+    if arg is not None and arg > 0:
+        return int(arg)
+    raw = os.environ.get(STRATEGY_WORKERS_ENV_VAR)
+    if raw:
+        try:
+            n = int(raw)
+            if n > 0:
+                return n
+        except ValueError:
+            logger.warning(
+                "{} is set but not a positive int (got {!r}); falling back to 1",
+                STRATEGY_WORKERS_ENV_VAR, raw,
+            )
+    return 1
+
+
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
 
@@ -343,7 +369,18 @@ def status(target):
         "OENOBENCH_MAX_WORKERS env var."
     ),
 )
-def generate_all(target, resume, dry_run, max_workers):
+@click.option(
+    "--strategy-workers",
+    type=int,
+    default=None,
+    help=(
+        "Phase 2g.10 (Team Golf A4): worker count for the *top-level* "
+        "strategy-dispatch ThreadPoolExecutor. Default 1 (strategies run "
+        "sequentially). Override via this flag or OENOBENCH_STRATEGY_WORKERS "
+        "env var."
+    ),
+)
+def generate_all(target, resume, dry_run, max_workers, strategy_workers):
     """Run full generation pipeline across all strategies/models/domains."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger.add(LOG_DIR / f"orchestrator_{timestamp}.log", rotation="50 MB")
@@ -358,31 +395,57 @@ def generate_all(target, resume, dry_run, max_workers):
         click.echo("Starting fresh generation run")
 
     workers = _resolve_max_workers(max_workers)
-    click.echo(f"Target: {target:,} questions | dry_run={dry_run} | max_workers={workers}\n")
+    s_workers = _resolve_strategy_workers(strategy_workers)
+    click.echo(
+        f"Target: {target:,} questions | dry_run={dry_run} | "
+        f"max_workers={workers} | strategy_workers={s_workers}\n"
+    )
 
-    for strategy in STRATEGY_ORDER:
+    def _run_one_strategy(strategy: str) -> None:
         strategy_target = STRATEGY_TARGETS[strategy]
         existing_for_strategy = existing_by_method.get(strategy, 0)
         remaining = max(0, strategy_target - existing_for_strategy)
 
         if remaining == 0:
-            click.echo(f"[{strategy}] Target reached ({existing_for_strategy:,}/{strategy_target:,}), skipping")
-            continue
+            click.echo(
+                f"[{strategy}] Target reached ({existing_for_strategy:,}/"
+                f"{strategy_target:,}), skipping"
+            )
+            return
 
-        click.echo(f"[{strategy}] Generating {remaining:,} questions "
-                    f"({existing_for_strategy:,}/{strategy_target:,} exist)")
-
+        click.echo(
+            f"[{strategy}] Generating {remaining:,} questions "
+            f"({existing_for_strategy:,}/{strategy_target:,} exist)"
+        )
         module = STRATEGY_MODULES[strategy]
 
         if strategy not in LLM_STRATEGIES:
-            # Template strategy: single run, no generator split
             _dispatch_template(module, remaining, dry_run, max_workers=workers)
         else:
-            # LLM strategies: split across generators and domains
             _dispatch_llm_strategy(
                 strategy, module, remaining, existing_dgc, dry_run,
                 max_workers=workers,
             )
+
+    if s_workers <= 1:
+        for strategy in STRATEGY_ORDER:
+            _run_one_strategy(strategy)
+    else:
+        logger.info(
+            "orchestrator: dispatching {} strategies concurrently (strategy_workers={})",
+            len(STRATEGY_ORDER), s_workers,
+        )
+        with cf.ThreadPoolExecutor(max_workers=s_workers) as ex:
+            futures = {ex.submit(_run_one_strategy, s): s for s in STRATEGY_ORDER}
+            for fut in cf.as_completed(futures):
+                strategy = futures[fut]
+                try:
+                    fut.result()
+                except Exception as e:  # noqa: BLE001
+                    logger.error(
+                        "orchestrator: top-level strategy {} raised: {}",
+                        strategy, e,
+                    )
 
     click.echo("\nGeneration pipeline complete.")
 

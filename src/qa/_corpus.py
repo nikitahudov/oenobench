@@ -49,6 +49,12 @@ USE_SUBPROCESS_ENV_VAR = "OENOBENCH_USE_SUBPROCESS_DISPATCH"
 # reproducibility preserved). Override via --max-workers or OENOBENCH_MAX_WORKERS.
 MAX_WORKERS_ENV_VAR = "OENOBENCH_MAX_WORKERS"
 
+# Phase 2g.10 (Team Golf A4): worker count for the *top-level* strategy
+# dispatch ThreadPoolExecutor. Default 1 = strategies run sequentially (audit
+# pilots bit-for-bit reproducible). Override via --strategy-workers or
+# OENOBENCH_STRATEGY_WORKERS env var.
+STRATEGY_WORKERS_ENV_VAR = "OENOBENCH_STRATEGY_WORKERS"
+
 STRATEGY_MODULES = {
     "template": "template_generator",
     "fact_to_question": "fact_to_question",
@@ -308,6 +314,30 @@ def _resolve_max_workers(arg: int | None) -> int:
     return 1
 
 
+def _resolve_strategy_workers(arg: int | None) -> int:
+    """Resolve the top-level strategy-dispatch worker count.
+
+    Priority: explicit ``arg`` > ``OENOBENCH_STRATEGY_WORKERS`` env var >
+    default 1. A non-positive value falls through to default 1 (sequential).
+
+    Phase 2g.10 (Team Golf A4).
+    """
+    if arg is not None and arg > 0:
+        return int(arg)
+    raw = os.environ.get(STRATEGY_WORKERS_ENV_VAR)
+    if raw:
+        try:
+            n = int(raw)
+            if n > 0:
+                return n
+        except ValueError:
+            logger.warning(
+                "{} is set but not a positive int (got {!r}); falling back to 1",
+                STRATEGY_WORKERS_ENV_VAR, raw,
+            )
+    return 1
+
+
 # ─── Build ────────────────────────────────────────────────────────────────────
 
 
@@ -319,6 +349,7 @@ def build_pilot_corpus(
     skip_strategies: Iterable[str] = (),
     per_country_cap: float | None = None,
     max_workers: int | None = None,
+    strategy_workers: int | None = None,
 ) -> dict:
     """Generate ~`per_strategy` questions for each strategy and tag them.
 
@@ -337,8 +368,20 @@ def build_pilot_corpus(
             (default) resolves via ``OENOBENCH_MAX_WORKERS`` env var, falling
             back to 1 (sequential) so audit-pilot runs stay bit-for-bit
             reproducible by default.
+        strategy_workers: Phase 2g.10 (Team Golf A4). Worker count for the
+            *top-level* strategy-dispatch ThreadPoolExecutor. The 5 strategies
+            (template, fact_to_question, comparative, scenario_synthesis,
+            distractor_mining) run sequentially when ``1`` (default) so audit
+            pilots reproduce bit-for-bit. ``>=2`` runs strategies concurrently.
+            Resolves via ``OENOBENCH_STRATEGY_WORKERS`` env var when ``None``.
+            Concurrency-safety: the ``_QUOTA_LOCK`` in
+            ``_question_db.insert_question_gated`` serialises the cb-quota
+            count-then-insert pair across strategies; ``_tag_rows`` uses a
+            per-strategy ``strategy_started`` snapshot so tag windows don't
+            overlap.
     """
     workers = _resolve_max_workers(max_workers)
+    s_workers = _resolve_strategy_workers(strategy_workers)
     random.seed(seed)
     started, is_resume = _resolve_build_started_at(tag)
 
@@ -395,74 +438,111 @@ def build_pilot_corpus(
         started.isoformat(),
     )
 
+    def _run_one_strategy(strategy: str, module: str) -> tuple[str, dict]:
+        """Body of a single strategy iteration.
+
+        Returns ``(strategy, {generated, tagged, skipped})``. Hoisted out so
+        the top-level executor (Team Golf A4, ``strategy_workers >= 2``) can
+        submit each strategy independently. The per-strategy
+        ``strategy_started`` snapshot is captured INSIDE this body, after
+        the executor admits us, so concurrent strategies don't share a
+        single ``since`` window in ``_tag_rows``.
+        """
+        if strategy in skip_strategies:
+            logger.info("corpus: skipping {}", strategy)
+            return strategy, {"generated": 0, "tagged": 0, "skipped": True}
+        already = counts_before.get(strategy, 0)
+        if already >= per_strategy:
+            logger.info("corpus: {} already at {}/{}, skipping", strategy, already, per_strategy)
+            return strategy, {"generated": 0, "tagged": 0, "skipped": True}
+        want = per_strategy - already
+        strategy_started = datetime.now()
+
+        # Build the per-strategy cell list, then dispatch either
+        # sequentially (max_workers=1, default — bit-for-bit reproducible)
+        # or concurrently (max_workers≥2 via --max-workers / env var).
+        # Phase 2g.10 (Team Delta A3).
+        cell_calls: list[dict] = []
+        if strategy in LLM_STRATEGIES:
+            per_cell = max(1, want // (len(GENERATORS) * len(DOMAINS)))
+            rem = want - per_cell * len(GENERATORS) * len(DOMAINS)
+            cells = [(g, d) for g in GENERATORS for d in DOMAINS]
+            random.shuffle(cells)
+            for g, d in cells:
+                take = per_cell + (1 if rem > 0 else 0)
+                if rem > 0:
+                    rem -= 1
+                if take <= 0:
+                    continue
+                cell_calls.append({
+                    "module": module, "domain": d, "count": take,
+                    "generator": g, "per_country_cap": per_country_cap,
+                })
+        else:
+            per_cell = max(1, want // len(DOMAINS))
+            rem = want - per_cell * len(DOMAINS)
+            doms = DOMAINS[:]
+            random.shuffle(doms)
+            for d in doms:
+                take = per_cell + (1 if rem > 0 else 0)
+                if rem > 0:
+                    rem -= 1
+                cell_calls.append({
+                    "module": module, "domain": d, "count": take,
+                    "per_country_cap": per_country_cap,
+                })
+
+        if workers <= 1:
+            for kw in cell_calls:
+                _run_generator(**kw)
+        else:
+            with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+                futures = [ex.submit(_run_generator, **kw) for kw in cell_calls]
+                for fut in cf.as_completed(futures):
+                    try:
+                        fut.result()
+                    except Exception as e:  # noqa: BLE001
+                        logger.error("corpus: {} cell raised: {}", strategy, e)
+
+        tagged = _tag_rows(
+            generation_method=strategy,
+            since=strategy_started,
+            limit=want,
+            tag=tag,
+        )
+        logger.info("corpus: {} generated={} tagged={}", strategy, want, tagged)
+        return strategy, {"generated": want, "tagged": tagged, "skipped": False}
+
     results: dict[str, dict] = {}
     try:
-        for strategy, module in STRATEGY_MODULES.items():
-            if strategy in skip_strategies:
-                logger.info("corpus: skipping {}", strategy)
-                continue
-            already = counts_before.get(strategy, 0)
-            if already >= per_strategy:
-                logger.info("corpus: {} already at {}/{}, skipping", strategy, already, per_strategy)
-                results[strategy] = {"generated": 0, "tagged": 0, "skipped": True}
-                continue
-            want = per_strategy - already
-            strategy_started = datetime.now()
-
-            # Build the per-strategy cell list, then dispatch either
-            # sequentially (max_workers=1, default — bit-for-bit reproducible)
-            # or concurrently (max_workers≥2 via --max-workers / env var).
-            # Phase 2g.10 (Team Delta A3).
-            cell_calls: list[dict] = []
-            if strategy in LLM_STRATEGIES:
-                per_cell = max(1, want // (len(GENERATORS) * len(DOMAINS)))
-                rem = want - per_cell * len(GENERATORS) * len(DOMAINS)
-                cells = [(g, d) for g in GENERATORS for d in DOMAINS]
-                random.shuffle(cells)
-                for g, d in cells:
-                    take = per_cell + (1 if rem > 0 else 0)
-                    if rem > 0:
-                        rem -= 1
-                    if take <= 0:
-                        continue
-                    cell_calls.append({
-                        "module": module, "domain": d, "count": take,
-                        "generator": g, "per_country_cap": per_country_cap,
-                    })
-            else:
-                per_cell = max(1, want // len(DOMAINS))
-                rem = want - per_cell * len(DOMAINS)
-                doms = DOMAINS[:]
-                random.shuffle(doms)
-                for d in doms:
-                    take = per_cell + (1 if rem > 0 else 0)
-                    if rem > 0:
-                        rem -= 1
-                    cell_calls.append({
-                        "module": module, "domain": d, "count": take,
-                        "per_country_cap": per_country_cap,
-                    })
-
-            if workers <= 1:
-                for kw in cell_calls:
-                    _run_generator(**kw)
-            else:
-                with cf.ThreadPoolExecutor(max_workers=workers) as ex:
-                    futures = [ex.submit(_run_generator, **kw) for kw in cell_calls]
-                    for fut in cf.as_completed(futures):
-                        try:
-                            fut.result()
-                        except Exception as e:  # noqa: BLE001
-                            logger.error("corpus: {} cell raised: {}", strategy, e)
-
-            tagged = _tag_rows(
-                generation_method=strategy,
-                since=strategy_started,
-                limit=want,
-                tag=tag,
+        if s_workers <= 1:
+            for strategy, module in STRATEGY_MODULES.items():
+                name, stats = _run_one_strategy(strategy, module)
+                results[name] = stats
+        else:
+            logger.info(
+                "corpus: dispatching {} strategies concurrently (strategy_workers={})",
+                len(STRATEGY_MODULES), s_workers,
             )
-            results[strategy] = {"generated": want, "tagged": tagged, "skipped": False}
-            logger.info("corpus: {} generated={} tagged={}", strategy, want, tagged)
+            with cf.ThreadPoolExecutor(max_workers=s_workers) as ex:
+                futures = {
+                    ex.submit(_run_one_strategy, s, m): s
+                    for s, m in STRATEGY_MODULES.items()
+                }
+                for fut in cf.as_completed(futures):
+                    strategy = futures[fut]
+                    try:
+                        name, stats = fut.result()
+                        results[name] = stats
+                    except Exception as e:  # noqa: BLE001
+                        logger.error(
+                            "corpus: top-level strategy {} raised: {}",
+                            strategy, e,
+                        )
+                        results[strategy] = {
+                            "generated": 0, "tagged": 0, "skipped": True,
+                            "error": str(e),
+                        }
     finally:
         set_corpus_target(None)
         if prev_env_target is None:
@@ -712,10 +792,22 @@ def cli() -> None:
         "OENOBENCH_MAX_WORKERS env var."
     ),
 )
+@click.option(
+    "--strategy-workers",
+    type=int,
+    default=None,
+    help=(
+        "Phase 2g.10 (Team Golf A4): worker count for the *top-level* "
+        "strategy-dispatch ThreadPoolExecutor. Default 1 (strategies run "
+        "sequentially — audit-pilot reproducibility preserved). Override "
+        "via this flag or OENOBENCH_STRATEGY_WORKERS env var."
+    ),
+)
 def build_cmd(
     tag: str, per_strategy: int, seed: int,
     skip: tuple[str, ...], per_country_cap: float | None,
     max_workers: int | None,
+    strategy_workers: int | None,
 ) -> None:
     summary = build_pilot_corpus(
         tag=tag,
@@ -724,6 +816,7 @@ def build_cmd(
         skip_strategies=skip,
         per_country_cap=per_country_cap,
         max_workers=max_workers,
+        strategy_workers=strategy_workers,
     )
     click.echo(f"Corpus tag: {summary['tag']}")
     click.echo(f"Totals by strategy: {summary['totals']}")

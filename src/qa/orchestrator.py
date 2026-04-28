@@ -182,10 +182,22 @@ def cli() -> None:
         "OENOBENCH_MAX_WORKERS env var."
     ),
 )
+@click.option(
+    "--strategy-workers",
+    type=int,
+    default=None,
+    help=(
+        "Phase 2g.10 (Team Golf A4): worker count for the *top-level* "
+        "strategy-dispatch ThreadPoolExecutor. Default 1 (strategies run "
+        "sequentially — audit-pilot reproducibility preserved). Override "
+        "via this flag or OENOBENCH_STRATEGY_WORKERS env var."
+    ),
+)
 def build_corpus_cmd(
     tag: str, per_strategy: int, seed: int,
     skip: tuple[str, ...], per_country_cap: float | None,
     max_workers: int | None,
+    strategy_workers: int | None,
 ) -> None:
     _setup_logging()
     result = build_pilot_corpus(
@@ -195,6 +207,7 @@ def build_corpus_cmd(
         skip_strategies=skip,
         per_country_cap=per_country_cap,
         max_workers=max_workers,
+        strategy_workers=strategy_workers,
     )
     click.echo(f"Built corpus tag={result['tag']} totals={result['totals']}")
 
