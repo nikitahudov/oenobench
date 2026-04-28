@@ -88,13 +88,16 @@ TS=$(date -u +%Y%m%dT%H%M%SZ)
 LOG=data/logs/audit_pilot_v9_build_${TS}.log
 TAG=audit_pilot_v9
 SEED=46
-# v9 mirrors v8's per_strategy=40 / total=200 budget so the corpus is
-# directly comparable for B2/A1/A4/D3 metrics. The circuit breaker may
-# undershoot the budget on low-yield strategies — that's by design.
-PER_STRATEGY=40
+# v9 sized at total=100 (per_strategy=20) to halve audit time + cost vs v8's
+# 200 target. Sample is small (per-strategy ≥14, per-cell ~0.7 LLM-strategy
+# attempts before circuit breaker), so per-cell statistics are noisy — but
+# corpus-level Go/No-Go gates (B2 ≤ 15%, A1 ≤ 2%, etc.) remain meaningful.
+# The circuit breaker may undershoot the budget on low-yield strategies —
+# that's by design.
+PER_STRATEGY=20
 PER_COUNTRY_CAP=0.30
 GOLD_OUT=data/reports/gold_sheet_v9.csv
-GOLD_SIZE=40
+GOLD_SIZE=20
 PY=.venv/bin/python
 
 mkdir -p data/logs data/reports
