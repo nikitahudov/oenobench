@@ -10,8 +10,11 @@
 #     n=0 for the populated rubrics, and you can re-run only build-reports
 #     after a later import to refresh the κ values.
 #
-# Cost: ~$15-20 (Opus 4.7 gate already exercised in phase 1; this phase
-# is the 5-judge tri-judge panel + statistical agents). Wall time: ~3-4h.
+# Cost: ~$2-4 expected on v8's 111-question corpus (linear scale from v7's
+# $4.42 on 242 questions). Wall time: ~30-60 min. The earlier "$15-20 / 3-4h"
+# figure in this header was carried over from the v7 estimate and never
+# updated for v8's smaller per_strategy=40 build target. Phase 2g.10 fix
+# (2026-04-28) corrected the header.
 #
 # Designed for nohup launch; survives session close. Logs everything to
 # data/logs/audit_pilot_v8_audit_<timestamp>.log.
