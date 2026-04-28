@@ -2081,6 +2081,14 @@ def generate_with_diversity_cap(
         "the sampled facts. Default unset (no cap). Phase 2g.7 Team ε."
     ),
 )
+@click.option(
+    "--circuit-breaker/--no-circuit-breaker",
+    default=None,
+    help=(
+        "Phase 2g.10 (Team Golf B3): per-cell (per-domain) circuit breaker. "
+        "Default OFF (env var OENOBENCH_CIRCUIT_BREAKER=1 also enables)."
+    ),
+)
 def main(
     domain,
     count,
@@ -2094,6 +2102,7 @@ def main(
     no_embeddings,
     no_verify,
     per_country_cap,
+    circuit_breaker,
 ):
     """Template-based question generator (Strategy 2, v2 overhaul)."""
     if list_templates:
@@ -2118,6 +2127,7 @@ def main(
         no_verify=no_verify,
         per_country_cap=per_country_cap,
         run_all=run_all,
+        circuit_breaker=circuit_breaker,
     )
     if test_run and result.get("inserted_uuids"):
         ids = result["inserted_uuids"]
@@ -2138,6 +2148,7 @@ def run_generate(
     run_all: bool = False,
     # Accepted for API uniformity with other strategies; unused here.
     generator: str | None = None,
+    circuit_breaker: bool | None = None,
 ) -> dict:
     """Run template generation. Returns stats dict.
 
@@ -2145,7 +2156,14 @@ def run_generate(
     a thin shim around this function. CLI-only modes (``--list``, ``--validate``,
     ``--test-run``) are handled in ``main()`` because they are user-interactive
     side effects, not part of the generation pipeline.
+
+    Phase 2g.10 (Team Golf B3): when ``circuit_breaker`` is True or the
+    ``OENOBENCH_CIRCUIT_BREAKER`` env var is "1", each per-domain cell
+    inside this call gets its own ``CellTracker``; abandoned-cell unused
+    budget reallocates to the next domain (capped at 2× original).
     """
+    from src.qa._corpus import _circuit_breaker_enabled
+    enabled = circuit_breaker if circuit_breaker is not None else _circuit_breaker_enabled()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     handler_id = logger.add(
         LOG_DIR / f"template_generator_{timestamp}.log", rotation="50 MB",
@@ -2157,6 +2175,7 @@ def run_generate(
             dry_run=dry_run, no_paraphrase=no_paraphrase,
             no_embeddings=no_embeddings, no_verify=no_verify,
             per_country_cap=per_country_cap, run_all=run_all,
+            circuit_breaker=enabled,
         )
     finally:
         try:
@@ -2176,6 +2195,7 @@ def _run_generate_body(
     no_verify: bool,
     per_country_cap: float | None,
     run_all: bool,
+    circuit_breaker: bool = False,
 ) -> dict:
     """Inner generation loop, sans logger-handler setup."""
     if count <= 0 and not run_all:
@@ -2216,8 +2236,28 @@ def _run_generate_body(
     # per-domain-quota-aware via ``_template_cap``.
     reset_template_id_counts()
 
+    # Phase 2g.10 (Team Golf B3): per-domain budget reallocation. When
+    # circuit_breaker is on and a domain abandons early, its unused budget
+    # carries forward to the next domain (capped at 2 × original).
+    if circuit_breaker:
+        from src.qa._corpus import CellTracker, _reallocate_with_cap
+    leftover = 0
+
     for dom in domains:
-        target = count if not run_all else DOMAIN_TARGETS.get(dom, 100) // 4
+        original_target = count if not run_all else DOMAIN_TARGETS.get(dom, 100) // 4
+        if circuit_breaker and leftover > 0:
+            target = _reallocate_with_cap(
+                original=original_target, leftover=leftover, cap_factor=2,
+            )
+            logger.info(
+                "circuit-breaker reallocation: domain={} target {} → {} "
+                "(leftover {})",
+                dom, original_target, target, leftover,
+            )
+        else:
+            target = original_target
+        leftover = 0
+
         templates_for_domain = [
             t for t in TEMPLATES if t["domain"] == dom
             and (not difficulty or difficulty in t["difficulty_range"])
@@ -2237,6 +2277,7 @@ def _run_generate_body(
             logger.warning(f"No facts available for domain={dom}")
             continue
 
+        tracker = CellTracker() if circuit_breaker else None
         generated = 0
         # v2.3 fix #13 — filter out cap-exceeded templates each iteration. If the
         # whole candidate list empties out we log a warning and fall back to the
@@ -2244,6 +2285,14 @@ def _run_generate_body(
         cap = _template_cap(target)
         for template in templates_for_domain:
             if generated >= target:
+                break
+            if tracker is not None and tracker.should_abandon():
+                logger.warning(
+                    "CIRCUIT BREAKER | strategy=template | cell={} | "
+                    "attempts={} | kept={} | rate={:.1%} — abandoning",
+                    dom, tracker.attempts, tracker.kept,
+                    tracker.kept_rate(),
+                )
                 break
             # Cap check: skip templates that are already at/over the cap.
             if _TEMPLATE_ID_COUNTS.get(template["id"], 0) >= cap:
@@ -2272,6 +2321,14 @@ def _run_generate_body(
             for fact in matching:
                 if generated >= target:
                     break
+                if tracker is not None and tracker.should_abandon():
+                    logger.warning(
+                        "CIRCUIT BREAKER | strategy=template | cell={} | "
+                        "attempts={} | kept={} | rate={:.1%} — abandoning",
+                        dom, tracker.attempts, tracker.kept,
+                        tracker.kept_rate(),
+                    )
+                    break
                 # v2.3 fix #13 — re-check the cap inside the facts loop so a
                 # single template doesn't blow past 15% from one candidate
                 # pool. The outer if-block picked this template when at least
@@ -2296,6 +2353,8 @@ def _run_generate_body(
                     template, fact, facts, use_embeddings=use_embeddings
                 )
                 if result is None:
+                    if tracker is not None:
+                        tracker.record(False)
                     continue
 
                 # Phase 2g.8 cost optimization (2026-04-26):
@@ -2348,6 +2407,8 @@ def _run_generate_body(
                         source_fact_text=fact.get("fact_text", ""),
                     )
                     if not agrees:
+                        if tracker is not None:
+                            tracker.record(False)
                         logger.warning(
                             f"Template {template['id']} REJECT by Gemini verifier "
                             f"({_vdebug.get('chosen')!r} vs {_vdebug.get('expected')!r}) "
@@ -2366,6 +2427,8 @@ def _run_generate_body(
                             mark = "*" if opt["id"] == result["correct_answer"] else " "
                             click.echo(f"          {mark} {opt['id']}. {opt['text']}")
                     generated += 1
+                    if tracker is not None:
+                        tracker.record(True)
                     _increment_template_count(result["_template_id"])  # v2.3 fix #13
                     continue
 
@@ -2405,6 +2468,8 @@ def _run_generate_body(
                     total_relabeled_l1 += 1
                     generated_ids.append(q_uuid)
                     used_facts.add(result["_fact_id"])
+                    if tracker is not None:
+                        tracker.record(True)
                     _increment_template_count(result["_template_id"])  # v2.3 fix #13
                     logger.info(
                         "OK (relabeled L1) | template={} | {}",
@@ -2414,15 +2479,25 @@ def _run_generate_body(
                     generated += 1
                     generated_ids.append(q_uuid)
                     used_facts.add(result["_fact_id"])
+                    if tracker is not None:
+                        tracker.record(True)
                     _increment_template_count(result["_template_id"])  # v2.3 fix #13
                 elif gate.applied and gate.quota_full:
                     total_rejected_overflow += 1
+                    if tracker is not None:
+                        tracker.record(False)
                     logger.info(
                         "DROP (cb_quota_full) | template={} | {}",
                         result["_template_id"], gate.reason,
                     )
+                else:
+                    if tracker is not None:
+                        tracker.record(False)
 
         total_generated += generated
+        # Carry over abandoned-cell budget to the next domain.
+        if tracker is not None and tracker.should_abandon():
+            leftover = tracker.remaining_budget(target)
         logger.info(f"Domain {dom}: generated {generated}/{target} questions")
 
     click.echo(

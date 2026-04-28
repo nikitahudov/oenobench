@@ -55,6 +55,14 @@ MAX_WORKERS_ENV_VAR = "OENOBENCH_MAX_WORKERS"
 # OENOBENCH_STRATEGY_WORKERS env var.
 STRATEGY_WORKERS_ENV_VAR = "OENOBENCH_STRATEGY_WORKERS"
 
+# Phase 2g.10 (Team Golf B3): when set to "1", each strategy's per-cell loop
+# maintains a CellTracker rolling window. Cells with sustained <5% kept-rate
+# (after at least 10 attempts) are abandoned early and their unused budget
+# is reallocated to the next cell in iteration order (capped at 2× original).
+# Default OFF for v8-reproducibility. Per-strategy `--circuit-breaker` /
+# `--no-circuit-breaker` flag also exposes the same toggle.
+CIRCUIT_BREAKER_ENV_VAR = "OENOBENCH_CIRCUIT_BREAKER"
+
 STRATEGY_MODULES = {
     "template": "template_generator",
     "fact_to_question": "fact_to_question",
@@ -336,6 +344,109 @@ def _resolve_strategy_workers(arg: int | None) -> int:
                 STRATEGY_WORKERS_ENV_VAR, raw,
             )
     return 1
+
+
+# ─── Phase 2g.10 (Team Golf B3) — per-cell circuit breaker ───────────────────
+
+
+class CellTracker:
+    """Rolling-window tracker for kept-rate-driven cell abandonment.
+
+    Each strategy's per-cell loop instantiates one tracker, calls
+    ``record(was_kept)`` after each attempt, and breaks when
+    ``should_abandon()`` returns True.
+
+    Defaults match the spec: ``window=20`` attempts, ``min_attempts=10``,
+    ``threshold=0.05`` (strict <). When the live kept-rate falls strictly
+    below 5% after at least 10 attempts, ``should_abandon()`` returns True
+    and the cell is abandoned. ``remaining_budget(original)`` exposes the
+    unused share. Caller applies the 2 × original cap when reallocating to
+    the next cell, so one badly-misfiring cell can't soak the whole strategy
+    budget.
+    """
+
+    def __init__(
+        self,
+        *,
+        window: int = 20,
+        min_attempts: int = 10,
+        threshold: float = 0.05,
+    ) -> None:
+        self.window = max(1, window)
+        self.min_attempts = max(1, min_attempts)
+        self.threshold = float(threshold)
+        self.attempts = 0
+        self.kept = 0
+        self._recent: list[int] = []
+        self._abandoned = False
+
+    def record(self, was_kept: bool) -> None:
+        self.attempts += 1
+        flag = 1 if was_kept else 0
+        if was_kept:
+            self.kept += 1
+        self._recent.append(flag)
+        if len(self._recent) > self.window:
+            self._recent.pop(0)
+
+    def kept_rate(self) -> float:
+        """Rolling kept-rate over the last ``window`` attempts.
+
+        Falls back to overall kept-rate while ``attempts`` < ``window`` so
+        ``should_abandon()`` doesn't false-fire on the first 9 attempts.
+        """
+        if self.attempts == 0:
+            return 0.0
+        if len(self._recent) < self.window:
+            return self.kept / self.attempts
+        return sum(self._recent) / len(self._recent)
+
+    def should_abandon(self) -> bool:
+        if self._abandoned:
+            return True
+        if self.attempts < self.min_attempts:
+            return False
+        if self.kept_rate() < self.threshold:
+            self._abandoned = True
+            return True
+        return False
+
+    def remaining_budget(self, original: int) -> int:
+        """Unused per-cell budget when the tracker abandons.
+
+        Returns ``max(0, original - kept)`` so an early-abandoned cell with
+        0 kept hands its full ``original`` count to the next cell. Caller
+        applies the 2 × original cap when reallocating.
+        """
+        if original <= 0:
+            return 0
+        unused = original - self.kept
+        return max(0, int(unused))
+
+
+def _circuit_breaker_enabled() -> bool:
+    """Whether the circuit-breaker env-var gate is active.
+
+    Default OFF for v8 reproducibility. Strategies should consult this AND
+    accept an explicit ``tracker`` kwarg so callers can override.
+    """
+    return os.environ.get(CIRCUIT_BREAKER_ENV_VAR) == "1"
+
+
+def _reallocate_with_cap(
+    *, original: int, leftover: int, cap_factor: int = 2,
+) -> int:
+    """Compute the next cell's count given carry-over from prior cells.
+
+    Spec: ``next_count = min(original + leftover, original × cap_factor)``.
+    Used by both ``_corpus.build_pilot_corpus`` (between LLM-strategy cells)
+    and ``template_generator`` (between domains inside ``run_generate``).
+    """
+    if original <= 0:
+        return 0
+    proposed = original + max(0, leftover)
+    cap = original * cap_factor
+    return min(proposed, cap)
 
 
 # ─── Build ────────────────────────────────────────────────────────────────────

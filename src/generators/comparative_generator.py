@@ -252,7 +252,15 @@ def _generate_one(
         "Phase 2g.7 Team ε."
     ),
 )
-def main(domain, count, generator, comparison_type, group_size, dry_run, test_run, validate, run_all, per_country_cap):
+@click.option(
+    "--circuit-breaker/--no-circuit-breaker",
+    default=None,
+    help=(
+        "Phase 2g.10 (Team Golf B3): per-cell circuit breaker. Default OFF "
+        "(env var OENOBENCH_CIRCUIT_BREAKER=1 also enables)."
+    ),
+)
+def main(domain, count, generator, comparison_type, group_size, dry_run, test_run, validate, run_all, per_country_cap, circuit_breaker):
     """Generate comparative benchmark questions from fact pairs via LLM."""
     if validate:
         _run_validate()
@@ -275,6 +283,7 @@ def main(domain, count, generator, comparison_type, group_size, dry_run, test_ru
         domain=domain, count=target, generator=generator,
         comparison_type=comparison_type, dry_run=dry_run,
         group_size=group_size, per_country_cap=per_country_cap,
+        circuit_breaker=circuit_breaker,
     )
 
 
@@ -292,11 +301,16 @@ def run_generate(
     per_country_cap: float | None = None,
     # Accepted for API uniformity with other strategies; unused here.
     difficulty: str | int | None = None,
+    tracker=None,
+    circuit_breaker: bool | None = None,
 ) -> dict:
     """Main generation loop. Returns stats dict.
 
     Phase 2g.10 (Team Delta A2): in-process callable. The click ``main()`` is
     a thin shim around this function.
+
+    Phase 2g.10 (Team Golf B3): optional ``tracker`` / ``circuit_breaker``
+    enables per-cell rolling-window kept-rate abandonment. Default OFF.
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     handler_id = logger.add(
@@ -307,12 +321,21 @@ def run_generate(
             domain=domain, count=count, generator=generator,
             comparison_type=comparison_type, dry_run=dry_run,
             group_size=group_size, per_country_cap=per_country_cap,
+            tracker=_resolve_tracker(tracker, circuit_breaker),
         )
     finally:
         try:
             logger.remove(handler_id)
         except ValueError:
             pass
+
+
+def _resolve_tracker(tracker, circuit_breaker: bool | None):
+    if tracker is not None:
+        return tracker
+    from src.qa._corpus import CellTracker, _circuit_breaker_enabled
+    enabled = circuit_breaker if circuit_breaker is not None else _circuit_breaker_enabled()
+    return CellTracker() if enabled else None
 
 
 def _run_generate(
@@ -340,6 +363,7 @@ def _run_generate_body(
     dry_run: bool,
     group_size: int = 2,
     per_country_cap: float | None = None,
+    tracker=None,
 ) -> dict:
     """Inner generation loop, sans logger-handler setup."""
     logger.info(
@@ -365,6 +389,14 @@ def _run_generate_body(
     inserted_uuids: list[str] = []
 
     while generated < count:
+        if tracker is not None and tracker.should_abandon():
+            logger.warning(
+                "CIRCUIT BREAKER | strategy=comparative | cell={}/{} | "
+                "attempts={} | kept={} | rate={:.1%} — abandoning",
+                generator, domain, tracker.attempts, tracker.kept,
+                tracker.kept_rate(),
+            )
+            break
         batch_size = min(count - generated, 10)
 
         if group_size == 2:
@@ -391,6 +423,14 @@ def _run_generate_body(
         for facts in fact_groups:
             if generated >= count:
                 break
+            if tracker is not None and tracker.should_abandon():
+                logger.warning(
+                    "CIRCUIT BREAKER | strategy=comparative | cell={}/{} | "
+                    "attempts={} | kept={} | rate={:.1%} — abandoning",
+                    generator, domain, tracker.attempts, tracker.kept,
+                    tracker.kept_rate(),
+                )
+                break
 
             for f in facts:
                 run_used_ids.add(str(f["id"]))
@@ -411,6 +451,8 @@ def _run_generate_body(
             )
             if result is None:
                 skipped_parse += 1
+                if tracker is not None:
+                    tracker.record(False)
                 fact_ids = [str(f["id"]) for f in facts]
                 logger.info(
                     "SKIP (parse/skip) | facts={} | generator={}",
@@ -424,6 +466,8 @@ def _run_generate_body(
             is_dup, dup_id = check_duplicate(parsed.question_text)
             if is_dup:
                 skipped_dup += 1
+                if tracker is not None:
+                    tracker.record(False)
                 fact_ids = [str(f["id"]) for f in facts]
                 logger.info(
                     "SKIP (duplicate) | question matches existing {} | facts={}",
@@ -433,6 +477,8 @@ def _run_generate_body(
 
             if dry_run:
                 generated += 1
+                if tracker is not None:
+                    tracker.record(True)
                 fact_ids = [str(f["id"]) for f in facts]
                 logger.info(
                     "DRY-RUN | #{} | facts={} | Q: {}",
@@ -491,6 +537,8 @@ def _run_generate_body(
                 generated += 1
                 relabeled_l1 += 1
                 inserted_uuids.append(q_uuid)
+                if tracker is not None:
+                    tracker.record(True)
                 logger.info(
                     "OK (relabeled L1) | #{} | {} | facts={} | Q: {} | {}",
                     generated, qid, fact_ids,
@@ -499,6 +547,8 @@ def _run_generate_body(
             elif q_uuid:
                 generated += 1
                 inserted_uuids.append(q_uuid)
+                if tracker is not None:
+                    tracker.record(True)
                 logger.info(
                     "OK | #{} | {} | facts={} | Q: {}",
                     generated, qid, fact_ids,
@@ -506,11 +556,15 @@ def _run_generate_body(
                 )
             elif gate.applied and gate.quota_full:
                 rejected_overflow += 1
+                if tracker is not None:
+                    tracker.record(False)
                 logger.info(
                     "DROP (cb_quota_full) | facts={} | {}",
                     fact_ids, gate.reason,
                 )
             else:
+                if tracker is not None:
+                    tracker.record(False)
                 logger.error(
                     "DB insert failed for facts={}",
                     fact_ids,

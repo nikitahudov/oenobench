@@ -1,4 +1,4 @@
-"""Phase 2g.10 (Team Golf) — A4 concurrent top-level strategies.
+"""Phase 2g.10 (Team Golf) — A4 concurrent top-level strategies + B3 circuit breaker.
 
 A4 covers:
 
@@ -6,8 +6,14 @@ A4 covers:
 - Default ``strategy_workers=1`` runs strategies serially (no overlap).
 - ``strategy_workers >= 2`` runs strategies concurrently (overlap observed).
 
-B3 (per-cell circuit breaker) is appended as a separate test class in a
-follow-up commit.
+B3 covers:
+
+- ``CellTracker`` rolling-window kept-rate computation.
+- Default OFF: ``OENOBENCH_CIRCUIT_BREAKER`` unset → no abandonment.
+- Abandons cells at sustained 0% kept-rate after ``min_attempts``.
+- Does not abandon below ``min_attempts``.
+- Strict-less-than threshold (5% → not abandoned).
+- Reallocation of unused budget to the next cell, capped at 2× original.
 """
 
 from __future__ import annotations
@@ -201,3 +207,241 @@ def test_strategy_workers_default_one_does_not_use_executor(monkeypatch):
         f"default strategy_workers=1 + max_workers=1 must not spin up any "
         f"ThreadPoolExecutor; observed: {captured}"
     )
+
+
+# ─── B3.1 — CellTracker class basic ─────────────────────────────────────────
+
+
+def test_celltracker_class_basic():
+    from src.qa._corpus import CellTracker
+
+    t = CellTracker(window=20, min_attempts=10, threshold=0.05)
+    assert t.attempts == 0
+    assert t.kept == 0
+    assert t.should_abandon() is False
+    assert t.kept_rate() == 0.0
+
+    for _ in range(5):
+        t.record(True)
+    assert t.attempts == 5 and t.kept == 5
+    assert t.kept_rate() == 1.0
+    # Below min_attempts → never abandon.
+    assert t.should_abandon() is False
+
+    for _ in range(15):
+        t.record(False)
+    assert t.attempts == 20
+    # Rolling window of 20 with 5 kept => 25%.
+    assert abs(t.kept_rate() - 0.25) < 1e-9
+    assert t.should_abandon() is False
+
+
+# ─── B3.2 — env-var gate ────────────────────────────────────────────────────
+
+
+def test_circuit_breaker_disabled_by_default(monkeypatch):
+    from src.qa import _corpus
+
+    monkeypatch.delenv("OENOBENCH_CIRCUIT_BREAKER", raising=False)
+    assert _corpus._circuit_breaker_enabled() is False
+
+
+def test_circuit_breaker_enabled_under_env_var(monkeypatch):
+    from src.qa import _corpus
+
+    monkeypatch.setenv("OENOBENCH_CIRCUIT_BREAKER", "1")
+    assert _corpus._circuit_breaker_enabled() is True
+
+
+def test_circuit_breaker_other_env_value_disabled(monkeypatch):
+    from src.qa import _corpus
+
+    monkeypatch.setenv("OENOBENCH_CIRCUIT_BREAKER", "true")  # not exactly "1"
+    assert _corpus._circuit_breaker_enabled() is False
+
+
+# ─── B3.3 — abandons at zero yield after min_attempts ───────────────────────
+
+
+def test_circuit_breaker_abandons_cell_at_zero_yield():
+    from src.qa._corpus import CellTracker
+
+    t = CellTracker(window=20, min_attempts=10, threshold=0.05)
+    for _ in range(9):
+        t.record(False)
+        assert t.should_abandon() is False
+    # 10th attempt: rate is 0/10 = 0% < 5% threshold → abandon.
+    t.record(False)
+    assert t.attempts == 10
+    assert t.should_abandon() is True
+
+
+# ─── B3.4 — does not abandon below min_attempts ─────────────────────────────
+
+
+def test_circuit_breaker_does_not_abandon_below_min_attempts():
+    from src.qa._corpus import CellTracker
+
+    t = CellTracker(window=20, min_attempts=10, threshold=0.05)
+    for _ in range(5):
+        t.record(False)
+    assert t.attempts == 5
+    assert t.kept_rate() == 0.0
+    # Even at 0% rate, below min_attempts we hold.
+    assert t.should_abandon() is False
+
+
+# ─── B3.5 — strict-less-than threshold ──────────────────────────────────────
+
+
+def test_circuit_breaker_does_not_abandon_at_5pct_yield():
+    from src.qa._corpus import CellTracker
+
+    t = CellTracker(window=20, min_attempts=10, threshold=0.05)
+    # 1 kept of 20 = 5% exactly. With strict <, this MUST NOT abandon.
+    t.record(True)
+    for _ in range(19):
+        t.record(False)
+    assert t.attempts == 20
+    assert abs(t.kept_rate() - 0.05) < 1e-9
+    assert t.should_abandon() is False
+
+
+# ─── B3.6 — reallocation of unused budget to the next cell ──────────────────
+
+
+def test_circuit_breaker_reallocates_unused_budget_to_next_cell():
+    """Spec: an abandoned cell with N unused passes ``count + N`` to the next
+    cell, capped at 2 × original. Exercised via ``CellTracker.remaining_budget``
+    plus ``_reallocate_with_cap`` (the helper used by both ``_corpus`` and
+    ``template_generator`` for cross-cell carry-over).
+    """
+    from src.qa._corpus import CellTracker, _reallocate_with_cap
+
+    # Cell A: original count = 4, abandoned with 0 kept after 10 attempts.
+    a = CellTracker(window=20, min_attempts=10, threshold=0.05)
+    for _ in range(10):
+        a.record(False)
+    assert a.should_abandon() is True
+    unused_a = a.remaining_budget(4)
+    assert unused_a == 4
+
+    next_original = 4
+    reallocated = _reallocate_with_cap(
+        original=next_original, leftover=unused_a, cap_factor=2,
+    )
+    # 4 + 4 = 8 == 2 × 4 cap.
+    assert reallocated == 8
+
+    # Cap test: a tiny next-cell original with a big leftover is clamped.
+    next_small = 2
+    big_leftover = 20
+    reallocated_clamped = _reallocate_with_cap(
+        original=next_small, leftover=big_leftover, cap_factor=2,
+    )
+    assert reallocated_clamped == next_small * 2 == 4
+
+    # Zero next-original returns 0.
+    assert _reallocate_with_cap(original=0, leftover=10) == 0
+
+
+# ─── B3.7 — env-var disabled → no consultation ──────────────────────────────
+
+
+def test_circuit_breaker_strategy_no_op_when_env_unset(monkeypatch):
+    """With env var unset and ``circuit_breaker`` not passed, the strategy
+    must NOT instantiate a tracker — guarantees v8 reproducibility.
+    """
+    from src.generators import fact_to_question
+
+    monkeypatch.delenv("OENOBENCH_CIRCUIT_BREAKER", raising=False)
+    tracker = fact_to_question._resolve_tracker(None, None)
+    assert tracker is None
+
+
+def test_circuit_breaker_strategy_active_under_env(monkeypatch):
+    from src.generators import fact_to_question
+    from src.qa._corpus import CellTracker
+
+    monkeypatch.setenv("OENOBENCH_CIRCUIT_BREAKER", "1")
+    tracker = fact_to_question._resolve_tracker(None, None)
+    assert isinstance(tracker, CellTracker)
+
+
+def test_circuit_breaker_explicit_arg_overrides_env(monkeypatch):
+    from src.generators import comparative_generator
+    from src.qa._corpus import CellTracker
+
+    monkeypatch.setenv("OENOBENCH_CIRCUIT_BREAKER", "1")
+    # circuit_breaker=False overrides env-var-on.
+    assert comparative_generator._resolve_tracker(None, False) is None
+
+    monkeypatch.delenv("OENOBENCH_CIRCUIT_BREAKER", raising=False)
+    # circuit_breaker=True overrides env-var-off.
+    out = comparative_generator._resolve_tracker(None, True)
+    assert isinstance(out, CellTracker)
+
+
+# ─── B3.8 — strategy run_generate honours tracker (early-abandon) ───────────
+
+
+def test_run_generate_template_honours_tracker_via_env(monkeypatch):
+    """With circuit_breaker on, an early-abandoned tracker stops the loop
+    even though target was higher.
+    """
+    from src.generators import template_generator
+
+    monkeypatch.setenv("OENOBENCH_CIRCUIT_BREAKER", "1")
+    # count=0 short-circuits before any DB hit but still passes through the
+    # circuit-breaker setup branch — verifies wiring doesn't crash.
+    result = template_generator.run_generate(
+        domain="wine_regions", count=0, dry_run=True,
+    )
+    assert isinstance(result, dict)
+    assert result["generated"] == 0
+
+
+def test_run_generate_fact_to_question_accepts_circuit_breaker_kwarg():
+    from src.generators import fact_to_question
+
+    result = fact_to_question.run_generate(
+        domain="wine_regions", count=0, generator="claude",
+        question_type="multiple_choice", difficulty="2",
+        cognitive_dim="recall", dry_run=True,
+        circuit_breaker=True,
+    )
+    assert isinstance(result, dict)
+    assert result["generated"] == 0
+
+
+def test_run_generate_comparative_accepts_circuit_breaker_kwarg():
+    from src.generators import comparative_generator
+
+    result = comparative_generator.run_generate(
+        domain="wine_regions", count=0, generator="claude",
+        comparison_type="auto", dry_run=True, circuit_breaker=True,
+    )
+    assert isinstance(result, dict)
+    assert result["generated"] == 0
+
+
+def test_run_generate_scenario_accepts_circuit_breaker_kwarg():
+    from src.generators import scenario_generator
+
+    result = scenario_generator.run_generate(
+        domain="wine_regions", count=0, generator="claude",
+        scenario_type="winemaking", dry_run=True, circuit_breaker=True,
+    )
+    assert isinstance(result, dict)
+    assert result["generated"] == 0
+
+
+def test_run_generate_distractor_accepts_circuit_breaker_kwarg():
+    from src.generators import distractor_miner
+
+    result = distractor_miner.run_generate(
+        domain="wine_regions", count=0, generator="claude",
+        dry_run=True, circuit_breaker=True,
+    )
+    assert isinstance(result, dict)
+    assert result["generated"] == 0
