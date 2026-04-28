@@ -69,18 +69,28 @@ _BRACE_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
 def _try_parse_json(text: str) -> dict | None:
-    """Try to parse JSON from text, handling markdown fences and raw braces."""
+    """Try to parse JSON from text, handling markdown fences and raw braces.
+
+    Only returns dicts — every caller in the codebase assumes a dict-shaped
+    response (`.get(...)` or `... or {}`). If the LLM returns a JSON array
+    or scalar, treat it as a parse failure rather than handing the caller
+    an object whose interface doesn't match.
+    """
     # Strip markdown code fences first
     fence_match = _FENCE_RE.search(text)
     if fence_match:
         try:
-            return orjson.loads(fence_match.group(1))
+            obj = orjson.loads(fence_match.group(1))
+            if isinstance(obj, dict):
+                return obj
         except (orjson.JSONDecodeError, ValueError):
             pass
 
     # Try raw string
     try:
-        return orjson.loads(text)
+        obj = orjson.loads(text)
+        if isinstance(obj, dict):
+            return obj
     except (orjson.JSONDecodeError, ValueError):
         pass
 
@@ -88,7 +98,9 @@ def _try_parse_json(text: str) -> dict | None:
     brace_match = _BRACE_RE.search(text)
     if brace_match:
         try:
-            return orjson.loads(brace_match.group(0))
+            obj = orjson.loads(brace_match.group(0))
+            if isinstance(obj, dict):
+                return obj
         except (orjson.JSONDecodeError, ValueError):
             pass
 

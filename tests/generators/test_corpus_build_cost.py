@@ -590,12 +590,20 @@ def _reset_corpus_target_override():
 
 def _patch_db_helpers(monkeypatch):
     """Stub out the DB helpers `build_pilot_corpus` would otherwise hit."""
+    from datetime import datetime
     from src.qa import _corpus as _c
     monkeypatch.setattr(_c, "_existing_corpus_count", lambda tag: {})
     monkeypatch.setattr(
         _c,
         "_tag_rows",
         lambda *, generation_method, since, limit, tag: limit,
+    )
+    # Default to the FRESH-BUILD branch so tests don't depend on DB state.
+    # Individual tests that exercise resume behaviour patch this directly.
+    monkeypatch.setattr(
+        _c,
+        "_resolve_build_started_at",
+        lambda tag: (datetime.now(), False),
     )
 
 
@@ -929,3 +937,154 @@ def test_build_pilot_corpus_restores_pre_existing_strategy_target(monkeypatch):
     assert os.environ.get(STRATEGY_TARGET_ENV_VAR) == "999", (
         "Pre-existing env-var value must be restored, not stripped"
     )
+
+
+# ─── Phase 2g.10 — restart-safe build start time ────────────────────────────
+#
+# `started = datetime.now()` at every entry to build_pilot_corpus is wrong
+# when the build script crashes/is killed and the user re-runs the same tag:
+# each restart resets the cb-count `since` window, so cb-relabels from
+# prior process(es) fall outside the window and the per-strategy +
+# per-corpus caps both under-count. v8 accumulated 53 relabels (29+13+11)
+# across 3 sessions with 0 GATE QUOTA FULL events, well past both caps.
+
+
+def test_build_pilot_corpus_uses_resumed_started_at_when_tag_exists(monkeypatch):
+    """When the build tag already has questions, `since` must come from
+    MIN(created_at) of those questions, not the current process clock.
+
+    The env var OENOBENCH_CORPUS_BUILD_SINCE is what subprocesses read; if
+    it equals the resumed timestamp, prior cb-tags fall inside the window
+    and are counted toward the cap.
+    """
+    from datetime import datetime, timedelta
+    from src.generators._question_db import CORPUS_BUILD_SINCE_ENV_VAR
+    from src.qa import _corpus as _c
+    from src.qa._corpus import build_pilot_corpus
+
+    monkeypatch.setattr(_c, "_existing_corpus_count", lambda tag: {})
+    monkeypatch.setattr(
+        _c, "_tag_rows",
+        lambda *, generation_method, since, limit, tag: limit,
+    )
+
+    # Simulate a prior run that started 2h ago (resume case).
+    prior_start = datetime.now() - timedelta(hours=2)
+    monkeypatch.setattr(
+        _c, "_resolve_build_started_at",
+        lambda tag: (prior_start, True),
+    )
+    monkeypatch.delenv(CORPUS_BUILD_SINCE_ENV_VAR, raising=False)
+
+    captured: list[str | None] = []
+
+    def fake_run_generator(*, module, domain, count, generator=None,
+                           difficulty=None, per_country_cap=None):
+        captured.append(os.environ.get(CORPUS_BUILD_SINCE_ENV_VAR))
+        return True
+
+    monkeypatch.setattr(_c, "_run_generator", fake_run_generator)
+
+    build_pilot_corpus(tag="audit_pilot_test", per_strategy=10, seed=42)
+
+    assert captured, "_run_generator was never called"
+    expected = prior_start.isoformat()
+    assert all(v == expected for v in captured), (
+        f"OENOBENCH_CORPUS_BUILD_SINCE must equal the resumed start time "
+        f"({expected!r}) on resume; saw distinct values {set(captured)}"
+    )
+
+
+def test_build_pilot_corpus_uses_now_when_tag_is_fresh(monkeypatch):
+    """When no questions are tagged with the build tag, `since` must be
+    set to a fresh `datetime.now()` (the conventional fresh-start path).
+    """
+    from datetime import datetime
+    from src.generators._question_db import CORPUS_BUILD_SINCE_ENV_VAR
+    from src.qa import _corpus as _c
+    from src.qa._corpus import build_pilot_corpus
+
+    monkeypatch.setattr(_c, "_existing_corpus_count", lambda tag: {})
+    monkeypatch.setattr(
+        _c, "_tag_rows",
+        lambda *, generation_method, since, limit, tag: limit,
+    )
+
+    fresh_start = datetime.now()
+    monkeypatch.setattr(
+        _c, "_resolve_build_started_at",
+        lambda tag: (fresh_start, False),
+    )
+    monkeypatch.delenv(CORPUS_BUILD_SINCE_ENV_VAR, raising=False)
+
+    captured: list[str | None] = []
+
+    def fake_run_generator(*, module, domain, count, generator=None,
+                           difficulty=None, per_country_cap=None):
+        captured.append(os.environ.get(CORPUS_BUILD_SINCE_ENV_VAR))
+        return True
+
+    monkeypatch.setattr(_c, "_run_generator", fake_run_generator)
+
+    build_pilot_corpus(tag="audit_pilot_test", per_strategy=10, seed=42)
+
+    assert captured, "_run_generator was never called"
+    assert all(v == fresh_start.isoformat() for v in captured), (
+        f"Fresh build must use a single fresh-start timestamp; saw {set(captured)}"
+    )
+
+
+def test_resolve_build_started_at_returns_min_created_at_on_resume(monkeypatch):
+    """The helper queries MIN(created_at) for the tag and returns
+    (min_ts, True) when prior questions exist.
+    """
+    from datetime import datetime, timedelta
+    from src.qa import _corpus as _c
+
+    expected = datetime.now() - timedelta(hours=3)
+
+    class _FakeCursor:
+        def execute(self, query, params):
+            self._params = params
+            assert "MIN(created_at)" in query
+            assert "ANY(tags)" in query
+
+        def fetchone(self):
+            return {"earliest": expected}
+
+    class _FakeConn:
+        def cursor(self):
+            return _FakeCursor()
+
+    monkeypatch.setattr(_c, "get_pg", lambda: _FakeConn())
+
+    started, is_resume = _c._resolve_build_started_at("audit_pilot_v8")
+
+    assert is_resume is True
+    assert started == expected
+
+
+def test_resolve_build_started_at_returns_now_when_tag_unseen(monkeypatch):
+    """No prior tagged rows → return (datetime.now(), False)."""
+    from datetime import datetime
+    from src.qa import _corpus as _c
+
+    class _FakeCursor:
+        def execute(self, query, params):
+            pass
+
+        def fetchone(self):
+            return {"earliest": None}
+
+    class _FakeConn:
+        def cursor(self):
+            return _FakeCursor()
+
+    monkeypatch.setattr(_c, "get_pg", lambda: _FakeConn())
+
+    before = datetime.now()
+    started, is_resume = _c._resolve_build_started_at("audit_pilot_fresh")
+    after = datetime.now()
+
+    assert is_resume is False
+    assert before <= started <= after
