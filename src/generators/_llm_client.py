@@ -6,7 +6,9 @@ through a single interface. Handles retries, rate limiting, JSON parsing,
 and structured logging.
 """
 
+import copy
 import os
+import random
 import re
 import time
 from dataclasses import dataclass, field
@@ -24,6 +26,61 @@ from tenacity import (
 )
 
 load_dotenv()
+
+
+# -- Throttle configuration -------------------------------------------------
+#
+# Phase 2g.11 A1: replaces the hardcoded `time.sleep(1.5)` after every LLM
+# call with a jittered floor gated by an env var. Tenacity already retries
+# on RateLimitError with exponential backoff, so the 1.5s sleep was
+# belt-and-suspenders and accounted for ~6.7h of v8's walltime
+# (16k calls × 1.5s).
+#
+# Reversibility: if OpenRouter starts 429-storming, set
+# OENOBENCH_LLM_THROTTLE_MS=1500 to restore old behaviour.
+
+THROTTLE_ENV_VAR = "OENOBENCH_LLM_THROTTLE_MS"
+_DEFAULT_THROTTLE_MS = 100
+
+
+def _resolve_throttle_seconds() -> float:
+    """Resolve the post-call throttle delay (seconds) with ±50% jitter.
+
+    - Env var unset → default 100ms with ±50% jitter (range 50-150ms).
+    - Env var = "0" (or any non-positive int) → return 0.0 (disables sleep).
+    - Env var = positive int → that value in ms with ±50% jitter.
+    - Env var = unparseable → log warning, fall back to default.
+    """
+    raw = os.environ.get(THROTTLE_ENV_VAR)
+    if raw is None:
+        ms = _DEFAULT_THROTTLE_MS
+    else:
+        try:
+            ms = int(raw)
+        except ValueError:
+            logger.warning(
+                "Invalid {} value {!r}; falling back to default {}ms",
+                THROTTLE_ENV_VAR, raw, _DEFAULT_THROTTLE_MS,
+            )
+            ms = _DEFAULT_THROTTLE_MS
+    if ms <= 0:
+        return 0.0
+    return (ms / 1000.0) * random.uniform(0.5, 1.5)
+
+
+def _merge_throughput_failover(extra_body: dict | None) -> dict:
+    """Deep-copy ``extra_body`` and force ``provider.sort = 'throughput'``.
+
+    Preserves any other top-level keys (e.g. ``stream``) and any other
+    sub-keys under ``provider`` the caller passed. Never mutates the input.
+    """
+    merged: dict = copy.deepcopy(extra_body) if extra_body else {}
+    provider = merged.get("provider")
+    if not isinstance(provider, dict):
+        provider = {}
+    provider["sort"] = "throughput"
+    merged["provider"] = provider
+    return merged
 
 # -- Model registry --------------------------------------------------------
 
@@ -146,7 +203,7 @@ class LLMClient:
         stop=stop_after_attempt(4),
         reraise=True,
     )
-    def _call_api(self, messages, model_id, temperature, max_tokens, json_mode, extra_body=None):
+    def _call_api(self, messages, model_id, temperature, max_tokens, json_mode, extra_body=None, timeout=None):
         """Make the actual API call (with tenacity retry)."""
         kwargs = dict(
             model=model_id,
@@ -158,6 +215,8 @@ class LLMClient:
             kwargs["response_format"] = {"type": "json_object"}
         if extra_body:
             kwargs["extra_body"] = extra_body
+        if timeout is not None:
+            kwargs["timeout"] = timeout
         return self._client.chat.completions.create(**kwargs)
 
     def generate(
@@ -169,6 +228,7 @@ class LLMClient:
         max_tokens: int = 2000,
         json_mode: bool = True,
         extra_body: dict | None = None,
+        timeout: float | None = None,
     ) -> LLMResponse:
         """Generate a response from the specified model.
 
@@ -188,6 +248,14 @@ class LLMClient:
                 context tier that drives Gemini Pro to the $15/MTok output
                 pricing band. See OpenRouter provider-routing docs for the
                 full schema.
+            timeout: Optional per-request timeout in seconds. When set and
+                the SDK raises ``openai.APITimeoutError``, this client
+                retries the call exactly once with ``provider.sort`` forced
+                to ``"throughput"`` (merged into any caller-supplied
+                ``extra_body``) so OpenRouter routes around the slow
+                provider. When ``None`` (the default), no per-request
+                timeout is applied and we do not catch ``APITimeoutError``
+                ourselves — the existing failure-packaging path applies.
 
         Returns:
             LLMResponse with content, parsed JSON, token counts, and timing.
@@ -206,10 +274,27 @@ class LLMClient:
 
         t0 = time.time()
         try:
-            completion = self._call_api(
-                messages, model_id, temperature, max_tokens, json_mode,
-                extra_body=extra_body,
-            )
+            try:
+                completion = self._call_api(
+                    messages, model_id, temperature, max_tokens, json_mode,
+                    extra_body=extra_body, timeout=timeout,
+                )
+            except openai.APITimeoutError as timeout_exc:
+                # C1: long-tail timeout failover. Only intercept when the
+                # caller asked for a timeout — otherwise fall through to the
+                # generic failure-packaging path so behaviour is unchanged
+                # for legacy call sites that don't pass timeout=.
+                if timeout is None:
+                    raise
+                failover_extra_body = _merge_throughput_failover(extra_body)
+                logger.info(
+                    "LLM timeout failover | model={} | retrying with provider.sort=throughput",
+                    model_id,
+                )
+                completion = self._call_api(
+                    messages, model_id, temperature, max_tokens, json_mode,
+                    extra_body=failover_extra_body, timeout=timeout,
+                )
             latency_ms = int((time.time() - t0) * 1000)
 
             content = completion.choices[0].message.content or ""
@@ -252,8 +337,12 @@ class LLMClient:
                 error=str(e),
             )
 
-        # Rate-limit spacing between calls
-        time.sleep(1.5)
+        # Rate-limit spacing between calls (Phase 2g.11 A1: env-gated, default
+        # 100ms ±50%; set OENOBENCH_LLM_THROTTLE_MS=0 to disable, or =1500 to
+        # restore the pre-Phase-2g.11 behaviour).
+        sleep_secs = _resolve_throttle_seconds()
+        if sleep_secs > 0:
+            time.sleep(sleep_secs)
         return response
 
 
