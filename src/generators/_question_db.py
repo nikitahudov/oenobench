@@ -48,6 +48,16 @@ CORPUS_TARGET_ENV_VAR = "OENOBENCH_CORPUS_TARGET"
 # count query as a `created_at >= since` filter.
 CORPUS_BUILD_SINCE_ENV_VAR = "OENOBENCH_CORPUS_BUILD_SINCE"
 
+# Phase 2g.10 (2026-04-28): per-strategy closed-book budget. When set, the
+# gate evaluates the 25% cap against the per-strategy target rather than the
+# corpus target, with the cb count filtered by `generation_metadata.generation_method`.
+# Prevents the first strategy in the build order from monopolising the cap and
+# starving later strategies of cb-relabel slots. Audit #6/#7 ran with a single
+# corpus-level cap; v8's prior cb-rates show 40-77% per strategy, so without
+# per-strategy fairness the late strategies (scenario, distractor) end up with
+# all their gate-flagged questions dropped instead of relabeled.
+STRATEGY_TARGET_ENV_VAR = "OENOBENCH_STRATEGY_TARGET"
+
 
 def set_corpus_target(size: int | None) -> None:
     """Override the corpus size used to compute the closed-book quota cap.
@@ -117,6 +127,28 @@ def _closed_book_quota_cap(target_size: int | None = None) -> int:
     return math.ceil(int(target_size) * CLOSED_BOOK_QUOTA_FRACTION)
 
 
+def _resolve_strategy_target_size() -> int | None:
+    """Read OENOBENCH_STRATEGY_TARGET. Returns None when unset/invalid.
+
+    None means "no per-strategy budget" — the gate falls back to the
+    corpus-level cap. A positive int activates the per-strategy mode:
+    each strategy gets `ceil(target × CLOSED_BOOK_QUOTA_FRACTION)` cb slots,
+    counted via JOIN to `generation_metadata.generation_method`.
+    """
+    raw = os.environ.get(STRATEGY_TARGET_ENV_VAR)
+    if not raw:
+        return None
+    try:
+        n = int(raw)
+        return n if n > 0 else None
+    except ValueError:
+        logger.warning(
+            "{} is set but not a positive int (got {!r}); ignoring",
+            STRATEGY_TARGET_ENV_VAR, raw,
+        )
+        return None
+
+
 def _resolve_default_build_since() -> str | None:
     """Return the build-start ISO-8601 timestamp, or None for unscoped count.
 
@@ -132,23 +164,51 @@ def _resolve_default_build_since() -> str | None:
     return raw.strip() or None
 
 
-def count_closed_book_solvable(since: str | None = None) -> int:
+def count_closed_book_solvable(
+    since: str | None = None,
+    strategy: str | None = None,
+) -> int:
     """Count questions currently tagged `closed_book_solvable`.
 
-    Used by `insert_question_gated` to enforce the 25% corpus cap. Cheap
-    enough to call per-insert thanks to the GIN index on `questions.tags`.
+    Used by `insert_question_gated` to enforce the 25% cap, either at the
+    corpus level (default) or per generation_method (when `strategy` is
+    provided). Cheap enough to call per-insert thanks to the GIN index on
+    `questions.tags` plus the b-tree on `generation_metadata.question_id`.
 
     Args:
         since: Optional ISO-8601 timestamp string. When provided, only
             questions with `created_at >= since` are counted. When None,
             the env var `OENOBENCH_CORPUS_BUILD_SINCE` is consulted; if
             unset/blank, the count is unscoped (legacy behaviour).
+        strategy: Optional `generation_metadata.generation_method` filter.
+            When provided, the count joins `generation_metadata` and only
+            counts cb-tagged questions produced by that strategy. Used by
+            the per-strategy budget mode (Phase 2g.10).
     """
     if since is None:
         since = _resolve_default_build_since()
     conn = get_pg()
     cur = conn.cursor()
-    if since:
+    if strategy is not None:
+        # Per-strategy count: JOIN generation_metadata so we can filter by
+        # generation_method. The two filters compose with AND: cb-tag,
+        # strategy, and (optional) created_at scope.
+        if since:
+            cur.execute(
+                "SELECT count(*) AS cnt FROM questions q "
+                "JOIN generation_metadata gm ON gm.question_id = q.id "
+                "WHERE %s = ANY(q.tags) AND gm.generation_method = %s "
+                "AND q.created_at >= %s::timestamptz",
+                (CLOSED_BOOK_TAG, strategy, since),
+            )
+        else:
+            cur.execute(
+                "SELECT count(*) AS cnt FROM questions q "
+                "JOIN generation_metadata gm ON gm.question_id = q.id "
+                "WHERE %s = ANY(q.tags) AND gm.generation_method = %s",
+                (CLOSED_BOOK_TAG, strategy),
+            )
+    elif since:
         cur.execute(
             "SELECT count(*) AS cnt FROM questions "
             "WHERE %s = ANY(tags) AND created_at >= %s::timestamptz",
@@ -215,13 +275,26 @@ def insert_question_gated(
         gate = GateResult(passed=True, applied=False, reason="gate_disabled")
 
     if gate.applied and not gate.passed:
-        cap = _closed_book_quota_cap(target_size)
-        current = count_closed_book_solvable()
+        # Phase 2g.10: prefer per-strategy budget when OENOBENCH_STRATEGY_TARGET
+        # is set AND the caller's generation_meta carries a generation_method.
+        # This stops the first strategy in build order from monopolising the
+        # corpus-wide cap; each strategy gets its own ceil(per_strategy × 0.25)
+        # slots, counted via JOIN to generation_metadata.generation_method.
+        strategy_target = _resolve_strategy_target_size()
+        strategy_name = generation_meta.get("generation_method")
+        if strategy_target is not None and strategy_name:
+            cap = math.ceil(int(strategy_target) * CLOSED_BOOK_QUOTA_FRACTION)
+            current = count_closed_book_solvable(strategy=strategy_name)
+            cap_label = f"strategy:{strategy_name}"
+        else:
+            cap = _closed_book_quota_cap(target_size)
+            current = count_closed_book_solvable()
+            cap_label = "corpus"
         if current >= cap:
             gate.quota_full = True
             gate.reason = (
-                f"reject (quota_full): closed_book_solvable {current}/{cap}; "
-                f"original={gate.reason}"
+                f"reject (quota_full): closed_book_solvable {current}/{cap} "
+                f"({cap_label}); original={gate.reason}"
             )
             _stash_gate_meta(generation_meta, gate)
             logger.info(

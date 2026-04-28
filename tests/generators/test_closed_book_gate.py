@@ -782,3 +782,297 @@ def test_count_closed_book_solvable_explicit_since_overrides_env(monkeypatch):
 
     _question_db.count_closed_book_solvable(since="2026-04-27T22:00:00+00:00")
     assert captured["params"][1] == "2026-04-27T22:00:00+00:00"
+
+
+# ─── Phase 2g.10 per-strategy closed-book budget ─────────────────────────────
+#
+# Audits #6/#7 ran with a single corpus-level cb cap. v8's prior cb-rates show
+# 40-77% per strategy with no clear winner, but strategies run sequentially in
+# `build_pilot_corpus`. The first one (template) reaches the cap and the late
+# strategies (scenario_synthesis, distractor_mining) have all their cb-flagged
+# questions DROPPED instead of relabeled — biasing the corpus toward early
+# strategies. The fix: when `OENOBENCH_STRATEGY_TARGET` is set, evaluate the
+# 25% cap per generation_method instead of corpus-wide.
+
+
+def test_resolve_strategy_target_size_returns_none_when_unset(monkeypatch):
+    from src.generators._question_db import _resolve_strategy_target_size
+
+    monkeypatch.delenv("OENOBENCH_STRATEGY_TARGET", raising=False)
+    assert _resolve_strategy_target_size() is None
+
+
+def test_resolve_strategy_target_size_returns_int_when_set(monkeypatch):
+    from src.generators._question_db import _resolve_strategy_target_size
+
+    monkeypatch.setenv("OENOBENCH_STRATEGY_TARGET", "40")
+    assert _resolve_strategy_target_size() == 40
+
+
+def test_resolve_strategy_target_size_invalid_falls_through_to_none(monkeypatch):
+    """Malformed env values must NOT crash the gate path; they degrade to None
+    and the gate falls back to the corpus-level cap."""
+    from src.generators._question_db import _resolve_strategy_target_size
+
+    for bad in ("not-a-number", "0", "-50", ""):
+        monkeypatch.setenv("OENOBENCH_STRATEGY_TARGET", bad)
+        assert _resolve_strategy_target_size() is None, f"{bad!r} should resolve to None"
+
+
+def test_count_closed_book_solvable_strategy_filter_uses_join(monkeypatch):
+    """When `strategy` is passed, the SQL must JOIN generation_metadata and
+    filter by `gm.generation_method = strategy`."""
+    from src.generators import _question_db
+
+    monkeypatch.delenv("OENOBENCH_CORPUS_BUILD_SINCE", raising=False)
+    captured: dict = {}
+
+    class _FakeCursor:
+        def execute(self, sql, params):
+            captured["sql"] = sql
+            captured["params"] = params
+        def fetchone(self):
+            return {"cnt": 3}
+
+    class _FakeConn:
+        def cursor(self):
+            return _FakeCursor()
+
+    monkeypatch.setattr(_question_db, "get_pg", lambda: _FakeConn())
+
+    n = _question_db.count_closed_book_solvable(strategy="scenario_synthesis")
+    assert n == 3
+    assert "JOIN generation_metadata" in captured["sql"]
+    assert "gm.generation_method" in captured["sql"]
+    # Strategy is the second positional param after the cb tag.
+    assert captured["params"][1] == "scenario_synthesis"
+
+
+def test_count_closed_book_solvable_strategy_filter_composes_with_since(monkeypatch):
+    """Both filters must compose with AND when both are active."""
+    from src.generators import _question_db
+
+    monkeypatch.setenv("OENOBENCH_CORPUS_BUILD_SINCE", "2026-04-28T06:46:00+00:00")
+    captured: dict = {}
+
+    class _FakeCursor:
+        def execute(self, sql, params):
+            captured["sql"] = sql
+            captured["params"] = params
+        def fetchone(self):
+            return {"cnt": 1}
+
+    class _FakeConn:
+        def cursor(self):
+            return _FakeCursor()
+
+    monkeypatch.setattr(_question_db, "get_pg", lambda: _FakeConn())
+
+    _question_db.count_closed_book_solvable(strategy="comparative")
+    assert "JOIN generation_metadata" in captured["sql"]
+    assert "gm.generation_method = %s" in captured["sql"]
+    assert "q.created_at >= %s::timestamptz" in captured["sql"]
+    # Params order: cb_tag, strategy, since.
+    assert captured["params"] == (
+        "closed_book_solvable", "comparative", "2026-04-28T06:46:00+00:00",
+    )
+
+
+def test_insert_question_gated_uses_per_strategy_budget_when_env_set(monkeypatch):
+    """With OENOBENCH_STRATEGY_TARGET=40, gate-flagged questions must be
+    counted per generation_method and the cap must be ceil(40 × 0.25) = 10.
+    """
+    from src.generators import _question_db
+
+    monkeypatch.setenv("OENOBENCH_STRATEGY_TARGET", "40")
+    _patch_call(monkeypatch, selected="A", confidence=0.9)
+
+    seen: dict = {"strategy_kwargs": []}
+
+    def fake_count(since=None, strategy=None):
+        seen["strategy_kwargs"].append(strategy)
+        # Return 0 so the relabel path runs (room in the per-strategy budget).
+        return 0
+
+    monkeypatch.setattr(_question_db, "count_closed_book_solvable", fake_count)
+
+    captured: dict = {}
+
+    def fake_insert(question_data, generation_meta, fact_ids, source_ids):
+        captured["meta"] = generation_meta
+        return "uuid-per-strategy"
+
+    monkeypatch.setattr(_question_db, "insert_question", fake_insert)
+
+    q_uuid, gate = _question_db.insert_question_gated(
+        question_data={
+            "question_id": "TEST-PSTR-001",
+            "question_text": "Which grape is in Barolo?",
+            "options": _OPTS,
+            "correct_answer": "A",
+            "difficulty": "1",
+            "question_type": "multiple_choice",
+            "domain": "wine_regions",
+        },
+        generation_meta={"generator": "test", "generation_method": "scenario_synthesis"},
+        fact_ids=[],
+        source_ids=[],
+    )
+
+    assert q_uuid == "uuid-per-strategy"
+    assert gate.relabeled is True
+    # The count function must have been called with strategy="scenario_synthesis".
+    assert seen["strategy_kwargs"] == ["scenario_synthesis"]
+
+
+def test_insert_question_gated_per_strategy_quota_full_at_correct_cap(monkeypatch):
+    """Cap = ceil(per_strategy × 0.25). At per_strategy=40, cap=10. When the
+    per-strategy count is at 10, the gate must reject (quota_full)."""
+    from src.generators import _question_db
+
+    monkeypatch.setenv("OENOBENCH_STRATEGY_TARGET", "40")
+    _patch_call(monkeypatch, selected="A", confidence=0.9)
+
+    # Mock returns 10 — exactly at cap — so any further cb-flagged inserts must drop.
+    monkeypatch.setattr(
+        _question_db,
+        "count_closed_book_solvable",
+        lambda since=None, strategy=None: 10,
+    )
+
+    def db_explode(*_a, **_kw):
+        raise AssertionError("insert_question must not run when per-strategy quota is full")
+
+    monkeypatch.setattr(_question_db, "insert_question", db_explode)
+
+    q_uuid, gate = _question_db.insert_question_gated(
+        question_data={
+            "question_id": "TEST-PSTR-FULL",
+            "question_text": "Which grape is in Barolo?",
+            "options": _OPTS,
+            "correct_answer": "A",
+            "difficulty": "1",
+            "question_type": "multiple_choice",
+            "domain": "wine_regions",
+        },
+        generation_meta={"generator": "test", "generation_method": "scenario_synthesis"},
+        fact_ids=[],
+        source_ids=[],
+    )
+    assert q_uuid is None
+    assert gate.quota_full is True
+    assert "strategy:scenario_synthesis" in gate.reason
+
+
+def test_insert_question_gated_strategies_have_independent_budgets(monkeypatch):
+    """Strategy A at cap must not affect Strategy B's budget. The count call
+    must pass each caller's own generation_method, so the database-level filter
+    keeps the counts separate."""
+    from src.generators import _question_db
+
+    monkeypatch.setenv("OENOBENCH_STRATEGY_TARGET", "40")
+    _patch_call(monkeypatch, selected="A", confidence=0.9)
+
+    # Per-strategy counts: scenario_synthesis is full (10), distractor_mining has room (3).
+    counts = {"scenario_synthesis": 10, "distractor_mining": 3}
+
+    def fake_count(since=None, strategy=None):
+        return counts.get(strategy, 0)
+
+    monkeypatch.setattr(_question_db, "count_closed_book_solvable", fake_count)
+    monkeypatch.setattr(
+        _question_db, "insert_question",
+        lambda *_a, **_kw: "uuid-distractor",
+    )
+
+    # Scenario should be rejected (full).
+    q1, g1 = _question_db.insert_question_gated(
+        question_data={
+            "question_id": "TEST-A",
+            "question_text": "Q?", "options": _OPTS, "correct_answer": "A",
+            "difficulty": "1", "question_type": "multiple_choice", "domain": "wine_regions",
+        },
+        generation_meta={"generator": "test", "generation_method": "scenario_synthesis"},
+        fact_ids=[], source_ids=[],
+    )
+    assert q1 is None
+    assert g1.quota_full is True
+
+    # Distractor should be relabeled (independent budget at 3/10).
+    q2, g2 = _question_db.insert_question_gated(
+        question_data={
+            "question_id": "TEST-B",
+            "question_text": "Q?", "options": _OPTS, "correct_answer": "A",
+            "difficulty": "1", "question_type": "multiple_choice", "domain": "wine_regions",
+        },
+        generation_meta={"generator": "test", "generation_method": "distractor_mining"},
+        fact_ids=[], source_ids=[],
+    )
+    assert q2 == "uuid-distractor"
+    assert g2.relabeled is True
+    assert g2.quota_full is False
+
+
+def test_insert_question_gated_falls_back_to_corpus_cap_when_env_unset(monkeypatch):
+    """Without OENOBENCH_STRATEGY_TARGET set, the wrapper must use the corpus
+    cap (existing v2.0 behaviour). count_closed_book_solvable must be called
+    WITHOUT a strategy filter."""
+    from src.generators import _question_db
+
+    monkeypatch.delenv("OENOBENCH_STRATEGY_TARGET", raising=False)
+    _patch_call(monkeypatch, selected="A", confidence=0.9)
+
+    seen: dict = {"strategy_kwargs": []}
+
+    def fake_count(since=None, strategy=None):
+        seen["strategy_kwargs"].append(strategy)
+        return 0
+
+    monkeypatch.setattr(_question_db, "count_closed_book_solvable", fake_count)
+    monkeypatch.setattr(_question_db, "insert_question", lambda *_a, **_kw: "uuid-corpus")
+
+    q_uuid, gate = _question_db.insert_question_gated(
+        question_data={
+            "question_id": "TEST-FALLBACK",
+            "question_text": "Q?", "options": _OPTS, "correct_answer": "A",
+            "difficulty": "1", "question_type": "multiple_choice", "domain": "wine_regions",
+        },
+        generation_meta={"generator": "test", "generation_method": "scenario_synthesis"},
+        fact_ids=[], source_ids=[],
+    )
+    assert q_uuid == "uuid-corpus"
+    assert gate.relabeled is True
+    # No strategy kwarg → corpus-level count (legacy path).
+    assert seen["strategy_kwargs"] == [None]
+
+
+def test_insert_question_gated_falls_back_when_generation_method_missing(monkeypatch):
+    """If env var is set but generation_meta has no generation_method, the
+    wrapper must NOT crash — it falls back to the corpus-level cap. Defensive
+    against test fixtures or partial metadata."""
+    from src.generators import _question_db
+
+    monkeypatch.setenv("OENOBENCH_STRATEGY_TARGET", "40")
+    _patch_call(monkeypatch, selected="A", confidence=0.9)
+
+    seen: dict = {"strategy_kwargs": []}
+
+    def fake_count(since=None, strategy=None):
+        seen["strategy_kwargs"].append(strategy)
+        return 0
+
+    monkeypatch.setattr(_question_db, "count_closed_book_solvable", fake_count)
+    monkeypatch.setattr(_question_db, "insert_question", lambda *_a, **_kw: "uuid-no-method")
+
+    q_uuid, gate = _question_db.insert_question_gated(
+        question_data={
+            "question_id": "TEST-NO-METHOD",
+            "question_text": "Q?", "options": _OPTS, "correct_answer": "A",
+            "difficulty": "1", "question_type": "multiple_choice", "domain": "wine_regions",
+        },
+        generation_meta={"generator": "test"},  # no generation_method
+        fact_ids=[], source_ids=[],
+    )
+    assert q_uuid == "uuid-no-method"
+    # Falls back to corpus-level (strategy=None on the count call).
+    assert seen["strategy_kwargs"] == [None]

@@ -849,3 +849,83 @@ def test_build_pilot_corpus_restores_pre_existing_build_since(monkeypatch):
     build_pilot_corpus(tag="audit_pilot_test", per_strategy=10, seed=42)
 
     assert os.environ.get(CORPUS_BUILD_SINCE_ENV_VAR) == "2024-01-01T00:00:00Z"
+
+
+# ─── Phase 2g.10 — OENOBENCH_STRATEGY_TARGET export ─────────────────────────
+#
+# Per-strategy closed-book budget. The orchestrator must export
+# OENOBENCH_STRATEGY_TARGET=per_strategy so subprocess strategy CLIs pass
+# the per-strategy cap into insert_question_gated. Without this, the
+# default (env var unset) is corpus-level cap — back to v6/v7 behaviour.
+
+
+def test_build_pilot_corpus_exports_strategy_target_during_dispatch(monkeypatch):
+    """While the dispatch loop runs, OENOBENCH_STRATEGY_TARGET must equal the
+    per_strategy size, NOT the corpus target."""
+    from src.generators._question_db import STRATEGY_TARGET_ENV_VAR
+    from src.qa import _corpus as _c
+    from src.qa._corpus import build_pilot_corpus
+
+    _patch_db_helpers(monkeypatch)
+    monkeypatch.delenv(STRATEGY_TARGET_ENV_VAR, raising=False)
+
+    captured: list[str | None] = []
+
+    def fake_run_generator(*, module, domain, count, generator=None,
+                           difficulty=None, per_country_cap=None):
+        captured.append(os.environ.get(STRATEGY_TARGET_ENV_VAR))
+        return True
+
+    monkeypatch.setattr(_c, "_run_generator", fake_run_generator)
+
+    per_strategy = 40
+    build_pilot_corpus(tag="audit_pilot_test", per_strategy=per_strategy, seed=42)
+
+    assert captured, "_run_generator was never called"
+    assert all(v == str(per_strategy) for v in captured), (
+        f"OENOBENCH_STRATEGY_TARGET must equal {per_strategy} (per_strategy, "
+        f"NOT the corpus target) during every _run_generator call; saw "
+        f"distinct values {set(captured)}"
+    )
+
+
+def test_build_pilot_corpus_clears_strategy_target_after(monkeypatch):
+    """After return, the env var must be removed (when previously unset)."""
+    from src.generators._question_db import STRATEGY_TARGET_ENV_VAR
+    from src.qa import _corpus as _c
+    from src.qa._corpus import build_pilot_corpus
+
+    _patch_db_helpers(monkeypatch)
+    monkeypatch.delenv(STRATEGY_TARGET_ENV_VAR, raising=False)
+    monkeypatch.setattr(
+        _c,
+        "_run_generator",
+        lambda *, module, domain, count, generator=None,
+               difficulty=None, per_country_cap=None: True,
+    )
+
+    build_pilot_corpus(tag="audit_pilot_test", per_strategy=10, seed=42)
+
+    assert STRATEGY_TARGET_ENV_VAR not in os.environ
+
+
+def test_build_pilot_corpus_restores_pre_existing_strategy_target(monkeypatch):
+    """Pre-existing env-var value must be restored on exit, not stripped."""
+    from src.generators._question_db import STRATEGY_TARGET_ENV_VAR
+    from src.qa import _corpus as _c
+    from src.qa._corpus import build_pilot_corpus
+
+    _patch_db_helpers(monkeypatch)
+    monkeypatch.setenv(STRATEGY_TARGET_ENV_VAR, "999")
+    monkeypatch.setattr(
+        _c,
+        "_run_generator",
+        lambda *, module, domain, count, generator=None,
+               difficulty=None, per_country_cap=None: True,
+    )
+
+    build_pilot_corpus(tag="audit_pilot_test", per_strategy=10, seed=42)
+
+    assert os.environ.get(STRATEGY_TARGET_ENV_VAR) == "999", (
+        "Pre-existing env-var value must be restored, not stripped"
+    )
