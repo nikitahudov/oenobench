@@ -69,7 +69,9 @@ def _patch_call(monkeypatch, selected: str, confidence: float):
     """Patch the underlying OpenRouter call to return a fake completion."""
     fake = _fake_response(selected, confidence)
 
-    def fake_call(client, prompt):  # signature matches _call_gate
+    # Lever B4 (2026-04-28): _call_gate now takes a model arg as well.
+    # Default model=None keeps any pre-B4 callers working.
+    def fake_call(client, prompt, model=None):  # signature matches _call_gate
         return fake
 
     monkeypatch.setattr(_closed_book_gate, "_call_gate", fake_call)
@@ -208,7 +210,8 @@ def test_gate_passes_when_wrong_high_conf(monkeypatch):
 def test_gate_fails_open_on_api_error(monkeypatch):
     """A network/API error must NOT silently drop the question."""
 
-    def boom(client, prompt):
+    # Lever B4 (2026-04-28): _call_gate signature is (client, prompt, model).
+    def boom(client, prompt, model=None):
         raise RuntimeError("simulated network error")
 
     monkeypatch.setattr(_closed_book_gate, "_call_gate", boom)
@@ -228,7 +231,8 @@ def test_gate_fails_open_on_unparseable_response(monkeypatch):
         choices=[_FakeChoice(message=_FakeMessage(content="not json at all"))]
     )
 
-    def fake_call(client, prompt):
+    # Lever B4 (2026-04-28): _call_gate signature is (client, prompt, model).
+    def fake_call(client, prompt, model=None):
         return bad
 
     monkeypatch.setattr(_closed_book_gate, "_call_gate", fake_call)
@@ -326,7 +330,9 @@ def test_insert_question_gated_records_gate_in_metadata(monkeypatch):
     gate_meta = captured["meta"]["raw_response"]["gate"]
     assert gate_meta["selected"] == "B"
     assert gate_meta["matched_gold"] is False
-    assert gate_meta["model"] == _closed_book_gate.GATE_MODEL
+    # Lever B4 (2026-04-28): the recorded model is now resolved per-difficulty.
+    # This insert uses difficulty="2", so the gate records the L2-tier model.
+    assert gate_meta["model"] == _closed_book_gate._resolve_gate_model("2")
 
 
 def test_insert_question_gated_passthrough_for_l4(monkeypatch):
@@ -581,10 +587,14 @@ def test_gate_model_default_is_opus_4_7(monkeypatch):
     end of what the 5-judge audit panel can solve.
     """
     monkeypatch.delenv("OENOBENCH_GATE_MODEL", raising=False)
+    # Lever B4 (2026-04-28) bumped GATE_VERSION to 2.4.x and tiered the
+    # gate model. The L3 default still resolves to Opus 4.7, so the
+    # backwards-compat `GATE_MODEL` symbol still equals Opus.
+    monkeypatch.delenv("OENOBENCH_GATE_MODEL_L3", raising=False)
     importlib.reload(_closed_book_gate)
     try:
         assert _closed_book_gate.GATE_MODEL == "anthropic/claude-opus-4.7"
-        assert _closed_book_gate.GATE_VERSION == "2.3.0"
+        assert _closed_book_gate.GATE_VERSION.startswith("2.4")
     finally:
         # Reload one more time so the module's GATE_MODEL is at its
         # default for any tests that run after this one in the same
@@ -1076,3 +1086,187 @@ def test_insert_question_gated_falls_back_when_generation_method_missing(monkeyp
     assert q_uuid == "uuid-no-method"
     # Falls back to corpus-level (strategy=None on the count call).
     assert seen["strategy_kwargs"] == [None]
+
+
+# ─── Lever B4 — tier-aware closed-book gate model ────────────────────────────
+#
+# 2026-04-28: the gate model is now selected per question difficulty:
+#   L1 → Haiku 4.5  (cheap, leakage near-zero on any model)
+#   L2 → Sonnet 4.6 (balance)
+#   L3 → Opus 4.7   (residual leakage lives here — 33% in v5 at threshold 0.6)
+#
+# Override hierarchy: per-tier env > global env > module default.
+
+_PER_TIER_ENV_VARS = (
+    "OENOBENCH_GATE_MODEL",
+    "OENOBENCH_GATE_MODEL_L1",
+    "OENOBENCH_GATE_MODEL_L2",
+    "OENOBENCH_GATE_MODEL_L3",
+)
+
+
+def _clear_gate_model_env(monkeypatch):
+    for var in _PER_TIER_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_gate_model_default_l1_is_haiku(monkeypatch):
+    """With no env overrides, L1 questions resolve to Haiku 4.5."""
+    _clear_gate_model_env(monkeypatch)
+    assert (
+        _closed_book_gate._resolve_gate_model("1")
+        == "anthropic/claude-haiku-4.5-20251001"
+    )
+
+
+def test_gate_model_default_l2_is_sonnet(monkeypatch):
+    """With no env overrides, L2 questions resolve to Sonnet 4.6."""
+    _clear_gate_model_env(monkeypatch)
+    assert (
+        _closed_book_gate._resolve_gate_model("2")
+        == "anthropic/claude-sonnet-4.6"
+    )
+
+
+def test_gate_model_default_l3_is_opus(monkeypatch):
+    """With no env overrides, L3 questions resolve to Opus 4.7."""
+    _clear_gate_model_env(monkeypatch)
+    assert (
+        _closed_book_gate._resolve_gate_model("3")
+        == "anthropic/claude-opus-4.7"
+    )
+
+
+def test_gate_model_l1_env_override(monkeypatch):
+    """OENOBENCH_GATE_MODEL_L1 must be returned for L1 questions verbatim."""
+    _clear_gate_model_env(monkeypatch)
+    monkeypatch.setenv("OENOBENCH_GATE_MODEL_L1", "anthropic/claude-test-l1")
+    assert (
+        _closed_book_gate._resolve_gate_model("1") == "anthropic/claude-test-l1"
+    )
+    # Other tiers untouched.
+    assert (
+        _closed_book_gate._resolve_gate_model("2") == "anthropic/claude-sonnet-4.6"
+    )
+    assert (
+        _closed_book_gate._resolve_gate_model("3") == "anthropic/claude-opus-4.7"
+    )
+
+
+def test_gate_model_l2_env_override(monkeypatch):
+    """OENOBENCH_GATE_MODEL_L2 must be returned for L2 questions verbatim."""
+    _clear_gate_model_env(monkeypatch)
+    monkeypatch.setenv("OENOBENCH_GATE_MODEL_L2", "anthropic/claude-test-l2")
+    assert (
+        _closed_book_gate._resolve_gate_model("2") == "anthropic/claude-test-l2"
+    )
+    assert (
+        _closed_book_gate._resolve_gate_model("1")
+        == "anthropic/claude-haiku-4.5-20251001"
+    )
+    assert (
+        _closed_book_gate._resolve_gate_model("3") == "anthropic/claude-opus-4.7"
+    )
+
+
+def test_gate_model_l3_env_override(monkeypatch):
+    """OENOBENCH_GATE_MODEL_L3 must be returned for L3 questions verbatim."""
+    _clear_gate_model_env(monkeypatch)
+    monkeypatch.setenv("OENOBENCH_GATE_MODEL_L3", "anthropic/claude-test-l3")
+    assert (
+        _closed_book_gate._resolve_gate_model("3") == "anthropic/claude-test-l3"
+    )
+    assert (
+        _closed_book_gate._resolve_gate_model("1")
+        == "anthropic/claude-haiku-4.5-20251001"
+    )
+    assert (
+        _closed_book_gate._resolve_gate_model("2") == "anthropic/claude-sonnet-4.6"
+    )
+
+
+def test_gate_model_global_env_var_overrides_all_tiers(monkeypatch):
+    """OENOBENCH_GATE_MODEL applies to all three tiers — keeps the v8 audit
+    pilot harness (`scripts/run_audit_pilot_v8_build.sh` exports
+    OENOBENCH_GATE_MODEL=anthropic/claude-sonnet-4.6) working byte-for-byte.
+    """
+    _clear_gate_model_env(monkeypatch)
+    monkeypatch.setenv("OENOBENCH_GATE_MODEL", "anthropic/claude-sonnet-4.6")
+    for diff in ("1", "2", "3"):
+        assert (
+            _closed_book_gate._resolve_gate_model(diff)
+            == "anthropic/claude-sonnet-4.6"
+        ), f"global override must apply to L{diff}"
+
+
+def test_gate_model_per_tier_override_beats_global(monkeypatch):
+    """Per-tier env vars must win over the global override."""
+    _clear_gate_model_env(monkeypatch)
+    monkeypatch.setenv("OENOBENCH_GATE_MODEL", "anthropic/global-X")
+    monkeypatch.setenv("OENOBENCH_GATE_MODEL_L1", "anthropic/per-tier-Y")
+    assert _closed_book_gate._resolve_gate_model("1") == "anthropic/per-tier-Y"
+    # L2 / L3 fall through to the global override.
+    assert _closed_book_gate._resolve_gate_model("2") == "anthropic/global-X"
+    assert _closed_book_gate._resolve_gate_model("3") == "anthropic/global-X"
+
+
+def test_gate_model_invalid_difficulty_falls_back_to_l3_default(monkeypatch):
+    """Defensive fallback: any difficulty outside {1,2,3} resolves to L3
+    (Opus by default). Covers garbage strings, None, floats outside range."""
+    _clear_gate_model_env(monkeypatch)
+    for bad in ("99", "0", "4", None, "not-a-number", "", "1.5"):
+        assert (
+            _closed_book_gate._resolve_gate_model(bad)
+            == "anthropic/claude-opus-4.7"
+        ), f"difficulty={bad!r} should fall back to L3 default"
+
+
+def test_screen_question_uses_l1_model_for_l1_question(monkeypatch):
+    """End-to-end: an L1 MC question must dispatch with the L1-tier model.
+
+    Captures the `model` arg passed to `_call_gate` and asserts it matches
+    the L1 default (Haiku) when no env overrides are set. Also verifies
+    `GateResult.model` records the actually-used model.
+    """
+    _clear_gate_model_env(monkeypatch)
+    captured: dict = {}
+    fake = _fake_response(selected="A", confidence=0.85)
+
+    def capturing_call(client, prompt, model):
+        captured["model"] = model
+        return fake
+
+    monkeypatch.setattr(_closed_book_gate, "_call_gate", capturing_call)
+    monkeypatch.setattr(
+        _closed_book_gate, "_get_client", lambda: SimpleNamespace()
+    )
+    result = screen_question("Q?", _OPTS, "A", "1", "multiple_choice")
+    assert captured["model"] == "anthropic/claude-haiku-4.5-20251001"
+    assert result.model == "anthropic/claude-haiku-4.5-20251001"
+    assert result.applied is True
+
+
+def test_screen_question_uses_l3_model_for_l3_question(monkeypatch):
+    """End-to-end: an L3 MC question must dispatch with the L3-tier model
+    (Opus 4.7) when no env overrides are set."""
+    _clear_gate_model_env(monkeypatch)
+    captured: dict = {}
+    fake = _fake_response(selected="A", confidence=0.85)
+
+    def capturing_call(client, prompt, model):
+        captured["model"] = model
+        return fake
+
+    monkeypatch.setattr(_closed_book_gate, "_call_gate", capturing_call)
+    monkeypatch.setattr(
+        _closed_book_gate, "_get_client", lambda: SimpleNamespace()
+    )
+    result = screen_question("Q?", _OPTS, "A", "3", "multiple_choice")
+    assert captured["model"] == "anthropic/claude-opus-4.7"
+    assert result.model == "anthropic/claude-opus-4.7"
+    assert result.applied is True
+
+
+def test_gate_version_bumped():
+    """B4 bumps GATE_VERSION to 2.4.x for downstream cache invalidation."""
+    assert _closed_book_gate.GATE_VERSION.startswith("2.4")

@@ -36,26 +36,70 @@ from src.generators._llm_client import _try_parse_json
 
 load_dotenv()
 
-GATE_VERSION = "2.3.0"  # 2026-04-26 — gate model upgrade Sonnet 4.6 → Opus 4.7 (audit default)
+GATE_VERSION = "2.4.0"  # 2026-04-28 — lever B4: tier-aware gate model (Haiku L1 / Sonnet L2 / Opus L3)
 
-# Phase 2g.8 (2026-04-26): the gate model is configurable via the
-# OENOBENCH_GATE_MODEL env var so audit pilots can run on the stronger
-# (and 5x more expensive) Opus while the full 10k generation can opt
-# back to Sonnet without a code change. Default = Opus 4.7.
+# Phase 2g.8 (2026-04-26) introduced a single OENOBENCH_GATE_MODEL env var
+# so audit pilots could swap Sonnet ↔ Opus without code changes.
 #
-# Cost rationale:
-#   Sonnet 4.6 — $3/$15 per MTok in/out — ~$0.0015 per gate call
-#   Opus 4.7   — $15/$75 per MTok in/out — ~$0.0075 per gate call (5x)
+# Lever B4 (2026-04-28) tiers the gate model by question difficulty:
+#   L1 → Haiku 4.5 — leakage near-zero on any model; cheapest+fastest is fine.
+#   L2 → Sonnet 4.6 — balance.
+#   L3 → Opus 4.7 — residual leakage lives here (33% in v5 at threshold 0.6).
 #
-# v6 prototype data: Sonnet at threshold 0.6 caught ~50% of the closed-book
-# leakage that the 5-judge audit panel catches; the residual 46% B2 fail
-# rate suggests questions Sonnet itself can't solve but Opus + GPT-5.4 +
-# Gemini collectively can. Opus is projected to close ~half the remaining
-# gap on its own (B2 fail rate ~46% → ~20-25%).
+# Override hierarchy (highest priority first):
+#   1. Per-tier env var: OENOBENCH_GATE_MODEL_L1 / _L2 / _L3
+#   2. Global env var:   OENOBENCH_GATE_MODEL (applies to ALL tiers — keeps
+#                        the v8 audit pilot harness working byte-for-byte).
+#   3. Module default for the tier (table above).
 #
-# Audit-cycle cost delta: ~+$2 per audit pilot. Full 10k run delta: ~+$60.
-# The full-run model is decided after audit #7 lands.
-GATE_MODEL = os.getenv("OENOBENCH_GATE_MODEL", "anthropic/claude-opus-4.7")
+# Cost rationale (Anthropic list prices):
+#   Haiku 4.5  — $1/$5  per MTok in/out — ~$0.0005 per gate call
+#   Sonnet 4.6 — $3/$15 per MTok in/out — ~$0.0015 per gate call (3x)
+#   Opus 4.7   — $15/$75 per MTok in/out — ~$0.0075 per gate call (15x)
+#
+# Backwards compatibility: GATE_MODEL is retained as a module attribute
+# (resolves to the L3 default) so prototypes/team_beta_check_leakage.py
+# and existing test fixtures that import the symbol keep working.
+_GATE_MODEL_DEFAULT_L1 = "anthropic/claude-haiku-4.5-20251001"
+_GATE_MODEL_DEFAULT_L2 = "anthropic/claude-sonnet-4.6"
+_GATE_MODEL_DEFAULT_L3 = "anthropic/claude-opus-4.7"
+
+
+def _resolve_gate_model(difficulty) -> str:
+    """Resolve the gate model for a given question difficulty.
+
+    Override hierarchy:
+      1. Per-tier env var: OENOBENCH_GATE_MODEL_L1/L2/L3 (highest)
+      2. Global env var:   OENOBENCH_GATE_MODEL (applies to all tiers)
+      3. Module default for the tier (Haiku/Sonnet/Opus for L1/L2/L3).
+
+    If `difficulty` is missing, non-numeric, or outside {1, 2, 3}, falls
+    back to the L3 default (defensive — protects against caller bugs and
+    against any future relaxation of the L4-skip guard).
+    """
+    try:
+        d = int(difficulty)
+    except (TypeError, ValueError):
+        d = 3
+    if d not in {1, 2, 3}:
+        d = 3
+    per_tier = os.getenv(f"OENOBENCH_GATE_MODEL_L{d}")
+    if per_tier:
+        return per_tier
+    glob = os.getenv("OENOBENCH_GATE_MODEL")
+    if glob:
+        return glob
+    return {
+        1: _GATE_MODEL_DEFAULT_L1,
+        2: _GATE_MODEL_DEFAULT_L2,
+        3: _GATE_MODEL_DEFAULT_L3,
+    }[d]
+
+
+# Backwards-compatible module attribute — resolves to the L3 default.
+# Pre-B4 callers (prototypes/team_beta_check_leakage.py, test fixtures)
+# read `_closed_book_gate.GATE_MODEL` as a string.
+GATE_MODEL = _resolve_gate_model("3")
 # Phase 2g.7 retune (2026-04-25): threshold lowered 0.7 -> 0.6 and gate
 # extended to L3 multiple-choice. See prototypes/team_alpha_results.json.
 #
@@ -200,9 +244,9 @@ def _should_retry(exc: BaseException) -> bool:
     stop=stop_after_attempt(3),
     reraise=True,
 )
-def _call_gate(client: openai.OpenAI, prompt: str):
+def _call_gate(client: openai.OpenAI, prompt: str, model: str):
     return client.chat.completions.create(
-        model=GATE_MODEL,
+        model=model,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.1,
         max_tokens=400,
@@ -257,37 +301,46 @@ def screen_question(
 
     gold_letter = _normalize_letter(correct_answer)
     prompt = _PROMPT.format(stem=stem, options_block=options_block)
+    # Lever B4 (2026-04-28): resolve the gate model per call from the
+    # question's difficulty. Hierarchy = per-tier env > global env > default.
+    model = _resolve_gate_model(difficulty)
+    logger.info(
+        "Closed-book gate dispatch | difficulty={} type={} model={}",
+        difficulty, question_type, model,
+    )
 
     t0 = time.time()
     try:
         client = _get_client()
-        resp = _call_gate(client, prompt)
+        resp = _call_gate(client, prompt, model)
         latency_ms = int((time.time() - t0) * 1000)
         content = resp.choices[0].message.content or ""
         parsed = _try_parse_json(content)
     except Exception as e:  # noqa: BLE001
         latency_ms = int((time.time() - t0) * 1000)
         logger.warning(
-            "Closed-book gate API error (failing open) | err={} | latency={}ms",
-            str(e), latency_ms,
+            "Closed-book gate API error (failing open) | model={} err={} latency={}ms",
+            model, str(e), latency_ms,
         )
         return GateResult(
             passed=True,
             applied=True,
             reason="api_error_fail_open",
+            model=model,
             latency_ms=latency_ms,
             error=str(e),
         )
 
     if not parsed:
         logger.warning(
-            "Closed-book gate JSON parse failed (failing open) | content={}",
-            content[:200],
+            "Closed-book gate JSON parse failed (failing open) | model={} content={}",
+            model, content[:200],
         )
         return GateResult(
             passed=True,
             applied=True,
             reason="parse_failed_fail_open",
+            model=model,
             latency_ms=latency_ms,
             error="json_parse_failed",
         )
@@ -323,5 +376,6 @@ def screen_question(
         confidence=confidence,
         matched_gold=matched_gold,
         reasoning=reasoning,
+        model=model,
         latency_ms=latency_ms,
     )
