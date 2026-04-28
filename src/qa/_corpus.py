@@ -113,6 +113,35 @@ def _existing_corpus_count(tag: str) -> dict[str, int]:
     return {row["generation_method"]: row["cnt"] for row in cur.fetchall()}
 
 
+def _resolve_build_started_at(tag: str) -> tuple[datetime, bool]:
+    """Return the build's effective start time, restart-safe.
+
+    Returns ``(started, is_resume)``. On a fresh build (no questions yet
+    tagged with ``tag``), returns ``(datetime.now(), False)``. On a resume,
+    returns ``(MIN(created_at) of build-tagged questions, True)`` so the
+    closed-book quota cap query in ``count_closed_book_solvable`` scopes
+    the count across all cb-tagged questions created during the build's
+    lifetime, not just the current process.
+
+    Audit pilot v8 (Phase 2g.10) accumulated 53 cb-relabels (29+13+11)
+    across three sessions — well over the corpus cap of 50 and the
+    per-strategy cap of 10 — because each restart reset ``started`` to
+    the new process's clock and the prior runs' cb-tags fell outside
+    the ``since`` window.
+    """
+    conn = get_pg()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT MIN(created_at) AS earliest FROM questions WHERE %s = ANY(tags)",
+        (tag,),
+    )
+    row = cur.fetchone()
+    earliest = row["earliest"] if row else None
+    if earliest is not None:
+        return earliest, True
+    return datetime.now(), False
+
+
 def _run_generator(
     *,
     module: str,
@@ -175,10 +204,20 @@ def build_pilot_corpus(
             disables. Audit pilots should typically pass 0.10.
     """
     random.seed(seed)
-    started = datetime.now()
+    started, is_resume = _resolve_build_started_at(tag)
 
     counts_before = _existing_corpus_count(tag)
-    logger.info("corpus: existing rows with tag {} = {}", tag, counts_before)
+    if is_resume:
+        logger.info(
+            "corpus: RESUME detected for tag {} — reusing build start {} so the "
+            "closed-book quota count spans prior process(es). Existing rows = {}",
+            tag, started.isoformat(), counts_before,
+        )
+    else:
+        logger.info(
+            "corpus: FRESH BUILD for tag {} — start={}. Existing rows = {}",
+            tag, started.isoformat(), counts_before,
+        )
 
     # Phase 2g.8: scope the closed-book quota cap to this pilot's size, not the
     # 10k full-run default. Without this, a 600-Q pilot's cap is 2500 (i.e.
