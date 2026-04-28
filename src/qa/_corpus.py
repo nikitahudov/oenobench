@@ -30,6 +30,7 @@ from loguru import logger
 from src.generators._question_db import (
     CORPUS_BUILD_SINCE_ENV_VAR,
     CORPUS_TARGET_ENV_VAR,
+    STRATEGY_TARGET_ENV_VAR,
     set_corpus_target,
 )
 from src.qa._findings import upsert_gold_label
@@ -202,10 +203,21 @@ def build_pilot_corpus(
     # v5+v6+v7 had already accumulated 427 cb-tagged questions in the DB.
     prev_env_since = os.environ.get(CORPUS_BUILD_SINCE_ENV_VAR)
     os.environ[CORPUS_BUILD_SINCE_ENV_VAR] = started.isoformat()
+    # Phase 2g.10: per-strategy closed-book budget. Each strategy gets its
+    # own ceil(per_strategy × 0.25) slot count, counted by generation_method,
+    # so the first strategy in build order can't monopolise the corpus-wide
+    # cap and starve later strategies. The corpus-level env var stays set so
+    # callers without a generation_method (or without the per-strategy var)
+    # still fall back to the corpus cap.
+    prev_env_strategy = os.environ.get(STRATEGY_TARGET_ENV_VAR)
+    os.environ[STRATEGY_TARGET_ENV_VAR] = str(per_strategy)
     logger.info(
         "corpus: set closed-book quota target to {} (per-pilot 25% cap), "
+        "per-strategy budget {} (per-strategy 25% cap = {}), "
         "scoped to questions created since {}",
-        target_size, started.isoformat(),
+        target_size, per_strategy,
+        (per_strategy * 25 + 99) // 100,
+        started.isoformat(),
     )
 
     results: dict[str, dict] = {}
@@ -270,6 +282,10 @@ def build_pilot_corpus(
             os.environ.pop(CORPUS_BUILD_SINCE_ENV_VAR, None)
         else:
             os.environ[CORPUS_BUILD_SINCE_ENV_VAR] = prev_env_since
+        if prev_env_strategy is None:
+            os.environ.pop(STRATEGY_TARGET_ENV_VAR, None)
+        else:
+            os.environ[STRATEGY_TARGET_ENV_VAR] = prev_env_strategy
 
     counts_after = _existing_corpus_count(tag)
     logger.info("corpus: post-build totals = {}", counts_after)

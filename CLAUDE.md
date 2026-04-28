@@ -308,6 +308,20 @@ Audit #7 ran on `audit_pilot_v7` (run_id `9ba6f760-5a6c-4403-9709-412c13eac30c`,
 
 Reports: `docs/QUALITY_AUDIT_REPORT.md` (audit #7 results), `docs/PROCESS_LOG.md` 2026-04-27 (Phase 2g.7 audit run #7 + Phase 2g.9 fixes), `docs/GENERATION_IMPROVEMENT_PLAN_AUTO.md`.
 
+### Phase 2g.10 shipped (2026-04-28)
+
+Per-strategy closed-book budget. Audits #6/#7 ran with a single corpus-level cb cap of `ceil(target × 0.25)`, but strategies execute sequentially in `build_pilot_corpus`. The first strategy in build order (template, then fact_to_question) consumes the cap before later strategies (scenario_synthesis, distractor_mining) get to insert; their cb-flagged questions get DROPPED instead of relabeled, biasing the corpus toward the early strategies' style. Per-pilot historical cb-rates show 40–77% across strategies — there's no naturally-safe strategy to skip-gate, so the right fix is per-strategy fairness rather than re-ordering.
+
+| Area | Change | Notes |
+|---|---|---|
+| Per-strategy budget env var | New `STRATEGY_TARGET_ENV_VAR = "OENOBENCH_STRATEGY_TARGET"` in `_question_db.py`. `_resolve_strategy_target_size()` reads it and returns `int | None`. | Env-var fallback rather than module-global so subprocess strategy CLIs see the same value (same pattern as Phase 2g.9 `OENOBENCH_CORPUS_TARGET`). |
+| `count_closed_book_solvable(strategy=…)` | Added optional `strategy` kwarg. When set, JOINs `generation_metadata` and filters by `gm.generation_method = strategy`. Composes with the existing `since` filter. | Backward-compatible — `strategy=None` keeps the previous corpus-level count SQL untouched. |
+| `insert_question_gated()` routing | When env var is set AND `generation_meta['generation_method']` is present, evaluates cap as `ceil(per_strategy × 0.25)` against per-strategy count. Otherwise falls back to existing corpus-level cap (Phase 2g.6 behaviour). | Defensive: missing `generation_method` falls back to corpus-level rather than crashing. Reason string includes `cap_label` (`strategy:<name>` or `corpus`) so quota_full logs say which budget tripped. |
+| `build_pilot_corpus` wire-up | Exports `STRATEGY_TARGET_ENV_VAR=str(per_strategy)` alongside `CORPUS_TARGET_ENV_VAR` and `CORPUS_BUILD_SINCE_ENV_VAR`; `try/finally` restores prior value. | Audit pilots get per-strategy fairness automatically; the 10k full-generation run can opt in by exporting the env var before `generate-all`. |
+| Tests | 369/369 pass (was 347). +13 net: 10 in `test_closed_book_gate.py` (env-var resolver, count-filter SQL shape, insert routing, independent-budget fairness, fallbacks) + 3 in `test_corpus_build_cost.py` (orchestrator export/clear/restore). | Tests use monkeypatched `count_closed_book_solvable` to exercise the routing without touching the DB. |
+
+What this fix does **not** address: the cap-vs-actual-yield mismatch (cap computed against `target_size`, evaluated against actual kept count). v8's actual yield was ~80 vs target 200, so the corpus-level cap of 50 wouldn't bite even if the per-strategy fairness logic were active. This is a separate Phase 2g.11 candidate.
+
 See `CURRENT_STATUS.md` for detailed phase tracking and the regeneration Go/No-Go gate.
 
 ## Documentation Maintenance — MANDATORY

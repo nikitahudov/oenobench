@@ -1272,3 +1272,84 @@ User decisions in this phase:
 5. **Verify Go/No-Go on v8.** Pass criteria: B2 fail rate ≤ 15% on non-cb-tagged L1/L2/L3; A1 ≤ 2%; D3 either < 2.0× or `country_coverage_sufficient=false` with WARN severity; κ ≥ 0.6 on populated rubrics; closed-book quota cap properly enforced (≤ 25% tagged). If B2 still fails after the cap fix lands, the residual is structural in scenario_synthesis prompts — escalate to a scenario-prompt revision.
 6. **Re-measure D1.** With the corpus mix likely changing under RC1 + RC2 fixes, the Δ may resolve naturally. If it doesn't, design a per-generator share cap before the 10k run.
 7. **Decide on full-generation gate model.** v8 build now uses Sonnet 4.6 (via the script's env-var export). If v8 passes B2, keep Sonnet for the 10k run (no env-var change needed in `generate-all`). If v8 fails B2, retry by removing the export from the v8 script — `_closed_book_gate.py`'s module default is still Opus 4.7.
+
+---
+
+## 2026-04-28 — Phase 2g.10: Per-strategy closed-book budget
+
+### What was done
+
+Added per-strategy fairness to the closed-book quota gate. Audits #6/#7 enforced the 25% cb cap as a single corpus-level counter via `count_closed_book_solvable()`, but strategies execute sequentially in `build_pilot_corpus`. Empirically the first strategies (template, fact_to_question) reach the cap and the late strategies (scenario_synthesis, distractor_mining) have all their cb-flagged questions dropped instead of relabeled — biasing the corpus toward the early strategies' style. The fix: when `OENOBENCH_STRATEGY_TARGET` is set, evaluate the 25% cap per `generation_method`.
+
+### Why this came up
+
+Investigation prompted by a user question on the v8 corpus build: "is it true that strategy which is running first might consume all the quota?" The data confirmed it (see *Methodology* below).
+
+### Sources & inputs
+
+- v5/v6/v7/v8 in-flight `audit_pilot_v*` corpora — measured per-strategy cb-tag rates by joining `questions.tags` with `generation_metadata.generation_method`.
+- Existing `_question_db.insert_question_gated()` v2.0 routing (Phase 2g.6) and the Phase 2g.9 env-var subprocess fallbacks (`OENOBENCH_CORPUS_TARGET`, `OENOBENCH_CORPUS_BUILD_SINCE`).
+
+### Methodology
+
+**1. Measured per-strategy cb-leak rates.** Across the four most recent pilots:
+
+| pilot | f2q | template | comparative | scenario | distractor |
+|---|---|---|---|---|---|
+| v5 (gate L1/L2 MC only) | 58% | 47% | 15% | 0%* | 0%* |
+| v6 (gate L1/L2/L3 + scenario) | 64% | 62% | 54% | 59% | 46% |
+| v7 (Opus, broken quota) | 77% | 67% | 59% | 74% | 56% |
+| v8 in flight | 55% | 47% | 57% | 54% | 40% |
+
+\* v5's scenario/distractor zeros are an artifact of the gate skipping those types pre-Phase 2g.7. Once the gate ran on them, cb-rates jumped to the same 40–60% band as the others.
+
+Conclusion: there is no strategy where leakage is structurally low enough to skip-gate; all five sit in the 40–77% band. So the architectural fix is per-strategy fairness, not gate-skipping.
+
+**2. Designed the env-var fallback.** Same pattern as Phase 2g.9's `OENOBENCH_CORPUS_TARGET`: a module-global override is brittle because `subprocess.run` doesn't carry it across; an env var does. New constant `STRATEGY_TARGET_ENV_VAR = "OENOBENCH_STRATEGY_TARGET"` plus `_resolve_strategy_target_size()` resolver returning `int | None`.
+
+**3. Extended `count_closed_book_solvable(strategy=…)`.** Added optional kwarg that JOINs `generation_metadata` and filters by `gm.generation_method = strategy`. Composes with the existing `since` filter (cb-tag ∧ strategy ∧ since-scope all combine with AND). Backward-compat: `strategy=None` keeps the prior corpus-level SQL.
+
+**4. Routed `insert_question_gated()`.** When env var is set AND the caller's `generation_meta` carries `generation_method`, the gate evaluates `cap = ceil(per_strategy × 0.25)` against `count_closed_book_solvable(strategy=<method>)`. Otherwise falls back to the corpus-level cap (Phase 2g.6 behaviour). The reason string includes a `cap_label` (`strategy:<name>` or `corpus`) so `GATE QUOTA FULL` log lines say which budget tripped. Defensive: missing `generation_method` falls back rather than crashing.
+
+**5. Wired the orchestrator.** `build_pilot_corpus` exports `STRATEGY_TARGET_ENV_VAR=str(per_strategy)` alongside the existing `CORPUS_TARGET_ENV_VAR` and `CORPUS_BUILD_SINCE_ENV_VAR`, with `try/finally` cleanup.
+
+### Quality controls
+
+- Test suite went 347 → 369 (all pass). Net +13 tests:
+  - 10 in `tests/generators/test_closed_book_gate.py`: env-var resolver positive/negative, count-filter SQL shape (JOIN + composes-with-since), insert routing per-strategy, quota_full at correct cap, independent-budget fairness across two strategies, env-unset fallback, missing-method fallback.
+  - 3 in `tests/generators/test_corpus_build_cost.py`: orchestrator exports value during dispatch / clears after / restores pre-existing.
+- Tests monkeypatch `count_closed_book_solvable` to exercise the routing logic without touching PostgreSQL.
+
+### Quantitative results
+
+Code-only change; runtime impact verified by tests, not yet by a fresh build. Projected v8 distribution at per_strategy=40 (cap per strategy=10):
+
+| strategy | cb-rate | cb attempts | relabel | drop |
+|---|---|---|---|---|
+| template | 47% | ~19 | 10 | 9 |
+| fact_to_question | 55% | ~22 | 10 | 12 |
+| comparative | 57% | ~23 | 10 | 13 |
+| scenario_synthesis | 54% | ~22 | 10 | 12 |
+| distractor_mining | 40% | ~16 | 10 | 6 |
+
+Each strategy converges to 10 cb tags instead of one strategy taking the whole 50-slot pool. Total cb count = 50 either way; what changes is the per-strategy distribution.
+
+### Decisions & trade-offs
+
+- **Per-strategy fairness vs. reordering.** Reordering by descending cb-rate would also help, with zero new code, but only redistributes the bias rather than fixing it. Per-strategy budgets were preferred.
+- **Tag-based vs. JOIN-based per-strategy count.** Tag-based (`closed_book_solvable:<strategy>` composite tag) would avoid the JOIN but adds a new tag convention to the codebase. JOIN reuses `generation_metadata.generation_method` which is already populated and indexed.
+- **Forward-only.** The env-var-unset fallback to corpus-level keeps the existing 10k full-generation path unchanged unless it explicitly opts in. Audit pilots opt in automatically via `build_pilot_corpus`.
+
+### Issues encountered & resolutions
+
+- v8 build (resume mode, `audit_pilot_v8_build_resume_20260428T064639Z.log`) finished while Phase 2g.10 was being implemented: 80Q total (40 f2q + 15 template + 7 comparative + 13 scenario + 5 distractor), 42 cb-tagged (52.5%). Cap (50) didn't fire because the resume-scope cb count (11) stayed below it; pre-existing 31 cb tags from yesterday's f2q were excluded by `OENOBENCH_CORPUS_BUILD_SINCE`. The corpus exceeds the 25% gate at the actual yield (80 vs 200 target), independent of the per-strategy fix.
+- Phase 2g.10 will affect future builds (v9 or 10k); v8 ran on the corpus-level cap as before.
+
+### Human review notes
+
+User explicitly chose Option 2 (per-strategy soft budget) over Options 1 (reorder), 3 (round-robin), and 4 (drop-and-retry) after seeing the historical cb-rate data.
+
+### What's next
+
+The per-strategy budget is forward-looking infrastructure — v8's audit phase 2 still proceeds (or doesn't) based on the corpus-level cap and the existing audit signals. The cap-vs-actual-yield mismatch (cap computed against `target_size` but evaluated against kept count) is the remaining structural issue and is a Phase 2g.11 candidate.
+
