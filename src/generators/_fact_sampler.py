@@ -5,6 +5,7 @@ Selects facts for question generation with source diversity,
 confidence filtering, and support for comparative / cluster queries.
 """
 
+import os
 import re
 import threading
 from collections import defaultdict
@@ -101,6 +102,87 @@ _BLEND_AS_VARIETY = re.compile(
 
 # Minimum word count for a fact to be specific enough
 _MIN_SPECIFIC_WORDS = 8
+
+
+# ── Lever B2 (2026-04-28): pre-flight fact substantiveness predicate ─────
+#
+# Audit pilot v8 hit ~99% LLM-rejection, dominated by
+# {"skip": true, "reason": "fact lacks technical depth / world-knowledge
+# solvable / no entity name"} verdicts. Many of those facts are predictable
+# from text alone (geographical containment, single-noun entries). Pre-
+# screening saves the LLM round-trip.
+#
+# Rule: a fact is SUBSTANTIVE iff at least one of:
+#   - contains ≥1 numeric token (digits/percentages/decimals/years), OR
+#   - contains ≥1 4+-syllable wine-technical term from the curated list, OR
+#   - contains ≥1 multi-word proper-noun construction not in the iconic set.
+# Otherwise FAIL.
+#
+# Gated behind OENOBENCH_FACT_SUBSTANTIVE_FILTER env var (default OFF) so
+# v8 audit runs reproduce byte-for-byte.
+
+_FACT_SUBSTANTIVE_ENV_VAR = "OENOBENCH_FACT_SUBSTANTIVE_FILTER"
+
+_NUMERIC_TOKEN_RE = re.compile(r"\d")
+
+_TECHNICAL_TERMS = frozenset(t.lower() for t in [
+    "appellation", "viticulture", "vinification", "assemblage",
+    "phylloxera", "chaptalisation", "chaptalization", "malolactic",
+    "botrytis", "terroir", "vendange", "palissage", "enjambeur",
+    "méthode", "methode", "fermentation", "clarification",
+    "débourbage", "debourbage", "bâtonnage", "batonnage", "garrigue",
+    "solera", "criadera", "flor", "oxidative", "reductive",
+    "pied de cuve", "selected indigenous", "whole-bunch", "cold soak",
+    "extended maceration", "microoxygenation", "micro-oxygenation",
+    "latitude", "altitude", "precipitation", "humidity",
+])
+
+_MULTIWORD_PROPER_NOUN_RE = re.compile(
+    r"\b[A-ZÀ-Ý][a-zà-ÿ]+(?:[ -][A-ZÀ-Ý][a-zà-ÿ]+){1,}\b"
+)
+
+
+def _is_fact_substantive(fact_text: str) -> bool:
+    """Lever B2 pre-flight predicate.
+
+    Returns True iff the fact has SOMETHING the LLM can't guess from
+    surface text alone: a number, a wine-technical term, or a multi-word
+    proper noun that isn't on the iconic list.
+
+    Cheap (regex + set membership only), deterministic, no LLM/DB calls.
+    Used as an opt-in pre-screen behind the OENOBENCH_FACT_SUBSTANTIVE_FILTER
+    env var.
+    """
+    if not fact_text:
+        return False
+    text = fact_text
+
+    # 1) Any digit at all — covers years, percentages, decimals, hectares.
+    if _NUMERIC_TOKEN_RE.search(text):
+        return True
+
+    # 2) Curated wine-technical term — substring match on lowercased copy.
+    lowered = text.lower()
+    if any(term in lowered for term in _TECHNICAL_TERMS):
+        return True
+
+    # 3) Multi-word proper noun not on the iconic list. We require at
+    #    least one such construction whose lowercased form is NOT iconic.
+    iconic = _load_iconic_entities()
+    for match in _MULTIWORD_PROPER_NOUN_RE.findall(text):
+        if match.strip().lower() not in iconic:
+            return True
+
+    return False
+
+
+def _should_apply_iconic_filter(strategy: str | None) -> bool:
+    """Lever B2: apply the iconic-only filter for every strategy that
+    passes a non-None value to ``sample_facts``. Multi-fact strategies
+    that don't go through ``sample_facts`` (comparative/scenario) still
+    use ``_bundle_has_non_iconic_anchor`` on their bundles separately.
+    """
+    return strategy is not None
 
 
 def _is_fact_specific(fact_text: str) -> bool:
@@ -944,14 +1026,22 @@ def sample_facts(
     # means the candidate is over its 1.5× base share and must be skipped.
     candidates: list[tuple[float, dict]] = []
     quality_filtered = 0
+    substantive_filtered = 0
     category_filtered = 0
     iconic_filtered_single = 0
-    # v2.2 fix #11 — single-fact strategies (FTQ + template) drop iconic-only
-    # facts to prevent world-knowledge-solvable questions.
-    apply_iconic_filter = strategy in ("fact_to_question", "template")
+    # v2.2 fix #11 → Lever B2 (2026-04-28): apply iconic-only filter for any
+    # strategy that calls sample_facts(). Multi-fact strategies that don't
+    # pass through here still use _bundle_has_non_iconic_anchor.
+    apply_iconic_filter = _should_apply_iconic_filter(strategy)
+    # Lever B2: opt-in substantiveness pre-screen. Default OFF for v8
+    # byte-for-byte reproducibility.
+    substantive_filter_on = os.environ.get(_FACT_SUBSTANTIVE_ENV_VAR, "").strip() == "1"
     for r in rows:
         if not _is_fact_specific(r["fact_text"]):
             quality_filtered += 1
+            continue
+        if substantive_filter_on and not _is_fact_substantive(r["fact_text"]):
+            substantive_filtered += 1
             continue
         if wine_category is not None:
             cat = _classify_wine_category(r["fact_text"])
@@ -1007,6 +1097,11 @@ def sample_facts(
 
     if quality_filtered:
         logger.debug(f"Filtered {quality_filtered} vague/marketing facts")
+    if substantive_filtered:
+        logger.debug(
+            f"Filtered {substantive_filtered} substantiveness-failed facts "
+            f"(OENOBENCH_FACT_SUBSTANTIVE_FILTER=1)"
+        )
     if category_filtered:
         logger.debug(f"Filtered {category_filtered} facts not matching wine_category={wine_category}")
     if iconic_filtered_single:
