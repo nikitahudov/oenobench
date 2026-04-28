@@ -1,30 +1,53 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** April 27, 2026
-**Project phase:** Phase 2g.9 — audit #7 ran on the post-2g.8 v7 corpus and failed Go/No-Go on B2 (53%), D3 (10.61×), and A1 (2.9%). All three traced to coordinator-layer wire-up + metric-denominator bugs. Phase 2g.9 lands four targeted fixes, reverts gate to Sonnet 4.6 for v8, and ships a v8 audit harness sized at per_strategy=40 (corpus 200) to halve audit time + cost. 347/347 tests pass on `main`. v7 corpus is superseded; v8 is next.
+**Last updated:** April 28, 2026
+**Project phase:** Phase 2g.11 — generation pipeline speedup. v8 build itself was 11.4h / 16k LLM calls / 111 kept (~99% rejection rate, ~150 calls/q). v8 audit phase 2 completed in 1h 36min (run_id `7dc2ab81…`). 10 speedup levers shipped across parallel agent teams (A1/A2/A3/A4/B1/B2/B3/B4/C1/C2 active; B5 helper present but dormant pending architecture refactor). v9 audit harness ready on `main`. 472/472 tests pass.
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ## Latest cliff notes (start here next session)
 
-- **Audit run #7 (2026-04-27, `audit_pilot_v7`, 242 Qs, $4.42, 2,436 LLM calls, run_id `9ba6f760-5a6c-4403-9709-412c13eac30c`):** Failed Go/No-Go gates B2 (52.9%, regression from v6's 46%), D3 (10.61× max country ratio, regression from 4.52×), A1 (2.9%, over the 2% gate); D1 also failed (claude Δ=+0.16); Cohen's κ = n=0 (gold review of `gold_sheet_v7.csv` not performed). Corpus came in at 242 instead of the 600 target — only fact_to_question hit its 120 quota. **A3 dropped to 1.7%** (v1.2.0 worked) and A4 AUC stayed at 0.742 (PASS).
-- **Phase 2g.9 (2026-04-27) — four root causes, four targeted fixes, all on `main`:**
-  - **RC1: `set_corpus_target()` doesn't survive the subprocess boundary.** `_corpus.py:184` mutates a module-global; `_run_generator` then `subprocess.run`s each strategy CLI, which boots with override = None and resolves the cap to 2500. v7 emitted 172 `GATE RELABEL`, 0 `GATE QUOTA FULL`. Fix: env-var fallback `OENOBENCH_CORPUS_TARGET` in `_resolve_default_target_size()`; `build_pilot_corpus` exports it alongside `set_corpus_target` with `try/finally` restore. Env vars cross subprocesses for free.
-  - **RC2: `--per-country-cap 0.10` was too aggressive at small per-call counts.** `_fact_sampler.py` computes `cap = ceil(per_country_cap × count × cluster_size)` per call; orchestrator splits LLM-strategy work into 30 cells of `count ≈ 4`. So for cluster_size 2-3, the cap rounded to 1-2 facts/country/call. Multi-fact bundles got rejected; template/comparative/scenario/distractor lost 65-87% of their target. Fix: `scripts/run_audit_pilot_v8_build.sh` uses `--per-country-cap 0.30` (no code change to sampler math; structural fix deferred until D3 denominator is calibrated).
-  - **RC3: D3's `max_overrep_ratio` denominator collapses under sparse country annotation.** Only 28 of 242 v7 questions (12%) have country-tagged linked facts; metric divided by ~16-28 → ratio inflates to 10.61×. Fix: D3 v1.1.0 — when coverage < 50%, downgrade FAIL → WARN; always emit `country_annotation_coverage` + related fields in payload.
-  - **RC4: A1 `_EXTRA_VAGUE` over-matches on context-free token presence.** Bare `\bcelebrated\b` flagged "Roman poet celebrated the landscape" (past-tense verb); bare `notable for` flagged "notable for being the country's first" (factual). Fix: A1 v2.3.1 — drop bare `celebrated` (keep `celebrated for`), drop `notable for`. Marketing usage of `notable for` overlaps with `acclaimed`/`world-class`/`quintessential` patterns that remain.
-- **D1 (claude Δ = +0.1625) and Cohen's κ deferred.** D1 may resolve naturally once RC1 + RC2 change the v8 corpus mix; re-measure on v8 before adding code. Cohen's κ requires gold review of v8 (the v7 corpus is superseded; v7 gold sheet won't be reviewed).
-- **Test status:** 347/347 pytest pass on `main` (was 334/334; +13 new tests across 6 env-var, 3 D3 in new `tests/qa/test_team_d.py`, 3 A1 v2.3.1, plus a bonus splits). 1 deselected (live-LLM smoke test, pre-existing).
-- **v7 audit reports** (auto-generated): `docs/QUALITY_AUDIT_REPORT.md`, `docs/GENERATION_IMPROVEMENT_PLAN_AUTO.md` reflect v7 results.
-- **v8 harness:** `scripts/run_audit_pilot_v8_build.sh` (`TAG=audit_pilot_v8`, `SEED=45`, **`PER_STRATEGY=40` (corpus 200, halved from v7's 600 target)**, `PER_COUNTRY_CAP=0.30`, `GOLD_OUT=data/reports/gold_sheet_v8.csv`, **gate reverted to Sonnet 4.6 via `OENOBENCH_GATE_MODEL` export**) and `scripts/run_audit_pilot_v8_audit.sh`. Same two-phase shape as v7. v7 scripts retained as historical references. Wall time/cost: ~4-5h build + ~1h gold review + ~1-1.5h audit, ~$5-7.
-- **Gate model decision: v8 = Sonnet 4.6.** v6 (Sonnet, broken cap) → v7 (Opus, broken cap) only added +14 relabels. With the Phase 2g.9 cap fix saturating at 150 either way, Opus's marginal pickup is small; Sonnet isolates the cap-fix effect and saves ~$60 on the 10k if v8 passes. Module default in `_closed_book_gate.py` still Opus, so other callers are unaffected.
+- **Audit run #8 on `audit_pilot_v8` (run_id `7dc2ab81-bc9a-40b1-a1a4-3ddf66a6e6fe`, 111 Qs):** Phase 2 completed in 1h 36min. D3 max country ratio 4.19× was correctly downgraded to WARN by the Phase 2g.9 coverage guard (annotation coverage 9.0%, < 50% threshold). Reports at `docs/QUALITY_AUDIT_REPORT.md` + `docs/GENERATION_IMPROVEMENT_PLAN_AUTO.md`. v8 build itself ran across 4 sessions (sleep, restart, sleep) and accumulated 53/111 cb-tagged questions because of a now-fixed restart-window bug (`d8a8a5f`).
+
+- **Phase 2g.11 — 10 speedup levers shipped (2026-04-28):** Parallel agent teams (Alpha/Bravo/Charlie/Delta/Echo/Foxtrot/Golf) implemented the levers from `~/.claude/plans/optimized-forging-locket.md`. All on `main`, 472/472 pytest pass (was 373; +99 new tests).
+
+  | Lever | Commit | Activation | Default |
+  |---|---|---|---|
+  | A1 throttle removal | `f728974` | `OENOBENCH_LLM_THROTTLE_MS` | 100ms ±50% jitter; 0 disables |
+  | C1 timeout + provider failover | `f728974` | `timeout` kwarg in callers | None (off until callers opt in) |
+  | A2 in-process strategy dispatch | `0550511` | `OENOBENCH_USE_SUBPROCESS_DISPATCH` reverts | in-process ON |
+  | A3 cell-level ThreadPool + `_QUOTA_LOCK` | `f2f6389` | `OENOBENCH_MAX_WORKERS` / `--max-workers N` | 1 (sequential) |
+  | A4 strategy-level ThreadPool | `6b4bee0` | `OENOBENCH_STRATEGY_WORKERS` / `--strategy-workers N` | 1 (sequential) |
+  | B1 LLM-decision cache (Postgres) | `ca13b2d` | `OENOBENCH_LLM_CACHE` | OFF |
+  | B2 sampler substantiveness filter | `0b190a0` | `OENOBENCH_FACT_SUBSTANTIVE_FILTER` | OFF |
+  | B3 per-cell circuit breaker | `49e2fe3` | `OENOBENCH_CIRCUIT_BREAKER` | OFF |
+  | B4 tier-aware gate (Haiku/Sonnet/Opus) | `5f3247d` | `OENOBENCH_GATE_MODEL_L{1,2,3}` or global `OENOBENCH_GATE_MODEL` | tier-aware ON |
+  | B5 verifier-skip helper (DORMANT) | `7393e9b` | `OENOBENCH_VERIFIER_SKIP` | helper exists; pipeline runs verifier BEFORE gate, so `gate_passed` is always False until a Phase 2g.12 reorder |
+  | C2 Gemini Flash variant | `aca5932` | `OENOBENCH_PARAPHRASE_MODEL` / `OENOBENCH_VERIFIER_MODEL` revert | Flash; Pro fallback on failure |
+
+  Plus: `d8a8a5f` restart-safe `started` timestamp in `build_pilot_corpus` (closes a Phase 2g.10 bug where each restart of a build script reset the cb-quota window, letting cb-tags accumulate past the cap across sessions).
+
+- **v9 harness on `main`:** `scripts/run_audit_pilot_v9_build.sh` exports the speedup env vars (`OENOBENCH_LLM_THROTTLE_MS=0`, `OENOBENCH_LLM_CACHE=1`, `OENOBENCH_FACT_SUBSTANTIVE_FILTER=1`, `OENOBENCH_CIRCUIT_BREAKER=1`, `OENOBENCH_MAX_WORKERS=8`, `OENOBENCH_STRATEGY_WORKERS=3`) and runs `build-corpus --tag audit_pilot_v9 --per-strategy 40 --seed 46 --per-country-cap 0.30 --max-workers 8 --strategy-workers 3`. Mirrors v8's budget for direct A/B comparison. Expected wall: ~1-3h (vs v8's 11.4h). Audit phase 2 cost: ~$2-4 / ~30-60 min on v9-sized corpus.
+
+- **Test status:** 472/472 pytest pass on `main` (was 373 at start of Phase 2g.11; +99 new across the 10 levers).
+
+- **v9 sanity-check checklist (after build):**
+  - Corpus size close to 200 (circuit breaker may undershoot on low-yield strategies — by design).
+  - `grep -c "LLM call" data/logs/audit_pilot_v9_build_*.log` should be **significantly < 16k** (v8 baseline).
+  - `grep "CIRCUIT BREAKER" data/logs/audit_pilot_v9_build_*.log | wc -l` → cells abandoned.
+  - `grep "LLM cache HIT" data/logs/audit_pilot_v9_build_*.log | wc -l` → cache hit-rate.
+  - `closed_book_solvable` count in DB ≤ 50 (= ceil(200 × 0.25)).
+  - `grep -c "GATE QUOTA FULL"` should be > 0 if cb-rate is high.
+
+- **Phase 2g.12 deferred candidates:** B5 architecture refactor (reorder pipeline so gate runs before verifier so `should_skip_verifier` actually fires); C3 budget pooling (soft strategy floors with fungible residual); C4 batched dedup embeddings (only if profiling shows dedup as bottleneck); the cap-vs-actual-yield mismatch in the closed-book quota math (cap computed against `target_size`, evaluated against actual kept count).
+
 - **Next session start point:**
-  1. Run phase 1: `nohup bash scripts/run_audit_pilot_v8_build.sh &` (~4-5h). Outputs `data/reports/gold_sheet_v8.csv` (40 rows).
-     - **Sanity-check before phase 2:** corpus size close to 200; `grep -c "GATE QUOTA FULL"` > 0; `closed_book_solvable` count ≤ 50 (= ceil(200 × 0.25)). If those don't hold, the Phase 2g.9 fixes didn't take.
-  2. User: gold review of `data/reports/gold_sheet_v8.csv` (~1h) using `docs/GOLD_REVIEW_GUIDE_V5.md`.
-  3. Import: `python -m src.qa.orchestrator import-gold --csv-path data/reports/gold_sheet_v8.csv --reviewer nikita`.
-  4. Run phase 2: `nohup bash scripts/run_audit_pilot_v8_audit.sh &` (~1-1.5h, ~$5-7).
-  5. Verify Go/No-Go on v8 (criteria below) and re-measure D1.
-  6. If v8 passes: keep Sonnet for the 10k run (no env-var change in `generate-all`) and kick it off.
+  1. Run phase 1: `nohup bash scripts/run_audit_pilot_v9_build.sh &` (~1-3h).
+  2. Sanity-check the build log against the v8 baseline (LLM call count, cache hits, circuit-breaker activations).
+  3. User: gold review of `data/reports/gold_sheet_v9.csv` (~1h) using `docs/GOLD_REVIEW_GUIDE_V5.md`.
+  4. Import: `python -m src.qa.orchestrator import-gold --csv-path data/reports/gold_sheet_v9.csv --reviewer nikita`.
+  5. Run phase 2: `nohup bash scripts/run_audit_pilot_v9_audit.sh &` (~30-60 min, ~$2-4).
+  6. Verify Go/No-Go on v9 (criteria below). Compare wall + LLM-call counts against v8.
+  7. If v9 passes: kick off the full 10k run with `python -m src.generators.orchestrator generate-all --max-workers 8 --strategy-workers 3` and the same env-var profile as v9.
 
 ---
 
@@ -45,8 +68,12 @@
 | 2g.8. Wire-up fixes + cost opts + gate upgrade | 15 | **Complete** — `set_corpus_target` wired up (in-process), `--per-country-cap` plumbed end-to-end, A3 v1.2.0, gate model Sonnet→Opus, Gemini cost opts. Merged to `main`. |
 | 2g.7. Audit #7 (`audit_pilot_v7`) | 15 | **Complete** — failed Go/No-Go on B2 (52.9%, regression), D3 (10.61×, regression), A1 (2.9%); revealed four root causes (subprocess quota propagation, per-country-cap math, D3 denominator, A1 FP) |
 | 2g.9. Audit #7 follow-up fixes + v8 harness | 15 | **Complete** — env-var fallback for closed-book quota that crosses subprocess boundaries, per-country-cap default 0.30 in v8 script, D3 v1.1.0 coverage guard, A1 v2.3.1 pattern trim. 347/347 tests pass on `main`. |
-| 2h. Audit run #8 + gold-v8 review | 15 | **Pending** — two-phase: `run_audit_pilot_v8_build.sh` (~13h) → user review (~2-3h) → import → `run_audit_pilot_v8_audit.sh` (~3-4h, ~$15-20) |
-| 2i. Full 10k generation run | 15-16 | **Pending** — gated on v8 Go/No-Go pass |
+| 2g.10. Per-strategy closed-book budget | 15 | **Complete** — `OENOBENCH_STRATEGY_TARGET` env var, per-strategy `count_closed_book_solvable(strategy=...)`, fairness routing in `insert_question_gated`. 369/369 tests pass. |
+| 2g.10 follow-up. Restart-safe build window | 15 | **Complete** (`d8a8a5f`) — `_resolve_build_started_at(tag)` queries `MIN(created_at)` of build-tagged questions so `OENOBENCH_CORPUS_BUILD_SINCE` survives restart. Closed v8 cap-leak (53/111 cb-tagged across 4 sessions). |
+| 2h. Audit run #8 (`audit_pilot_v8`) | 15 | **Complete** — phase 1 build 11.4h / 16k LLM calls / 111 Qs (~99% rejection); phase 2 audit 1h 36min, run_id `7dc2ab81…`. D3 4.19× correctly downgraded by coverage guard (9% < 50%). |
+| 2g.11. Generation pipeline speedup | 15 | **Complete** — 10 levers (A1/A2/A3/A4/B1/B2/B3/B4/C1/C2 active; B5 dormant) shipped via 7 parallel agent teams. v9 harness on `main`. 472/472 tests pass. |
+| 2i. Audit run #9 (`audit_pilot_v9`, speedup A/B) | 15-16 | **Pending** — `run_audit_pilot_v9_build.sh` (~1-3h) → optional gold review → `run_audit_pilot_v9_audit.sh` (~30-60 min, ~$2-4). Validates Phase 2g.11 speedup. |
+| 2j. Full 10k generation run | 16 | **Pending** — gated on v9 Go/No-Go pass; runs with `--max-workers 8 --strategy-workers 3` and the v9 env-var profile. |
 | 3. AI Validation | 15-17 | Not started |
 | 4. Human Review & Control Set | 18-20 | Not started |
 | 5. Evaluation & Analysis | 21-24 | Not started |
