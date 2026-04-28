@@ -19,6 +19,7 @@ per call ≈ $14 added cost for the full 10k generation run.
 from __future__ import annotations
 
 import hashlib
+import os
 from typing import Iterable
 
 from loguru import logger
@@ -31,6 +32,55 @@ from src.generators import _llm_cache
 # Lever B1 (2026-04-28): cache version tag for verifier verdicts. Bump when
 # the prompt template, debug-payload schema, or any verdict semantics change.
 _VERIFY_CACHE_VERSION = "VERIFY_V1"
+
+
+# ─── Lever B5 (2026-04-28) — Skip verifier when gate + generator agree ───────
+#
+# When the closed-book gate already passed (the question is non-trivial,
+# i.e. not closed-book solvable) AND the generator self-reported confidence
+# >= 0.9 in its own JSON output, the marginal benefit of one more verifier
+# call is small. The two existing agreement signals already cleared the bar.
+# Default OFF for v8 reproducibility — set OENOBENCH_VERIFIER_SKIP=1 to
+# enable. The skip happens BEFORE the B1 cache lookup so the verifier is
+# never invoked on confident gate-passed questions when enabled.
+
+VERIFIER_SKIP_ENV_VAR = "OENOBENCH_VERIFIER_SKIP"
+_VERIFIER_SKIP_CONF_THRESHOLD = 0.9
+
+
+def _verifier_skip_enabled() -> bool:
+    """Return True iff B5 short-circuit is enabled via env var.
+
+    Resolved per call rather than at import time so tests that
+    monkeypatch the env var see the change immediately.
+    """
+    val = os.environ.get(VERIFIER_SKIP_ENV_VAR, "").strip().lower()
+    return val in {"1", "true", "yes", "on"}
+
+
+def should_skip_verifier(
+    *,
+    gate_passed: bool,
+    generator_confidence: float | None,
+    confidence_threshold: float = _VERIFIER_SKIP_CONF_THRESHOLD,
+) -> bool:
+    """Return True iff the verifier can be skipped: gate passed AND
+    the generator self-reported confidence >= threshold.
+
+    The function itself does NOT consult the env var — that gate is applied
+    by the verifier callers (verify_template_answer_with_gemini /
+    verify_question_with_independent_solver). This keeps the helper a pure
+    predicate that's trivial to unit-test independent of env state.
+    """
+    if not gate_passed:
+        return False
+    if generator_confidence is None:
+        return False
+    try:
+        conf = float(generator_confidence)
+    except (TypeError, ValueError):
+        return False
+    return conf >= confidence_threshold
 
 # Generators whose questions must be independently verified.
 GENERATORS_REQUIRING_VERIFICATION = {"llama", "qwen"}
@@ -133,6 +183,8 @@ def verify_question_with_independent_solver(
     correct_answer: str,
     source_facts: list[str],
     generator: str,
+    gate_passed: bool = False,
+    generator_confidence: float | None = None,
 ) -> tuple[bool, dict]:
     """Independently verify a question's answer key.
 
@@ -147,6 +199,11 @@ def verify_question_with_independent_solver(
 
         debug_payload contains keys: verifier_model, chosen, confidence, raw,
         latency_ms, cost_usd, error (when applicable).
+
+    Lever B5: pass ``gate_passed=True`` and ``generator_confidence`` (a float
+    from the parsed LLM JSON) to enable the high-confidence short-circuit.
+    Skip is gated by OENOBENCH_VERIFIER_SKIP=1 — default OFF preserves v8
+    reproducibility.
     """
     # Fast path: high-quality generators don't need verification.
     if generator not in GENERATORS_REQUIRING_VERIFICATION:
@@ -166,6 +223,24 @@ def verify_question_with_independent_solver(
             "verifier_model": None,
             "skipped": True,
             "reason": "no options to verify",
+        }
+
+    # Lever B5: short-circuit if the gate already passed and the generator
+    # was highly confident. Runs BEFORE the cache lookup so we never even
+    # consult the cache (let alone the API) on these.
+    if _verifier_skip_enabled() and should_skip_verifier(
+        gate_passed=gate_passed,
+        generator_confidence=generator_confidence,
+    ):
+        logger.info(
+            "Verifier SKIP | reason=gate_passed_and_high_confidence | conf={}",
+            generator_confidence,
+        )
+        return True, {
+            "verifier_model": None,
+            "skipped": True,
+            "reason": "gate_passed_and_high_confidence",
+            "generator_confidence": generator_confidence,
         }
 
     verifier_model = _pick_verifier(question_text)
@@ -334,6 +409,8 @@ def verify_template_answer_with_gemini(
     options: list[dict],
     correct_answer_id: str,
     source_fact_text: str,
+    gate_passed: bool = False,
+    generator_confidence: float | None = None,
 ) -> tuple[bool, dict]:
     """v2.2 fix #8e — one Gemini call per template question, before insert.
 
@@ -341,9 +418,30 @@ def verify_template_answer_with_gemini(
     equals correct_answer_id (case-insensitive, first character). Any of
     {disagree, N=no-support, parse-failure, API-failure} → False, question
     rejected upstream.
+
+    Lever B5 (2026-04-28): if OENOBENCH_VERIFIER_SKIP=1 AND the closed-book
+    gate passed AND generator_confidence >= 0.9, skip the Gemini call
+    entirely and return (True, {"skipped": True, ...}). Default OFF.
     """
     if not options or not correct_answer_id:
         return True, {"skipped": True, "reason": "missing options or key"}
+
+    # Lever B5: short-circuit BEFORE the cache lookup. Skip wins over
+    # cache so we don't even consult the cache on confident gate-passed
+    # questions.
+    if _verifier_skip_enabled() and should_skip_verifier(
+        gate_passed=gate_passed,
+        generator_confidence=generator_confidence,
+    ):
+        logger.info(
+            "Verifier SKIP | reason=gate_passed_and_high_confidence | conf={}",
+            generator_confidence,
+        )
+        return True, {
+            "skipped": True,
+            "reason": "gate_passed_and_high_confidence",
+            "generator_confidence": generator_confidence,
+        }
 
     # Lever B1: cache lookup. fn name in the key so this path doesn't
     # collide with verify_question_with_independent_solver.
