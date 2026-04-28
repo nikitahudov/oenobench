@@ -186,9 +186,6 @@ def _generate_one(
 )
 def main(domain, count, generator, scenario_type, dry_run, test_run, validate, run_all, per_country_cap):
     """Generate scenario-based questions by synthesizing fact clusters via LLM."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    logger.add(LOG_DIR / f"scenario_{timestamp}.log", rotation="50 MB")
-
     if validate:
         _run_validate()
         return
@@ -206,10 +203,47 @@ def main(domain, count, generator, scenario_type, dry_run, test_run, validate, r
         target = 1000
         logger.info(f"--all mode: targeting {target} scenario questions")
 
-    _run_generate(domain, target, generator, scenario_type, dry_run, per_country_cap=per_country_cap)
+    run_generate(
+        domain=domain, count=target, generator=generator,
+        scenario_type=scenario_type, dry_run=dry_run,
+        per_country_cap=per_country_cap,
+    )
 
 
 # ─── Generate run ─────────────────────────────────────────────────────────────
+
+
+def run_generate(
+    *,
+    domain: str,
+    count: int,
+    generator: str = "claude",
+    scenario_type: str = "winemaking",
+    dry_run: bool = False,
+    per_country_cap: float | None = None,
+    # Accepted for API uniformity with other strategies; unused here.
+    difficulty: str | int | None = None,
+) -> dict:
+    """Main generation loop. Returns stats dict.
+
+    Phase 2g.10 (Team Delta A2): in-process callable. The click ``main()`` is
+    a thin shim around this function.
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    handler_id = logger.add(
+        LOG_DIR / f"scenario_{timestamp}.log", rotation="50 MB",
+    )
+    try:
+        return _run_generate_body(
+            domain=domain, count=count, generator=generator,
+            scenario_type=scenario_type, dry_run=dry_run,
+            per_country_cap=per_country_cap,
+        )
+    finally:
+        try:
+            logger.remove(handler_id)
+        except ValueError:
+            pass
 
 
 def _run_generate(
@@ -219,13 +253,36 @@ def _run_generate(
     scenario_type: str,
     dry_run: bool,
     per_country_cap: float | None = None,
-):
-    """Main generation loop."""
+):  # pragma: no cover — backwards-compat shim
+    return run_generate(
+        domain=domain, count=count, generator=generator,
+        scenario_type=scenario_type, dry_run=dry_run,
+        per_country_cap=per_country_cap,
+    )
+
+
+def _run_generate_body(
+    *,
+    domain: str,
+    count: int,
+    generator: str,
+    scenario_type: str,
+    dry_run: bool,
+    per_country_cap: float | None = None,
+) -> dict:
+    """Inner generation loop, sans logger-handler setup."""
     logger.info(
         "Starting scenario generation | domain={} | count={} | generator={} | "
         "scenario_type={} | dry_run={} | per_country_cap={}",
         domain, count, generator, scenario_type, dry_run, per_country_cap,
     )
+
+    if count <= 0:
+        return {
+            "generated": 0, "skipped_parse": 0, "skipped_dup": 0,
+            "skipped_sample": 0, "relabeled_l1": 0, "rejected_overflow": 0,
+            "inserted_uuids": [],
+        }
 
     used_fact_ids = get_used_fact_ids()
     run_used_ids: set[str] = set()
@@ -384,6 +441,16 @@ def _run_generate(
         f"{relabeled_l1} relabeled to L1 (closed_book_solvable), "
         f"{rejected_overflow} dropped over quota."
     )
+
+    return {
+        "generated": generated,
+        "skipped_parse": skipped_parse,
+        "skipped_dup": skipped_dup,
+        "skipped_sample": 0,
+        "relabeled_l1": relabeled_l1,
+        "rejected_overflow": rejected_overflow,
+        "inserted_uuids": list(inserted_uuids),
+    }
 
 
 # ─── Test run ─────────────────────────────────────────────────────────────────

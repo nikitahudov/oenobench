@@ -13,6 +13,8 @@ Usage:
     python -m src.generators.orchestrator validate
 """
 
+import importlib
+import os
 import subprocess
 import sys
 from datetime import datetime
@@ -30,6 +32,10 @@ from src.generators._question_db import (
     get_used_fact_ids,
 )
 from src.utils.db import get_pg
+
+# Phase 2g.10 (Team Delta A2): toggle subprocess fallback. Default is
+# in-process dispatch (~2-3s/cell saved over the legacy subprocess.run path).
+USE_SUBPROCESS_ENV_VAR = "OENOBENCH_USE_SUBPROCESS_DISPATCH"
 
 # ─── Logging setup ────────────────────────────────────────────────────────────
 
@@ -146,7 +152,12 @@ def _count_by_domain() -> dict[str, int]:
 
 
 def _run_subprocess(module: str, args: list[str], dry_run: bool) -> bool:
-    """Run a generator module as a subprocess. Returns True on success."""
+    """Run a generator module as a subprocess. Returns True on success.
+
+    Phase 2g.10 (Team Delta A2): subprocess path retained for the
+    OENOBENCH_USE_SUBPROCESS_DISPATCH=1 fallback. The default execution path
+    now goes through ``_run_strategy(...)`` which dispatches in-process.
+    """
     cmd = [sys.executable, "-m", f"src.generators.{module}"] + args
     if dry_run:
         cmd.append("--dry-run")
@@ -155,6 +166,59 @@ def _run_subprocess(module: str, args: list[str], dry_run: bool) -> bool:
     if result.returncode != 0:
         logger.error("Command failed with exit code {}: {}", result.returncode, " ".join(cmd))
         return False
+    return True
+
+
+def _run_strategy(
+    module: str,
+    *,
+    domain: str,
+    count: int,
+    generator: str | None = None,
+    dry_run: bool = False,
+) -> bool:
+    """Dispatch a single (strategy × domain × generator) cell from the
+    full-generation orchestrator.
+
+    In-process by default (Phase 2g.10 Team Delta A2). Set
+    ``OENOBENCH_USE_SUBPROCESS_DISPATCH=1`` to fall back to the legacy
+    subprocess path.
+    """
+    if os.environ.get(USE_SUBPROCESS_ENV_VAR) == "1":
+        args = ["--domain", domain, "--count", str(count)]
+        if generator:
+            args += ["--generator", generator]
+        return _run_subprocess(module, args, dry_run)
+
+    try:
+        mod = importlib.import_module(f"src.generators.{module}")
+    except Exception as e:  # noqa: BLE001
+        logger.error("orchestrator: failed to import {}: {}", module, e)
+        return False
+    if not hasattr(mod, "run_generate"):
+        logger.error("orchestrator: {} missing run_generate(...)", module)
+        return False
+
+    kwargs: dict = {"domain": domain, "count": count, "dry_run": dry_run}
+    if generator is not None:
+        kwargs["generator"] = generator
+    logger.info(
+        "orchestrator: in-process {} domain={} count={} generator={} dry_run={}",
+        module, domain, count, generator, dry_run,
+    )
+    try:
+        result = mod.run_generate(**kwargs)
+    except Exception as e:  # noqa: BLE001
+        logger.error(
+            "orchestrator: {} raised in-process: {}: {}",
+            module, type(e).__name__, e,
+        )
+        return False
+    if isinstance(result, dict):
+        logger.info(
+            "orchestrator: {} done domain={} → generated={}",
+            module, domain, result.get("generated"),
+        )
     return True
 
 
@@ -285,13 +349,16 @@ def generate_all(target, resume, dry_run):
 
 
 def _dispatch_template(module: str, count: int, dry_run: bool):
-    """Run template generator for the given count across all domains."""
+    """Run template generator for the given count across all domains.
+
+    Phase 2g.10 (Team Delta A2): dispatches in-process via ``_run_strategy``,
+    which falls back to subprocess when OENOBENCH_USE_SUBPROCESS_DISPATCH=1.
+    """
     for domain in sorted(DOMAIN_TARGETS.keys()):
         # Proportional split based on domain targets
         domain_share = DOMAIN_TARGETS[domain] / OVERALL_TARGET
         domain_count = max(1, int(count * domain_share))
-        args = ["--domain", domain, "--count", str(domain_count)]
-        _run_subprocess(module, args, dry_run)
+        _run_strategy(module, domain=domain, count=domain_count, dry_run=dry_run)
 
 
 def _dispatch_llm_strategy(
@@ -301,7 +368,10 @@ def _dispatch_llm_strategy(
     existing_dgc: dict,
     dry_run: bool,
 ):
-    """Dispatch an LLM strategy across generators and domains."""
+    """Dispatch an LLM strategy across generators and domains.
+
+    Phase 2g.10 (Team Delta A2): dispatches in-process via ``_run_strategy``.
+    """
     generators = list(GENERATOR_TARGETS.keys())
     per_generator = max(1, total_remaining // len(generators))
 
@@ -323,13 +393,10 @@ def _dispatch_llm_strategy(
         for domain in sorted(DOMAIN_TARGETS.keys()):
             domain_share = DOMAIN_TARGETS[domain] / OVERALL_TARGET
             domain_count = max(1, int(gen_remaining * domain_share))
-
-            args = [
-                "--domain", domain,
-                "--count", str(domain_count),
-                "--generator", generator,
-            ]
-            _run_subprocess(module, args, dry_run)
+            _run_strategy(
+                module, domain=domain, count=domain_count,
+                generator=generator, dry_run=dry_run,
+            )
 
 
 # ─── dedup ────────────────────────────────────────────────────────────────────

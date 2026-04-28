@@ -410,12 +410,18 @@ def test_template_paraphrase_pins_cheap_provider(monkeypatch):
 # at every layer so the regression cannot return.
 
 
-def test_run_generator_omits_per_country_cap_flag_when_none():
+def test_run_generator_omits_per_country_cap_flag_when_none(monkeypatch):
     """Backwards compatibility: callers that don't pass per_country_cap must
-    not push --per-country-cap onto the subprocess argv."""
+    not push --per-country-cap onto the subprocess argv.
+
+    Phase 2g.10 (Team Delta A2): exercise the subprocess fallback path,
+    since in-process dispatch has no argv. Set OENOBENCH_USE_SUBPROCESS_DISPATCH=1
+    so the original subprocess assertion still holds.
+    """
     from unittest.mock import patch
     from src.qa import _corpus
 
+    monkeypatch.setenv("OENOBENCH_USE_SUBPROCESS_DISPATCH", "1")
     with patch("src.qa._corpus.subprocess.run") as fake_run:
         fake_run.return_value.returncode = 0
         _corpus._run_generator(module="template_generator", domain="wine_regions", count=10)
@@ -426,13 +432,16 @@ def test_run_generator_omits_per_country_cap_flag_when_none():
     assert "--domain" in args and "--count" in args
 
 
-def test_run_generator_forwards_per_country_cap_to_subprocess():
+def test_run_generator_forwards_per_country_cap_to_subprocess(monkeypatch):
     """Phase 2g.8 fix: when the caller passes per_country_cap, it must
     appear on the strategy subprocess command line as --per-country-cap N.
+    Phase 2g.10: must flip OENOBENCH_USE_SUBPROCESS_DISPATCH=1 to exercise
+    the subprocess argv path explicitly.
     """
     from unittest.mock import patch
     from src.qa import _corpus
 
+    monkeypatch.setenv("OENOBENCH_USE_SUBPROCESS_DISPATCH", "1")
     with patch("src.qa._corpus.subprocess.run") as fake_run:
         fake_run.return_value.returncode = 0
         _corpus._run_generator(
@@ -446,13 +455,15 @@ def test_run_generator_forwards_per_country_cap_to_subprocess():
     assert args[idx + 1] == "0.1"
 
 
-def test_run_generator_forwards_with_generator_and_difficulty():
+def test_run_generator_forwards_with_generator_and_difficulty(monkeypatch):
     """All flags must coexist on the LLM-strategy path (--generator,
     --difficulty, --per-country-cap).
+    Phase 2g.10: subprocess fallback path.
     """
     from unittest.mock import patch
     from src.qa import _corpus
 
+    monkeypatch.setenv("OENOBENCH_USE_SUBPROCESS_DISPATCH", "1")
     with patch("src.qa._corpus.subprocess.run") as fake_run:
         fake_run.return_value.returncode = 0
         _corpus._run_generator(

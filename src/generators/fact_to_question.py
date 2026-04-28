@@ -202,9 +202,6 @@ def main(
     tag, per_country_cap,
 ):
     """Generate benchmark questions from individual facts via LLM."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    logger.add(LOG_DIR / f"fact_to_question_{timestamp}.log", rotation="50 MB")
-
     if validate:
         _run_validate()
         return
@@ -223,8 +220,11 @@ def main(
         target = DOMAIN_TARGETS.get(domain, 1000)
         logger.info(f"--all mode: targeting {target} questions for {domain}")
 
-    _run_generate(
-        domain, target, generator, question_type, difficulty, cognitive_dim, dry_run,
+    run_generate(
+        domain=domain, count=target, generator=generator,
+        question_type=question_type,
+        difficulty=str(difficulty) if difficulty else "2",
+        cognitive_dim=cognitive_dim, dry_run=dry_run,
         tag=tag, per_country_cap=per_country_cap,
     )
 
@@ -232,6 +232,49 @@ def main(
 # ─── Generate run ─────────────────────────────────────────────────────────────
 
 
+def run_generate(
+    *,
+    domain: str,
+    count: int,
+    generator: str = "claude",
+    question_type: str = "multiple_choice",
+    difficulty: str | int | None = "2",
+    cognitive_dim: str = "recall",
+    dry_run: bool = False,
+    tag: str | None = None,
+    per_country_cap: float | None = None,
+) -> dict:
+    """Main generation loop. Returns stats dict.
+
+    Phase 2g.10 (Team Delta A2): in-process callable. The click ``main()`` is
+    a thin shim around this function. The legacy ``_run_generate`` alias is
+    preserved below for backwards compatibility.
+
+    Logging: each call registers its own loguru sink under ``data/logs/`` and
+    removes it in ``finally`` so concurrent calls (Team Delta A3) don't
+    accumulate handlers across cells.
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    handler_id = logger.add(
+        LOG_DIR / f"fact_to_question_{timestamp}.log", rotation="50 MB",
+    )
+    try:
+        return _run_generate_body(
+            domain=domain, count=count, generator=generator,
+            question_type=question_type,
+            difficulty=str(difficulty) if difficulty is not None else "2",
+            cognitive_dim=cognitive_dim, dry_run=dry_run,
+            tag=tag, per_country_cap=per_country_cap,
+        )
+    finally:
+        try:
+            logger.remove(handler_id)
+        except ValueError:
+            pass
+
+
+# Legacy alias — preserved for any internal caller that imports
+# ``_run_generate`` directly.
 def _run_generate(
     domain: str,
     count: int,
@@ -242,14 +285,42 @@ def _run_generate(
     dry_run: bool,
     tag: str | None = None,
     per_country_cap: float | None = None,
-):
-    """Main generation loop."""
+):  # pragma: no cover — thin compatibility shim
+    return run_generate(
+        domain=domain, count=count, generator=generator,
+        question_type=question_type, difficulty=difficulty,
+        cognitive_dim=cognitive_dim, dry_run=dry_run,
+        tag=tag, per_country_cap=per_country_cap,
+    )
+
+
+def _run_generate_body(
+    *,
+    domain: str,
+    count: int,
+    generator: str,
+    question_type: str,
+    difficulty: str,
+    cognitive_dim: str,
+    dry_run: bool,
+    tag: str | None = None,
+    per_country_cap: float | None = None,
+) -> dict:
+    """Inner generation loop, sans logger-handler setup."""
     logger.info(
         "Starting generation | domain={} | count={} | generator={} | type={} | "
         "difficulty={} | cognitive={} | dry_run={} | tag={} | per_country_cap={}",
         domain, count, generator, question_type, difficulty, cognitive_dim, dry_run,
         tag, per_country_cap,
     )
+
+    # Early-out for count=0 (used by smoke tests) so we don't hit the DB.
+    if count <= 0:
+        return {
+            "generated": 0, "skipped_parse": 0, "skipped_dup": 0,
+            "skipped_sample": 0, "relabeled_l1": 0, "rejected_overflow": 0,
+            "inserted_uuids": [],
+        }
 
     used_fact_ids = get_used_fact_ids()
     run_used_ids: set[str] = set()
@@ -394,6 +465,16 @@ def _run_generate(
         f"{relabeled_l1} relabeled to L1 (closed_book_solvable), "
         f"{rejected_overflow} dropped over quota."
     )
+
+    return {
+        "generated": generated,
+        "skipped_parse": skipped_parse,
+        "skipped_dup": skipped_dup,
+        "skipped_sample": 0,
+        "relabeled_l1": relabeled_l1,
+        "rejected_overflow": rejected_overflow,
+        "inserted_uuids": list(inserted_uuids),
+    }
 
 
 # ─── Test run ─────────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ Design notes:
 from __future__ import annotations
 
 import csv
+import importlib
 import os
 import random
 import subprocess
@@ -35,6 +36,12 @@ from src.generators._question_db import (
 )
 from src.qa._findings import upsert_gold_label
 from src.utils.db import get_pg
+
+# Phase 2g.10 (Team Delta A2): toggle subprocess fallback. Default is
+# in-process dispatch (~2-3s/cell saved over the legacy subprocess.run path).
+# Set OENOBENCH_USE_SUBPROCESS_DISPATCH=1 to revert to the subprocess path
+# without a code change (defence-in-depth for v9 audit roll-back).
+USE_SUBPROCESS_ENV_VAR = "OENOBENCH_USE_SUBPROCESS_DISPATCH"
 
 STRATEGY_MODULES = {
     "template": "template_generator",
@@ -151,6 +158,36 @@ def _run_generator(
     difficulty: int | None = None,
     per_country_cap: float | None = None,
 ) -> bool:
+    """Dispatch a single (strategy × domain × generator) cell.
+
+    In-process by default (Phase 2g.10 Team Delta A2). Set
+    ``OENOBENCH_USE_SUBPROCESS_DISPATCH=1`` to fall back to the legacy
+    ``subprocess.run`` path — useful as a roll-back hatch if the in-process
+    path misbehaves on a given audit run.
+    """
+    if os.environ.get(USE_SUBPROCESS_ENV_VAR) == "1":
+        return _run_generator_subprocess(
+            module=module, domain=domain, count=count,
+            generator=generator, difficulty=difficulty,
+            per_country_cap=per_country_cap,
+        )
+    return _run_generator_in_process(
+        module=module, domain=domain, count=count,
+        generator=generator, difficulty=difficulty,
+        per_country_cap=per_country_cap,
+    )
+
+
+def _run_generator_subprocess(
+    *,
+    module: str,
+    domain: str,
+    count: int,
+    generator: str | None = None,
+    difficulty: int | None = None,
+    per_country_cap: float | None = None,
+) -> bool:
+    """Legacy subprocess path. Pays a Python cold-start (~2-3s) per cell."""
     args = [
         sys.executable,
         "-m",
@@ -176,6 +213,69 @@ def _run_generator(
     if res.returncode != 0:
         logger.error("corpus: generator exited non-zero: {}", " ".join(args))
         return False
+    return True
+
+
+def _run_generator_in_process(
+    *,
+    module: str,
+    domain: str,
+    count: int,
+    generator: str | None = None,
+    difficulty: int | None = None,
+    per_country_cap: float | None = None,
+) -> bool:
+    """In-process dispatch via the strategy module's ``run_generate(...)``.
+
+    Removes the ~2-3s Python cold-start each subprocess pays. v8 paid ~13min
+    of pure cold-start overhead across 321 cells; the 10k full run pays ~5h.
+    """
+    try:
+        mod = importlib.import_module(f"src.generators.{module}")
+    except Exception as e:  # noqa: BLE001
+        logger.error("corpus: failed to import strategy module {}: {}", module, e)
+        return False
+
+    if not hasattr(mod, "run_generate"):
+        logger.error(
+            "corpus: strategy module {} does not expose run_generate(...). "
+            "Set OENOBENCH_USE_SUBPROCESS_DISPATCH=1 as a fallback.",
+            module,
+        )
+        return False
+
+    kwargs: dict = {
+        "domain": domain,
+        "count": count,
+        "per_country_cap": per_country_cap,
+    }
+    if generator is not None:
+        kwargs["generator"] = generator
+    if difficulty is not None:
+        kwargs["difficulty"] = str(difficulty)
+
+    logger.info(
+        "corpus: in-process {} domain={} count={} generator={} difficulty={} "
+        "per_country_cap={}",
+        module, domain, count, generator, difficulty, per_country_cap,
+    )
+    try:
+        result = mod.run_generate(**kwargs)
+    except Exception as e:  # noqa: BLE001
+        logger.error(
+            "corpus: strategy {} raised in-process: {}: {}",
+            module, type(e).__name__, e,
+        )
+        return False
+    if isinstance(result, dict):
+        logger.info(
+            "corpus: {} done domain={} → generated={} relabeled_l1={} "
+            "rejected_overflow={}",
+            module, domain,
+            result.get("generated"),
+            result.get("relabeled_l1"),
+            result.get("rejected_overflow"),
+        )
     return True
 
 

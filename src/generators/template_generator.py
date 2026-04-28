@@ -47,7 +47,9 @@ import hashlib
 import os
 import random
 import re
+from datetime import datetime
 from functools import lru_cache
+from pathlib import Path
 
 import click
 from loguru import logger
@@ -61,6 +63,11 @@ from src.generators._question_db import (
     insert_question_gated,
 )
 from src.utils.db import get_pg
+
+# ─── Logging setup ────────────────────────────────────────────────────────────
+
+LOG_DIR = Path("data/logs")
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 # ─── Template registry ──────────────────────────────────────────────────────
 #
@@ -2101,6 +2108,83 @@ def main(
         count = 5
         dry_run = True
 
+    result = run_generate(
+        domain=domain,
+        count=count,
+        difficulty=difficulty,
+        dry_run=dry_run,
+        no_paraphrase=no_paraphrase,
+        no_embeddings=no_embeddings,
+        no_verify=no_verify,
+        per_country_cap=per_country_cap,
+        run_all=run_all,
+    )
+    if test_run and result.get("inserted_uuids"):
+        ids = result["inserted_uuids"]
+        click.echo(f"Test run — cleaning up {len(ids)} questions")
+        delete_questions_by_ids(ids)
+
+
+def run_generate(
+    *,
+    domain: str | None = None,
+    count: int = 10,
+    difficulty: str | int | None = None,
+    dry_run: bool = False,
+    no_paraphrase: bool = False,
+    no_embeddings: bool = False,
+    no_verify: bool = False,
+    per_country_cap: float | None = None,
+    run_all: bool = False,
+    # Accepted for API uniformity with other strategies; unused here.
+    generator: str | None = None,
+) -> dict:
+    """Run template generation. Returns stats dict.
+
+    Phase 2g.10 (Team Delta A2): in-process callable. The click ``main()`` is
+    a thin shim around this function. CLI-only modes (``--list``, ``--validate``,
+    ``--test-run``) are handled in ``main()`` because they are user-interactive
+    side effects, not part of the generation pipeline.
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    handler_id = logger.add(
+        LOG_DIR / f"template_generator_{timestamp}.log", rotation="50 MB",
+    )
+    try:
+        return _run_generate_body(
+            domain=domain, count=count,
+            difficulty=str(difficulty) if difficulty is not None else None,
+            dry_run=dry_run, no_paraphrase=no_paraphrase,
+            no_embeddings=no_embeddings, no_verify=no_verify,
+            per_country_cap=per_country_cap, run_all=run_all,
+        )
+    finally:
+        try:
+            logger.remove(handler_id)
+        except ValueError:
+            pass
+
+
+def _run_generate_body(
+    *,
+    domain: str | None,
+    count: int,
+    difficulty: str | None,
+    dry_run: bool,
+    no_paraphrase: bool,
+    no_embeddings: bool,
+    no_verify: bool,
+    per_country_cap: float | None,
+    run_all: bool,
+) -> dict:
+    """Inner generation loop, sans logger-handler setup."""
+    if count <= 0 and not run_all:
+        return {
+            "generated": 0, "skipped_parse": 0, "skipped_dup": 0,
+            "skipped_sample": 0, "relabeled_l1": 0, "rejected_overflow": 0,
+            "inserted_uuids": [],
+        }
+
     domains = [domain] if domain else DOMAINS
     if run_all:
         domains = DOMAINS
@@ -2346,9 +2430,16 @@ def main(
         f"({total_relabeled_l1} relabeled to L1 (closed_book_solvable), "
         f"{total_rejected_overflow} dropped over quota)"
     )
-    if test_run and generated_ids:
-        click.echo(f"Test run — cleaning up {len(generated_ids)} questions")
-        delete_questions_by_ids(generated_ids)
+
+    return {
+        "generated": total_generated,
+        "skipped_parse": 0,
+        "skipped_dup": 0,
+        "skipped_sample": 0,
+        "relabeled_l1": total_relabeled_l1,
+        "rejected_overflow": total_rejected_overflow,
+        "inserted_uuids": list(generated_ids),
+    }
 
 
 def _do_list(difficulty_filter: str | None):
