@@ -171,9 +171,21 @@ def cli() -> None:
         "pilots; default unset (no cap)."
     ),
 )
+@click.option(
+    "--max-workers",
+    type=int,
+    default=None,
+    help=(
+        "Phase 2g.10 (Team Delta A3): worker count for the (generator × "
+        "domain) cell dispatch ThreadPoolExecutor. Default 1 (sequential, "
+        "audit-pilot reproducibility preserved). Override via this flag or "
+        "OENOBENCH_MAX_WORKERS env var."
+    ),
+)
 def build_corpus_cmd(
     tag: str, per_strategy: int, seed: int,
     skip: tuple[str, ...], per_country_cap: float | None,
+    max_workers: int | None,
 ) -> None:
     _setup_logging()
     result = build_pilot_corpus(
@@ -182,6 +194,7 @@ def build_corpus_cmd(
         seed=seed,
         skip_strategies=skip,
         per_country_cap=per_country_cap,
+        max_workers=max_workers,
     )
     click.echo(f"Built corpus tag={result['tag']} totals={result['totals']}")
 

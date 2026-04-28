@@ -7,6 +7,7 @@ linkage in a single transaction, plus query helpers for quota tracking.
 
 import math
 import os
+import threading
 import uuid
 
 import orjson
@@ -19,6 +20,14 @@ from src.generators._closed_book_gate import (
     screen_question,
 )
 from src.utils.db import get_pg
+
+# Phase 2g.10 (Team Delta A3): serialise the count-then-insert pair in
+# `insert_question_gated` so concurrent strategy threads (post-A2 in-process
+# dispatch) cannot both observe `count < cap` and both blow the cap by N-1.
+# Single-process mutex; DB-level SELECT FOR UPDATE deferred — the audit
+# pilots run inside one Python process, so a threading.Lock is sufficient
+# at the documented scope. See the in-process dispatch plan for trade-offs.
+_QUOTA_LOCK = threading.Lock()
 
 # 25% of the 10k overall target. Imported lazily to avoid circular import on
 # orchestrator at module load. See `_closed_book_quota_cap()` below.
@@ -264,6 +273,9 @@ def insert_question_gated(
     if pre_screened is not None:
         gate = pre_screened
     elif apply_gate:
+        # `screen_question` is a slow HTTP call to OpenRouter — keep it
+        # outside the quota lock so concurrent threads don't queue up
+        # waiting on each other while the gate verdict resolves.
         gate = screen_question(
             stem=question_data["question_text"],
             options=question_data.get("options"),
@@ -274,52 +286,57 @@ def insert_question_gated(
     else:
         gate = GateResult(passed=True, applied=False, reason="gate_disabled")
 
-    if gate.applied and not gate.passed:
-        # Phase 2g.10: prefer per-strategy budget when OENOBENCH_STRATEGY_TARGET
-        # is set AND the caller's generation_meta carries a generation_method.
-        # This stops the first strategy in build order from monopolising the
-        # corpus-wide cap; each strategy gets its own ceil(per_strategy × 0.25)
-        # slots, counted via JOIN to generation_metadata.generation_method.
-        strategy_target = _resolve_strategy_target_size()
-        strategy_name = generation_meta.get("generation_method")
-        if strategy_target is not None and strategy_name:
-            cap = math.ceil(int(strategy_target) * CLOSED_BOOK_QUOTA_FRACTION)
-            current = count_closed_book_solvable(strategy=strategy_name)
-            cap_label = f"strategy:{strategy_name}"
-        else:
-            cap = _closed_book_quota_cap(target_size)
-            current = count_closed_book_solvable()
-            cap_label = "corpus"
-        if current >= cap:
-            gate.quota_full = True
+    # Phase 2g.10 (Team Delta A3): the cap check + insert pair runs under
+    # `_QUOTA_LOCK` so concurrent strategy threads (post-A2 in-process
+    # dispatch) cannot both observe `current < cap` and both insert. The
+    # lock covers count → cap-compare → relabel-mutate → insert_question.
+    with _QUOTA_LOCK:
+        if gate.applied and not gate.passed:
+            # Phase 2g.10: prefer per-strategy budget when OENOBENCH_STRATEGY_TARGET
+            # is set AND the caller's generation_meta carries a generation_method.
+            # This stops the first strategy in build order from monopolising the
+            # corpus-wide cap; each strategy gets its own ceil(per_strategy × 0.25)
+            # slots, counted via JOIN to generation_metadata.generation_method.
+            strategy_target = _resolve_strategy_target_size()
+            strategy_name = generation_meta.get("generation_method")
+            if strategy_target is not None and strategy_name:
+                cap = math.ceil(int(strategy_target) * CLOSED_BOOK_QUOTA_FRACTION)
+                current = count_closed_book_solvable(strategy=strategy_name)
+                cap_label = f"strategy:{strategy_name}"
+            else:
+                cap = _closed_book_quota_cap(target_size)
+                current = count_closed_book_solvable()
+                cap_label = "corpus"
+            if current >= cap:
+                gate.quota_full = True
+                gate.reason = (
+                    f"reject (quota_full): closed_book_solvable {current}/{cap} "
+                    f"({cap_label}); original={gate.reason}"
+                )
+                _stash_gate_meta(generation_meta, gate)
+                logger.info(
+                    "GATE QUOTA FULL | qid={} | {}",
+                    question_data.get("question_id"), gate.reason,
+                )
+                return None, gate
+
+            existing_tags = list(question_data.get("tags") or [])
+            if CLOSED_BOOK_TAG not in existing_tags:
+                existing_tags.append(CLOSED_BOOK_TAG)
+            question_data["tags"] = existing_tags
+            question_data["difficulty"] = "1"
+            gate.relabeled = True
             gate.reason = (
-                f"reject (quota_full): closed_book_solvable {current}/{cap} "
-                f"({cap_label}); original={gate.reason}"
+                f"relabel: gate solved closed-book → tagged {CLOSED_BOOK_TAG}, "
+                f"difficulty forced to L1; original={gate.reason}"
             )
-            _stash_gate_meta(generation_meta, gate)
             logger.info(
-                "GATE QUOTA FULL | qid={} | {}",
+                "GATE RELABEL | qid={} | {}",
                 question_data.get("question_id"), gate.reason,
             )
-            return None, gate
 
-        existing_tags = list(question_data.get("tags") or [])
-        if CLOSED_BOOK_TAG not in existing_tags:
-            existing_tags.append(CLOSED_BOOK_TAG)
-        question_data["tags"] = existing_tags
-        question_data["difficulty"] = "1"
-        gate.relabeled = True
-        gate.reason = (
-            f"relabel: gate solved closed-book → tagged {CLOSED_BOOK_TAG}, "
-            f"difficulty forced to L1; original={gate.reason}"
-        )
-        logger.info(
-            "GATE RELABEL | qid={} | {}",
-            question_data.get("question_id"), gate.reason,
-        )
-
-    _stash_gate_meta(generation_meta, gate)
-    q_uuid = insert_question(question_data, generation_meta, fact_ids, source_ids)
+        _stash_gate_meta(generation_meta, gate)
+        q_uuid = insert_question(question_data, generation_meta, fact_ids, source_ids)
     return q_uuid, gate
 
 

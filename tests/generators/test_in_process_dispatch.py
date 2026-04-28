@@ -1,4 +1,4 @@
-"""Phase 2g.10 (Team Delta) — A2 in-process dispatch.
+"""Phase 2g.10 (Team Delta) — A2 in-process dispatch + A3 concurrent cells.
 
 A2 covers:
 
@@ -9,11 +9,21 @@ A2 covers:
   ``subprocess.run`` path (defence-in-depth roll-back hatch).
 - The click ``main()`` shims still parse CLI args correctly.
 
-A3 (concurrent cells + threading.Lock) follows in a sibling commit.
+A3 covers:
+
+- ``--max-workers`` / ``OENOBENCH_MAX_WORKERS`` resolution.
+- Default ``max_workers=1`` runs cells serially (no overlap).
+- ``max_workers >= 2`` runs cells concurrently (overlap observed).
+- Module-level ``threading.Lock`` in ``_question_db`` serialises the
+  count-then-insert pair in ``insert_question_gated``.
+- Concurrent ``insert_question_gated`` calls with the lock cannot exceed the
+  closed-book quota cap.
 """
 
 from __future__ import annotations
 
+import threading
+import time
 from unittest.mock import patch
 
 
@@ -212,3 +222,257 @@ def test_main_shim_invokes_run_generate(monkeypatch):
     assert captured["domain"] == "wine_regions"
     assert captured["count"] == 5
     assert captured["dry_run"] is True
+
+
+# ─── A3.1 — max_workers env var resolution ──────────────────────────────────
+
+
+def test_max_workers_env_var_is_picked_up(monkeypatch):
+    from src.qa import _corpus
+
+    monkeypatch.setenv("OENOBENCH_MAX_WORKERS", "4")
+    assert _corpus._resolve_max_workers(None) == 4
+
+
+def test_max_workers_explicit_arg_overrides_env(monkeypatch):
+    from src.qa import _corpus
+
+    monkeypatch.setenv("OENOBENCH_MAX_WORKERS", "4")
+    assert _corpus._resolve_max_workers(8) == 8
+
+
+def test_max_workers_defaults_to_one(monkeypatch):
+    from src.qa import _corpus
+
+    monkeypatch.delenv("OENOBENCH_MAX_WORKERS", raising=False)
+    assert _corpus._resolve_max_workers(None) == 1
+
+
+def test_max_workers_invalid_env_falls_back_to_one(monkeypatch):
+    from src.qa import _corpus
+
+    monkeypatch.setenv("OENOBENCH_MAX_WORKERS", "not_an_int")
+    assert _corpus._resolve_max_workers(None) == 1
+
+
+# ─── A3.2 — serial vs concurrent wallclock ──────────────────────────────────
+
+
+def _patch_corpus_db_helpers(monkeypatch):
+    """Stub DB calls so build_pilot_corpus runs without hitting Postgres."""
+    from datetime import datetime
+    from src.qa import _corpus as _c
+
+    monkeypatch.setattr(_c, "_existing_corpus_count", lambda tag: {})
+    monkeypatch.setattr(
+        _c, "_tag_rows",
+        lambda *, generation_method, since, limit, tag: limit,
+    )
+    monkeypatch.setattr(
+        _c, "_resolve_build_started_at",
+        lambda tag: (datetime.now(), False),
+    )
+
+
+def test_threadpool_max_workers_one_runs_serially(monkeypatch):
+    """With max_workers=1, calls run sequentially — no overlap."""
+    from src.qa import _corpus
+    from src.qa._corpus import build_pilot_corpus
+
+    _patch_corpus_db_helpers(monkeypatch)
+
+    in_flight = []
+    max_overlap = {"n": 0}
+    lock = threading.Lock()
+
+    def slow(**kw):
+        with lock:
+            in_flight.append(1)
+            max_overlap["n"] = max(max_overlap["n"], len(in_flight))
+        time.sleep(0.05)
+        with lock:
+            in_flight.pop()
+        return True
+
+    monkeypatch.setattr(_corpus, "_run_generator", slow)
+
+    build_pilot_corpus(
+        tag="test_serial", per_strategy=2, seed=1, max_workers=1,
+    )
+    assert max_overlap["n"] == 1, (
+        f"max_workers=1 must serialise dispatch, observed overlap={max_overlap['n']}"
+    )
+
+
+def test_threadpool_max_workers_n_runs_concurrently(monkeypatch):
+    """With max_workers >= 2, multiple cells overlap in time."""
+    from src.qa import _corpus
+    from src.qa._corpus import build_pilot_corpus
+
+    _patch_corpus_db_helpers(monkeypatch)
+
+    in_flight = []
+    max_overlap = {"n": 0}
+    lock = threading.Lock()
+
+    def slow(**kw):
+        with lock:
+            in_flight.append(1)
+            max_overlap["n"] = max(max_overlap["n"], len(in_flight))
+        time.sleep(0.1)
+        with lock:
+            in_flight.pop()
+        return True
+
+    monkeypatch.setattr(_corpus, "_run_generator", slow)
+
+    build_pilot_corpus(
+        tag="test_concurrent", per_strategy=4, seed=1, max_workers=4,
+    )
+    assert max_overlap["n"] >= 2, (
+        f"max_workers=4 must overlap dispatches, observed peak={max_overlap['n']}"
+    )
+
+
+def test_build_pilot_corpus_propagates_max_workers_arg(monkeypatch):
+    """The build_pilot_corpus(max_workers=...) kwarg must reach the executor."""
+    from src.qa import _corpus
+    from src.qa._corpus import build_pilot_corpus
+
+    _patch_corpus_db_helpers(monkeypatch)
+    monkeypatch.setattr(
+        _corpus, "_run_generator",
+        lambda *, module, domain, count, generator=None,
+               difficulty=None, per_country_cap=None: True,
+    )
+
+    captured = {}
+    real_executor = _corpus.cf.ThreadPoolExecutor
+
+    class CapturingExecutor(real_executor):
+        def __init__(self, max_workers=None, **kw):
+            captured["max_workers"] = max_workers
+            super().__init__(max_workers=max_workers, **kw)
+
+    monkeypatch.setattr(_corpus.cf, "ThreadPoolExecutor", CapturingExecutor)
+
+    build_pilot_corpus(
+        tag="test_workers_arg", per_strategy=2, seed=1, max_workers=3,
+    )
+    assert captured.get("max_workers") == 3
+
+
+# ─── A3.3 — threading lock contract on insert_question_gated ────────────────
+
+
+def test_quota_lock_module_global_exists():
+    """The lock must live at module scope so concurrent threads share it."""
+    from src.generators import _question_db
+
+    assert hasattr(_question_db, "_QUOTA_LOCK")
+    # It quacks like a threading lock (acquire/release/locked).
+    assert callable(_question_db._QUOTA_LOCK.acquire)
+    assert callable(_question_db._QUOTA_LOCK.release)
+    assert callable(_question_db._QUOTA_LOCK.locked)
+
+
+def test_quota_lock_is_held_during_count_then_insert(monkeypatch):
+    """The count → cap-check → insert sequence runs under the lock."""
+    from src.generators import _question_db
+    from src.generators._closed_book_gate import GateResult
+
+    held_during_count: list[bool] = []
+    held_during_insert: list[bool] = []
+
+    def fake_count(*_a, **_kw):
+        held_during_count.append(_question_db._QUOTA_LOCK.locked())
+        return 0
+
+    def fake_insert(*_a, **_kw):
+        held_during_insert.append(_question_db._QUOTA_LOCK.locked())
+        return "uuid-locked"
+
+    monkeypatch.setattr(_question_db, "count_closed_book_solvable", fake_count)
+    monkeypatch.setattr(_question_db, "insert_question", fake_insert)
+
+    pre_gate = GateResult(
+        passed=False, applied=True,
+        reason="reject (closed-book solvable)",
+        selected="A", confidence=0.9, matched_gold=True,
+    )
+    qd = {
+        "question_id": "T-LOCK-001",
+        "question_text": "Q?",
+        "options": [{"id": "A", "text": "x"}],
+        "correct_answer": "A",
+        "difficulty": "1",
+        "question_type": "multiple_choice",
+        "domain": "wine_regions",
+    }
+    _question_db.insert_question_gated(
+        question_data=qd,
+        generation_meta={"generator": "g", "generation_method": "template"},
+        fact_ids=[], source_ids=[],
+        pre_screened=pre_gate,
+    )
+    assert held_during_count == [True]
+    assert held_during_insert == [True]
+
+
+def test_concurrent_inserts_respect_quota_cap(monkeypatch):
+    """N threads racing on insert_question_gated must not exceed the cap."""
+    from src.generators import _question_db
+    from src.generators._closed_book_gate import GateResult
+
+    cap = 5
+    counter = {"n": 0}
+    counter_lock = threading.Lock()
+
+    def fake_count(*_a, **_kw):
+        with counter_lock:
+            return counter["n"]
+
+    def fake_insert(*_a, **_kw):
+        # Tiny pause to widen the race window without the lock.
+        time.sleep(0.001)
+        with counter_lock:
+            counter["n"] += 1
+        return f"uuid-{counter['n']}"
+
+    monkeypatch.setattr(_question_db, "count_closed_book_solvable", fake_count)
+    monkeypatch.setattr(_question_db, "insert_question", fake_insert)
+    monkeypatch.setattr(_question_db, "_closed_book_quota_cap", lambda *a, **kw: cap)
+    # Disable per-strategy budget so we exercise the corpus-level cap path.
+    monkeypatch.setattr(_question_db, "_resolve_strategy_target_size", lambda: None)
+
+    def worker():
+        pre = GateResult(
+            passed=False, applied=True, reason="r",
+            selected="A", confidence=0.9, matched_gold=True,
+        )
+        qd = {
+            "question_id": "X",
+            "question_text": "Q?",
+            "options": [{"id": "A", "text": "x"}],
+            "correct_answer": "A",
+            "difficulty": "1",
+            "question_type": "multiple_choice",
+            "domain": "wine_regions",
+            "tags": [],
+        }
+        _question_db.insert_question_gated(
+            question_data=qd,
+            generation_meta={"generator": "g", "generation_method": "template"},
+            fact_ids=[], source_ids=[],
+            pre_screened=pre,
+        )
+
+    threads = [threading.Thread(target=worker) for _ in range(20)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert counter["n"] <= cap, (
+        f"concurrent inserts blew the cap: {counter['n']}/{cap}"
+    )

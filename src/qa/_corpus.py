@@ -15,6 +15,7 @@ Design notes:
 
 from __future__ import annotations
 
+import concurrent.futures as cf
 import csv
 import importlib
 import os
@@ -42,6 +43,11 @@ from src.utils.db import get_pg
 # Set OENOBENCH_USE_SUBPROCESS_DISPATCH=1 to revert to the subprocess path
 # without a code change (defence-in-depth for v9 audit roll-back).
 USE_SUBPROCESS_ENV_VAR = "OENOBENCH_USE_SUBPROCESS_DISPATCH"
+
+# Phase 2g.10 (Team Delta A3): worker count for the (generator × domain) cell
+# dispatch ThreadPoolExecutor. Default 1 = sequential (audit-pilot bit-for-bit
+# reproducibility preserved). Override via --max-workers or OENOBENCH_MAX_WORKERS.
+MAX_WORKERS_ENV_VAR = "OENOBENCH_MAX_WORKERS"
 
 STRATEGY_MODULES = {
     "template": "template_generator",
@@ -279,6 +285,29 @@ def _run_generator_in_process(
     return True
 
 
+def _resolve_max_workers(arg: int | None) -> int:
+    """Resolve the cell-dispatch worker count.
+
+    Priority: explicit ``arg`` > ``OENOBENCH_MAX_WORKERS`` env var > default 1.
+    A non-positive value falls through to default 1 so audit pilots don't
+    silently jump from "serial" to "16-way concurrent" if a stale env var leaks.
+    """
+    if arg is not None and arg > 0:
+        return int(arg)
+    raw = os.environ.get(MAX_WORKERS_ENV_VAR)
+    if raw:
+        try:
+            n = int(raw)
+            if n > 0:
+                return n
+        except ValueError:
+            logger.warning(
+                "{} is set but not a positive int (got {!r}); falling back to 1",
+                MAX_WORKERS_ENV_VAR, raw,
+            )
+    return 1
+
+
 # ─── Build ────────────────────────────────────────────────────────────────────
 
 
@@ -289,6 +318,7 @@ def build_pilot_corpus(
     seed: int = 42,
     skip_strategies: Iterable[str] = (),
     per_country_cap: float | None = None,
+    max_workers: int | None = None,
 ) -> dict:
     """Generate ~`per_strategy` questions for each strategy and tag them.
 
@@ -302,7 +332,13 @@ def build_pilot_corpus(
             via ``--per-country-cap``. Set to a fraction in (0, 1] to enforce
             a per-call country cap on the sampler (Team ε D3-fix v3); ``None``
             disables. Audit pilots should typically pass 0.10.
+        max_workers: Phase 2g.10 (Team Delta A3). Worker count for the
+            (generator × domain) cell dispatch ThreadPoolExecutor. ``None``
+            (default) resolves via ``OENOBENCH_MAX_WORKERS`` env var, falling
+            back to 1 (sequential) so audit-pilot runs stay bit-for-bit
+            reproducible by default.
     """
+    workers = _resolve_max_workers(max_workers)
     random.seed(seed)
     started, is_resume = _resolve_build_started_at(tag)
 
@@ -373,7 +409,11 @@ def build_pilot_corpus(
             want = per_strategy - already
             strategy_started = datetime.now()
 
-            # LLM strategies: split want across 5 generators × 6 domains ≈ 4 each for 120
+            # Build the per-strategy cell list, then dispatch either
+            # sequentially (max_workers=1, default — bit-for-bit reproducible)
+            # or concurrently (max_workers≥2 via --max-workers / env var).
+            # Phase 2g.10 (Team Delta A3).
+            cell_calls: list[dict] = []
             if strategy in LLM_STRATEGIES:
                 per_cell = max(1, want // (len(GENERATORS) * len(DOMAINS)))
                 rem = want - per_cell * len(GENERATORS) * len(DOMAINS)
@@ -385,10 +425,10 @@ def build_pilot_corpus(
                         rem -= 1
                     if take <= 0:
                         continue
-                    _run_generator(
-                        module=module, domain=d, count=take, generator=g,
-                        per_country_cap=per_country_cap,
-                    )
+                    cell_calls.append({
+                        "module": module, "domain": d, "count": take,
+                        "generator": g, "per_country_cap": per_country_cap,
+                    })
             else:
                 per_cell = max(1, want // len(DOMAINS))
                 rem = want - per_cell * len(DOMAINS)
@@ -398,10 +438,22 @@ def build_pilot_corpus(
                     take = per_cell + (1 if rem > 0 else 0)
                     if rem > 0:
                         rem -= 1
-                    _run_generator(
-                        module=module, domain=d, count=take,
-                        per_country_cap=per_country_cap,
-                    )
+                    cell_calls.append({
+                        "module": module, "domain": d, "count": take,
+                        "per_country_cap": per_country_cap,
+                    })
+
+            if workers <= 1:
+                for kw in cell_calls:
+                    _run_generator(**kw)
+            else:
+                with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+                    futures = [ex.submit(_run_generator, **kw) for kw in cell_calls]
+                    for fut in cf.as_completed(futures):
+                        try:
+                            fut.result()
+                        except Exception as e:  # noqa: BLE001
+                            logger.error("corpus: {} cell raised: {}", strategy, e)
 
             tagged = _tag_rows(
                 generation_method=strategy,
@@ -649,9 +701,21 @@ def cli() -> None:
         "audit pilots; default unset (no cap)."
     ),
 )
+@click.option(
+    "--max-workers",
+    type=int,
+    default=None,
+    help=(
+        "Phase 2g.10 (Team Delta A3): worker count for the (generator × "
+        "domain) cell dispatch ThreadPoolExecutor. Default 1 (sequential, "
+        "audit-pilot reproducibility preserved). Override via this flag or "
+        "OENOBENCH_MAX_WORKERS env var."
+    ),
+)
 def build_cmd(
     tag: str, per_strategy: int, seed: int,
     skip: tuple[str, ...], per_country_cap: float | None,
+    max_workers: int | None,
 ) -> None:
     summary = build_pilot_corpus(
         tag=tag,
@@ -659,6 +723,7 @@ def build_cmd(
         seed=seed,
         skip_strategies=skip,
         per_country_cap=per_country_cap,
+        max_workers=max_workers,
     )
     click.echo(f"Corpus tag: {summary['tag']}")
     click.echo(f"Totals by strategy: {summary['totals']}")

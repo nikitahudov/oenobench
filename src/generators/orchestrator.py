@@ -13,6 +13,7 @@ Usage:
     python -m src.generators.orchestrator validate
 """
 
+import concurrent.futures as cf
 import importlib
 import os
 import subprocess
@@ -36,6 +37,10 @@ from src.utils.db import get_pg
 # Phase 2g.10 (Team Delta A2): toggle subprocess fallback. Default is
 # in-process dispatch (~2-3s/cell saved over the legacy subprocess.run path).
 USE_SUBPROCESS_ENV_VAR = "OENOBENCH_USE_SUBPROCESS_DISPATCH"
+
+# Phase 2g.10 (Team Delta A3): worker count for the (generator × domain)
+# cell dispatch ThreadPoolExecutor. Default 1.
+MAX_WORKERS_ENV_VAR = "OENOBENCH_MAX_WORKERS"
 
 # ─── Logging setup ────────────────────────────────────────────────────────────
 
@@ -222,6 +227,27 @@ def _run_strategy(
     return True
 
 
+def _resolve_max_workers(arg: int | None) -> int:
+    """Resolve the cell-dispatch worker count for the full-gen orchestrator.
+
+    Priority: explicit arg > OENOBENCH_MAX_WORKERS env var > default 1.
+    """
+    if arg is not None and arg > 0:
+        return int(arg)
+    raw = os.environ.get(MAX_WORKERS_ENV_VAR)
+    if raw:
+        try:
+            n = int(raw)
+            if n > 0:
+                return n
+        except ValueError:
+            logger.warning(
+                "{} is set but not a positive int (got {!r}); falling back to 1",
+                MAX_WORKERS_ENV_VAR, raw,
+            )
+    return 1
+
+
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
 
@@ -306,7 +332,18 @@ def status(target):
 @click.option("--target", type=int, default=OVERALL_TARGET, help="Total questions to generate")
 @click.option("--resume", is_flag=True, help="Resume from current DB state")
 @click.option("--dry-run", is_flag=True, help="Preview without DB writes")
-def generate_all(target, resume, dry_run):
+@click.option(
+    "--max-workers",
+    type=int,
+    default=None,
+    help=(
+        "Phase 2g.10 (Team Delta A3): worker count for the (generator × "
+        "domain) cell dispatch ThreadPoolExecutor. Default 1 (sequential, "
+        "audit-pilot reproducibility preserved). Override via this flag or "
+        "OENOBENCH_MAX_WORKERS env var."
+    ),
+)
+def generate_all(target, resume, dry_run, max_workers):
     """Run full generation pipeline across all strategies/models/domains."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger.add(LOG_DIR / f"orchestrator_{timestamp}.log", rotation="50 MB")
@@ -320,7 +357,8 @@ def generate_all(target, resume, dry_run):
     else:
         click.echo("Starting fresh generation run")
 
-    click.echo(f"Target: {target:,} questions | dry_run={dry_run}\n")
+    workers = _resolve_max_workers(max_workers)
+    click.echo(f"Target: {target:,} questions | dry_run={dry_run} | max_workers={workers}\n")
 
     for strategy in STRATEGY_ORDER:
         strategy_target = STRATEGY_TARGETS[strategy]
@@ -338,27 +376,46 @@ def generate_all(target, resume, dry_run):
 
         if strategy not in LLM_STRATEGIES:
             # Template strategy: single run, no generator split
-            _dispatch_template(module, remaining, dry_run)
+            _dispatch_template(module, remaining, dry_run, max_workers=workers)
         else:
             # LLM strategies: split across generators and domains
             _dispatch_llm_strategy(
                 strategy, module, remaining, existing_dgc, dry_run,
+                max_workers=workers,
             )
 
     click.echo("\nGeneration pipeline complete.")
 
 
-def _dispatch_template(module: str, count: int, dry_run: bool):
+def _dispatch_template(module: str, count: int, dry_run: bool, max_workers: int = 1):
     """Run template generator for the given count across all domains.
 
-    Phase 2g.10 (Team Delta A2): dispatches in-process via ``_run_strategy``,
-    which falls back to subprocess when OENOBENCH_USE_SUBPROCESS_DISPATCH=1.
+    Phase 2g.10 (Team Delta A2 + A3): dispatches in-process via
+    ``_run_strategy`` and optionally parallelises over domains via a
+    ThreadPoolExecutor when ``max_workers > 1``.
     """
+    cells: list[tuple[str, int]] = []
     for domain in sorted(DOMAIN_TARGETS.keys()):
         # Proportional split based on domain targets
         domain_share = DOMAIN_TARGETS[domain] / OVERALL_TARGET
         domain_count = max(1, int(count * domain_share))
-        _run_strategy(module, domain=domain, count=domain_count, dry_run=dry_run)
+        cells.append((domain, domain_count))
+
+    if max_workers <= 1:
+        for domain, domain_count in cells:
+            _run_strategy(module, domain=domain, count=domain_count, dry_run=dry_run)
+        return
+
+    with cf.ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = [
+            ex.submit(_run_strategy, module, domain=d, count=c, dry_run=dry_run)
+            for d, c in cells
+        ]
+        for fut in cf.as_completed(futures):
+            try:
+                fut.result()
+            except Exception as e:  # noqa: BLE001
+                logger.error("orchestrator: template cell raised: {}", e)
 
 
 def _dispatch_llm_strategy(
@@ -367,14 +424,18 @@ def _dispatch_llm_strategy(
     total_remaining: int,
     existing_dgc: dict,
     dry_run: bool,
+    max_workers: int = 1,
 ):
     """Dispatch an LLM strategy across generators and domains.
 
-    Phase 2g.10 (Team Delta A2): dispatches in-process via ``_run_strategy``.
+    Phase 2g.10 (Team Delta A3): cell dispatch parallelised via a
+    ThreadPoolExecutor when ``max_workers > 1``. Default 1 keeps the
+    full-gen run sequential.
     """
     generators = list(GENERATOR_TARGETS.keys())
     per_generator = max(1, total_remaining // len(generators))
 
+    cells: list[tuple[str, str, int]] = []  # (domain, generator, count)
     for generator in generators:
         # Check per-generator quota
         gen_existing = sum(
@@ -393,10 +454,29 @@ def _dispatch_llm_strategy(
         for domain in sorted(DOMAIN_TARGETS.keys()):
             domain_share = DOMAIN_TARGETS[domain] / OVERALL_TARGET
             domain_count = max(1, int(gen_remaining * domain_share))
+            cells.append((domain, generator, domain_count))
+
+    if max_workers <= 1:
+        for domain, generator, count in cells:
             _run_strategy(
-                module, domain=domain, count=domain_count,
+                module, domain=domain, count=count,
                 generator=generator, dry_run=dry_run,
             )
+        return
+
+    with cf.ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = [
+            ex.submit(
+                _run_strategy, module,
+                domain=d, count=c, generator=g, dry_run=dry_run,
+            )
+            for d, g, c in cells
+        ]
+        for fut in cf.as_completed(futures):
+            try:
+                fut.result()
+            except Exception as e:  # noqa: BLE001
+                logger.error("orchestrator: {} cell raised: {}", strategy, e)
 
 
 # ─── dedup ────────────────────────────────────────────────────────────────────
