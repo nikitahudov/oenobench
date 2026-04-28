@@ -24,8 +24,13 @@ from typing import Iterable
 from loguru import logger
 
 from src.generators._llm_client import GENERATOR_MODELS, LLMResponse, get_client
+from src.generators import _llm_cache
 
 # ─── Configuration ────────────────────────────────────────────────────────────
+
+# Lever B1 (2026-04-28): cache version tag for verifier verdicts. Bump when
+# the prompt template, debug-payload schema, or any verdict semantics change.
+_VERIFY_CACHE_VERSION = "VERIFY_V1"
 
 # Generators whose questions must be independently verified.
 GENERATORS_REQUIRING_VERIFICATION = {"llama", "qwen"}
@@ -173,6 +178,26 @@ def verify_question_with_independent_solver(
             "reason": "verifier not registered",
         }
 
+    # Lever B1: content-hash cache lookup. Cache identity scoped by
+    # function name so the two verifier paths (independent vs template)
+    # never collide on the same input.
+    _cache_model_id = GENERATOR_MODELS.get(verifier_model, verifier_model)
+    _cache_key = _llm_cache.cache_key({
+        "fn": "verify_question_with_independent_solver",
+        "stem": question_text,
+        "options": options,
+        "correct_answer": correct_answer,
+        "source_facts": list(source_facts or []),
+    })
+    _cached = _llm_cache.lookup(
+        kind="verifier",
+        key=_cache_key,
+        model_id=_cache_model_id,
+        version_tag=_VERIFY_CACHE_VERSION,
+    )
+    if _cached is not None:
+        return bool(_cached.get("is_valid")), dict(_cached.get("debug") or {})
+
     prompt = _build_verifier_prompt(question_text, options, source_facts or [])
     client = get_client()
     response: LLMResponse = client.generate(
@@ -251,6 +276,16 @@ def verify_question_with_independent_solver(
             confidence, cost_usd,
         )
 
+    # Lever B1: cache the (is_valid, debug) verdict. Reaches here only on
+    # successful parse — API errors and unparseable responses returned
+    # earlier without falling through.
+    _llm_cache.store(
+        kind="verifier",
+        key=_cache_key,
+        model_id=_cache_model_id,
+        version_tag=_VERIFY_CACHE_VERSION,
+        payload={"is_valid": bool(is_valid), "debug": debug},
+    )
     return is_valid, debug
 
 
@@ -309,6 +344,25 @@ def verify_template_answer_with_gemini(
     """
     if not options or not correct_answer_id:
         return True, {"skipped": True, "reason": "missing options or key"}
+
+    # Lever B1: cache lookup. fn name in the key so this path doesn't
+    # collide with verify_question_with_independent_solver.
+    _cache_model_id = GENERATOR_MODELS.get(_TEMPLATE_VERIFIER_MODEL, _TEMPLATE_VERIFIER_MODEL)
+    _cache_key = _llm_cache.cache_key({
+        "fn": "verify_template_answer_with_gemini",
+        "stem": question_text,
+        "options": options,
+        "correct_answer_id": correct_answer_id,
+        "source_fact_text": source_fact_text or "",
+    })
+    _cached = _llm_cache.lookup(
+        kind="verifier",
+        key=_cache_key,
+        model_id=_cache_model_id,
+        version_tag=_VERIFY_CACHE_VERSION,
+    )
+    if _cached is not None:
+        return bool(_cached.get("agrees")), dict(_cached.get("debug") or {})
 
     prompt = _build_template_verifier_prompt(
         question_text=question_text,
@@ -383,4 +437,15 @@ def verify_template_answer_with_gemini(
             "template-verify: DISAGREE | chosen={} | expected={} | q={!r}",
             chosen, expected, question_text[:80],
         )
+
+    # Lever B1: cache only successful parses. The N-no-support path,
+    # unparseable-response path, and API-error path all returned earlier
+    # without reaching here.
+    _llm_cache.store(
+        kind="verifier",
+        key=_cache_key,
+        model_id=_cache_model_id,
+        version_tag=_VERIFY_CACHE_VERSION,
+        payload={"agrees": bool(agrees), "debug": debug},
+    )
     return agrees, debug

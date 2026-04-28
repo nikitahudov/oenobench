@@ -33,6 +33,7 @@ from tenacity import (
 )
 
 from src.generators._llm_client import _try_parse_json
+from src.generators import _llm_cache
 
 load_dotenv()
 
@@ -309,6 +310,36 @@ def screen_question(
         difficulty, question_type, model,
     )
 
+    # Lever B1 (2026-04-28): content-hash cache. Skip the API call entirely
+    # on a hit. Key includes the question payload + difficulty + type so a
+    # paraphrase or distractor change re-runs the gate. Version tag and
+    # model are part of the cache identity so a model swap or a
+    # GATE_VERSION bump invalidates automatically.
+    _cache_version_tag = f"GATE_VERSION={GATE_VERSION}"
+    _cache_key = _llm_cache.cache_key({
+        "stem": stem,
+        "options": options,
+        "correct_answer": correct_answer,
+        "difficulty": str(difficulty),
+        "question_type": question_type,
+    })
+    _cached = _llm_cache.lookup(
+        kind="gate",
+        key=_cache_key,
+        model_id=model,
+        version_tag=_cache_version_tag,
+    )
+    if _cached is not None:
+        try:
+            return GateResult(**_cached)
+        except TypeError as e:
+            # Stale schema (a field was added or removed since this row
+            # was written). Treat as a miss; the next store() will
+            # overwrite it on the next non-cached call.
+            logger.warning(
+                "LLM cache gate payload incompatible (treating as miss): {}", e,
+            )
+
     t0 = time.time()
     try:
         client = _get_client()
@@ -368,7 +399,7 @@ def screen_question(
         else:
             reason = "pass: gate response had no clear selection"
 
-    return GateResult(
+    result = GateResult(
         passed=passed,
         applied=True,
         reason=reason,
@@ -379,3 +410,14 @@ def screen_question(
         model=model,
         latency_ms=latency_ms,
     )
+    # Lever B1 cache store: only successful verdicts. We deliberately skip
+    # the api_error / parse_failed paths above — caching a transient
+    # failure would poison every later call with the same input.
+    _llm_cache.store(
+        kind="gate",
+        key=_cache_key,
+        model_id=model,
+        version_tag=_cache_version_tag,
+        payload=result.to_dict(),
+    )
+    return result

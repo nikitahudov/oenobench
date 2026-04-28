@@ -32,8 +32,14 @@ from __future__ import annotations
 
 from loguru import logger
 
+from src.generators import _llm_cache
+
 # Default model. Caller can override via the ``model`` argument.
 _DEFAULT_MODEL = "gemini"
+
+# Lever B1 (2026-04-28): cache version tag for paraphrase outputs. Bump
+# when the prompt template or validation logic changes.
+_PARAPHRASE_CACHE_VERSION = "PARAPHRASE_V1"
 
 _PROMPT_TEMPLATE = (
     "Rephrase this multiple-choice question stem naturally without "
@@ -96,10 +102,30 @@ def paraphrase_question_text(
         return None
 
     try:
-        from src.generators._llm_client import get_client
+        from src.generators._llm_client import GENERATOR_MODELS, get_client
     except Exception as e:  # pragma: no cover — defensive
         logger.warning(f"_llm_client unavailable for paraphrase: {e}")
         return None
+
+    # Lever B1: cache lookup before we even build the prompt. Includes the
+    # text + options because option text can leak into the entity-
+    # preservation guard and change whether a paraphrase is accepted.
+    _cache_model_id = GENERATOR_MODELS.get(model, model)
+    _cache_key = _llm_cache.cache_key({
+        "text": question_text,
+        "options": options,
+    })
+    _cached = _llm_cache.lookup(
+        kind="paraphrase",
+        key=_cache_key,
+        model_id=_cache_model_id,
+        version_tag=_PARAPHRASE_CACHE_VERSION,
+    )
+    if _cached is not None:
+        cached_text = _cached.get("paraphrased_text")
+        if isinstance(cached_text, str) and cached_text:
+            return cached_text
+        # Stored payload missing or malformed → fall through to live call.
 
     options_str = "\n".join(
         f"  {o.get('id', '?')}. {o.get('text', '')}" for o in options
@@ -155,4 +181,16 @@ def paraphrase_question_text(
         logger.debug("Paraphrase dropped a referenced entity; keeping original")
         return None
 
+    # Lever B1: cache only successful, validated paraphrases. Failed
+    # validations (length, TF/MC flip, dropped entity) and LLM call
+    # failures all returned None above without reaching here, so the
+    # cache never stores a None — keeping cached_text truthiness check
+    # in the lookup path safe.
+    _llm_cache.store(
+        kind="paraphrase",
+        key=_cache_key,
+        model_id=_cache_model_id,
+        version_tag=_PARAPHRASE_CACHE_VERSION,
+        payload={"paraphrased_text": new_text},
+    )
     return new_text
