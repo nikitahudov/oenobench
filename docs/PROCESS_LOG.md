@@ -1460,3 +1460,80 @@ User approved the plan (`/home/winebench/.claude/plans/optimized-forging-locket.
 
 `scripts/run_audit_pilot_v9_build.sh` and `_audit.sh` activate the speedup levers via env-var profile. v9 mirrors v8's `per_strategy=40 / target=200 / per_country_cap=0.30` for direct A/B comparison. v9 results validate the speedup (wall, LLM-call count, kept-rate) and confirm B2/A1/A4/D3 quality metrics are preserved or improved. If v9 passes Go/No-Go, the full 10k generation run kicks off with the same env-var profile plus `--max-workers 8 --strategy-workers 3`.
 
+---
+
+## 2026-04-29 — Phase 2g.12: Corpus-build undershoot fixes
+
+### What was done
+
+Audit pilot v9 ran on 2026-04-28 (`data/logs/audit_pilot_v9_build_20260428T213800Z.log`, 18 min 27 s wall, 772 LLM calls) at `per_strategy=20` (target=100, capped down from v8's 40/200 by `6482ebd` to halve audit cost). The Phase 2g.11 speedup levers worked (~37× faster wall vs v8, ~21× fewer LLM calls), but the corpus came out at **46 of 100 target** (46%) — below v8's 56%. The pipeline cannot saturate per-strategy budget. Phase 2g.12 ran a four-vector investigation and shipped five targeted fixes on `phase-2g.12/corpus-undershoot-fixes` (single commit `2aa084a`, 10 files, +452/-65 lines).
+
+### Sources & inputs
+
+- v9 build log (6,771 lines, 772 LLM calls).
+- Code reads at `src/qa/_corpus.py` (orchestration), `src/generators/_schemas.py:347` (C4 gate), `src/generators/_template_paraphrase.py:44` + `src/generators/_verify.py:101` (Gemini variant resolution), `src/generators/_llm_client.py:_try_parse_json` (JSON extraction), and the four LLM-pickable strategy modules (`comparative_generator.py`, `scenario_generator.py`, `fact_to_question.py`, `distractor_miner.py`).
+- Two parallel Explore-agent investigations and one Plan-agent design review consolidated into `~/.claude/plans/hidden-churning-horizon.md`.
+
+### Methodology
+
+Investigation profiled the v9 log by failure-mode bucket and traced each bucket back to a concrete code path. Four root causes plus one telemetry-quality issue were identified:
+
+1. **Flash model slug invalid.** `_PARAPHRASE_FLASH_DEFAULT` and `_VERIFIER_FLASH_DEFAULT` were both `google/gemini-3.1-flash-preview-20260219` (Phase 2g.11 commit `aca5932`), but OpenRouter rejected the slug with `Error code: 400 - 'is not a valid model ID'`. v9 log lines 452, 530, 723, 837 etc. show every Flash call hitting 400 then silently failing over to Pro. Phase 2g.11's C2 lever was effectively dead — every paraphrase + every Llama/Qwen verify call wasted a round-trip.
+
+2. **C4 gen-time reject threshold off-by-one.** `_schemas.py:347` rejected when `delta >= reject_threshold` with `reject_threshold = 1 if labelled_int >= 3 else 2`. In v9, all 113 C4 rejects were exactly `delta=2 threshold=2` for L1/L2 questions — the boundary case. The C4 classifier consistently over-predicts difficulty for fact-anchored detail questions that the template heuristic correctly buckets at L1/L2; this is a known calibration drift, not a question-quality problem.
+
+3. **Strategy cell allocation over-schedules and sampler-starves.** `_corpus.py:577–591` (the `if strategy in LLM_STRATEGIES` branch) computed `per_cell = max(1, want // (G*D)) = max(1, 20 // 30) = 1`, then `rem = want - per_cell × 30 = -10` (silently skipped because `if rem > 0` is false), giving 30 cells × 1 question each — total scheduled budget = 30, even though `want = 20`. Worse, with `take=1`, a single `sample_fact_pairs() == []` killed the cell's entire output: the strategy logged `Comparative generation complete | generated=0 | skipped_parse=0` and exited zero-attempt. v9 saw **26 of 60 LLM-strategy cells** exit zero-attempt (43%); 21 more hit the circuit breaker (9 fact_to_question, 9 scenario, 2 comparative).
+
+4. **Gemini Pro JSON malformations dominate parse failures.** Of 67 `json_ok=False` events in v9, **65 (97%)** were Gemini Pro. Most were responses wrapped in Markdown fences (```json, ```jsonc, ```python …) that the existing `_FENCE_RE` (limited to `(?:json)?`) didn't match. The pre-existing extraction modes operated on the original raw string, so the fences fell through to `None`.
+
+5. **Misleading strategy-completion log.** `_corpus.py:624` logged `"corpus: {strategy} generated={want} tagged={tagged}"` — but the "generated" field was `want` (the budget), not the actual rowcount. v9 logs read `corpus: comparative generated=20 tagged=4` when only 4 questions were actually produced. Burned investigator time.
+
+The Plan-agent design review (`~/.claude/plans/hidden-churning-horizon.md`) validated the four causes, ranked four cell-allocation options for cause 3 (recommended Option A: right-size cell count), surfaced the misleading log line as cause 5, and verified that none of the existing pinning tests in `tests/qa/test_c4_calibration.py` covered the L1+delta=2 boundary that the threshold bump targets. Estimated yield post-fix at `per_strategy=40`: **145–165 / 200 (72–82%)** vs v8's 56%.
+
+### Quality controls
+
+Initial parallel-agent execution (4 worktree teams, one per fix scope) failed because the agents inherited plan-mode state from the parent session — three of four reported plan-only output without making edits. Recovered Team B's `_schemas.py` change (made in the main repo via mis-cwd) and Team D's clean `_llm_client.py` work from its worktree at `/home/winebench/oenobench/.claude/worktrees/agent-a74c39c1`. Applied Fix 1 (Flash slug) and Fix 3 + 5 (cell allocation, log line) directly on the consolidated branch `phase-2g.12/corpus-undershoot-fixes`.
+
+Test count: 472 → 494 (+22 net). Per-fix breakdown:
+
+- Fix 1: 0 new (3 existing tests in `test_verifier_skip_and_flash.py` updated — Flash slug bumps + 2 failover tests rewritten to use the env-var override since Flash==Pro on the default path).
+- Fix 2: +1 new (`test_level_aware_threshold_accepts_l1_on_two_level_miss` — pins the v9 case); 1 renamed (`rejects_l3_on_one_level_miss` → `rejects_l3_on_two_level_miss`); 1 rewritten in `test_c4_gate.py` (`rejects_two_level_mismatch` → `accepts_two_level_mismatch_on_l1_l2` plus a new `rejects_three_level_mismatch_on_l1_l2`).
+- Fix 3: +13 new (`tests/qa/test_corpus_cell_allocation.py` — pins cell-count, take-≥2, budget-conservation, generator/domain coverage, per_country_cap propagation, non-LLM-strategy untouched).
+- Fix 4: +8 new (`tests/generators/test_llm_client.py` — fenced/un-fenced/garbage/array/whitespace/multi-tag).
+- Fix 5: 0 new (log-only change).
+
+### Quantitative results
+
+v9 build forward-projection vs v8 baseline (per-strategy=40, target=200, post-fix):
+
+| Source | v8 actual | v9 actual | v10 estimate (post-fix) |
+|---|---|---|---|
+| Wall | 11.4 h | 18 min | ~30–60 min |
+| LLM calls | ~16,000 | 772 | ~1,500 |
+| Kept | 111 / 200 (56%) | 46 / 100 (46%) | 145–165 / 200 (72–82%) |
+| C4 gen-time rejects | n/a | 113 (15% of calls) | ~22 (only delta>2 remains) |
+| Cells exiting zero-attempt | unknown | 26 / 60 (43%) | ≤ 5 / 20 (estimated) |
+| Flash 400s | 0 (no Flash) | ~50 wasted round-trips | 0 |
+
+### Decisions & trade-offs
+
+- **Cause 3 fix (Option A)** chosen over preflight sampler-eligibility (Option C) and dynamic budget reallocation (Option D). Option A is a pure-function rewrite with no DB queries and no thread coordination; coverage is uneven for small `want`, but the audit's stratification gates (D2/D3) operate corpus-wide across strategies. Options B (sampler-rescue pass) and D (dynamic reallocation) deferred to Phase 2g.13 candidates if Option A's coverage skew shows up in audit metrics.
+- **Cause 2 fix** loosens L1/L2 to tolerate a 2-level miss while keeping L3+ strict at 1. Admits some delta=2 mislabels but those are the C4 calibration drift cases — accepting them is correct given the heuristic's known structure. Audit-side D-gates monitor per-level distribution downstream.
+- **Cause 1 fix** points the Flash default at the working Pro slug rather than hunting a real Flash 3.1 OpenRouter listing (out-of-scope under the deadline). Env-var override stays in place — when a real Flash slug appears, flip the constant or set `OENOBENCH_PARAPHRASE_MODEL` / `OENOBENCH_VERIFIER_MODEL`.
+- **MAX_RETRIES bump deferred.** The Plan-agent review pushed back on bumping `MAX_RETRIES = 1 → 2` blindly because most parse failures are Gemini-clustered and would just compound. The fence-strip pre-pass (Cause 4) addresses the dominant malformation class without paying the retry cost. Revisit MAX_RETRIES if v10 parse failures stay high.
+- **Substantiveness filter calibration and per-country-cap distribution deferred** to a separate calibration phase. Both need labeled audit sets to evaluate; Phase 2g.12 scope was the systemic over-rejection / under-yield bugs, not the filter aggressiveness.
+
+### Issues encountered & resolutions
+
+- **Plan-mode propagation to worktree agents:** the parent session was still in plan mode when the four worktree agents were spawned with `mode: acceptEdits`. The agents inherited plan-mode behavior anyway and reported plan-only output. Resolved by stopping the agents, recovering committed work from each worktree, and applying remaining fixes directly on a consolidated branch. Recorded for future reference.
+- **Mis-cwd between worktrees:** Team B wrote into the main repo path instead of its worktree. Team D wrote correctly in its worktree (preserved). Verified `git worktree list` after stopping agents to identify which work survived where.
+- **Test breakage:** `test_c4_gate.py::test_c4_gate_rejects_two_level_mismatch` pinned the old `delta >= 2 threshold = 2` reject behavior — replaced with two new tests that pin the new semantics (L2/delta=2 accept; L1/delta=3 reject).
+
+### Human review notes
+
+User approved the plan via `ExitPlanMode` rejection with directive "Yes, please implement it in parallel agent teams." After agent confusion produced no commits, user did not need to re-direct — the consolidation path was straightforward.
+
+### What's next
+
+Re-run `scripts/run_audit_pilot_v9_build.sh` with `per_strategy=40` (matching v8) on a new tag (e.g., `audit_pilot_v10`) to validate the fixes against the v8 baseline. Pass criterion: kept ≥ 130 / 200 (well above v8's 111). If kept ≥ 130, proceed to gold review and audit phase 2. If < 130, re-investigate before committing to the full 10k run.
+
