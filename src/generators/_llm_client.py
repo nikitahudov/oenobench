@@ -132,9 +132,35 @@ def _try_parse_json(text: str) -> dict | None:
     response (`.get(...)` or `... or {}`). If the LLM returns a JSON array
     or scalar, treat it as a parse failure rather than handing the caller
     an object whose interface doesn't match.
+
+    Phase 2g.12 — Team D: prepend a fence-strip pre-pass that drops a
+    leading ```<lang>?  fence and a trailing ``` fence before running the
+    existing extraction modes. In v9, Gemini Pro produced 65/67 (97%) of
+    parse failures, and most were responses wrapped in fences with
+    arbitrary language tags (```json, ```jsonc, ```python, …) that the
+    pre-existing ``_FENCE_RE`` (limited to ``(?:json)?``) did not match.
+    The pre-pass is a no-op when the response has no fences, so behaviour
+    for well-formed providers (Anthropic, OpenAI) is unchanged.
     """
-    # Strip markdown code fences first
-    fence_match = _FENCE_RE.search(text)
+    s = text.strip()
+    # Strip leading/trailing markdown fences (e.g. ```json … ```,
+    # ```jsonc … ```, ```python … ```, or bare ``` … ```).
+    if s.startswith("```"):
+        # Drop the opening fence including any language tag.
+        first_newline = s.find("\n")
+        if first_newline != -1:
+            s = s[first_newline + 1:]
+        else:
+            s = s[3:]
+        # Drop the trailing fence if present.
+        if s.rstrip().endswith("```"):
+            s = s.rstrip()
+            s = s[:-3]
+        s = s.strip()
+
+    # Strip markdown code fences first (legacy regex path; still useful
+    # when fences appear mid-string rather than at the boundaries).
+    fence_match = _FENCE_RE.search(s)
     if fence_match:
         try:
             obj = orjson.loads(fence_match.group(1))
@@ -145,14 +171,14 @@ def _try_parse_json(text: str) -> dict | None:
 
     # Try raw string
     try:
-        obj = orjson.loads(text)
+        obj = orjson.loads(s)
         if isinstance(obj, dict):
             return obj
     except (orjson.JSONDecodeError, ValueError):
         pass
 
     # Regex-extract first {...} block
-    brace_match = _BRACE_RE.search(text)
+    brace_match = _BRACE_RE.search(s)
     if brace_match:
         try:
             obj = orjson.loads(brace_match.group(0))

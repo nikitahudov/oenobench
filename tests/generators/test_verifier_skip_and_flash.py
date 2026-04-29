@@ -250,7 +250,7 @@ def test_paraphrase_uses_flash_by_default(monkeypatch):
     )
     # Paraphrase may return None if validation rejects; only assert the
     # MODEL argument we sent.
-    assert captured.get("model") == "google/gemini-3.1-flash-preview-20260219"
+    assert captured.get("model") == "google/gemini-3.1-pro-preview"
 
 
 def test_paraphrase_env_override(monkeypatch):
@@ -284,8 +284,15 @@ def test_paraphrase_env_override(monkeypatch):
 
 
 def test_paraphrase_falls_back_to_pro_on_failure(monkeypatch):
-    """First call fails → second call uses Pro; final result reflects Pro response."""
-    monkeypatch.delenv("OENOBENCH_PARAPHRASE_MODEL", raising=False)
+    """First call fails → second call uses Pro; final result reflects Pro response.
+
+    Phase 2g.12 made the Flash default == Pro slug to stop OpenRouter 400s,
+    so the failover code path is no longer reachable on the default
+    configuration. The env-var override is the supported way to put a
+    non-Pro slug in the primary position; this test pins it to a fake
+    "Flash" slug so the failover machinery is still exercised.
+    """
+    monkeypatch.setenv("OENOBENCH_PARAPHRASE_MODEL", "google/fake-flash-x")
     monkeypatch.delenv("OENOBENCH_LLM_CACHE", raising=False)
 
     call_log: list[str] = []
@@ -322,7 +329,7 @@ def test_paraphrase_falls_back_to_pro_on_failure(monkeypatch):
         "Barolo requires which red grape variety?",
         _OPTIONS,
     )
-    # Two calls total: Flash, then Pro.
+    # Two calls total: primary (fake-flash), then Pro fallback.
     assert len(call_log) == 2
     assert "flash" in call_log[0]
     assert call_log[1] == "google/gemini-3.1-pro-preview"
@@ -374,7 +381,7 @@ def test_verifier_uses_flash_by_default(monkeypatch):
         source_fact_text="Barolo requires 100% Nebbiolo.",
     )
     assert agrees is True
-    assert captured.get("model") == "google/gemini-3.1-flash-preview-20260219"
+    assert captured.get("model") == "google/gemini-3.1-pro-preview"
 
 
 def test_verifier_env_override(monkeypatch):
@@ -405,8 +412,14 @@ def test_verifier_env_override(monkeypatch):
 
 
 def test_verifier_falls_back_to_pro_on_failure(monkeypatch):
-    """Flash failure → retry on Pro; final verdict reflects Pro response."""
-    monkeypatch.delenv("OENOBENCH_VERIFIER_MODEL", raising=False)
+    """Flash failure → retry on Pro; final verdict reflects Pro response.
+
+    Phase 2g.12 made the Flash default == Pro slug to stop OpenRouter 400s,
+    so the failover code path is no longer reachable on the default
+    configuration. Pin a fake "Flash" slug via the env var so the
+    failover machinery is still exercised.
+    """
+    monkeypatch.setenv("OENOBENCH_VERIFIER_MODEL", "google/fake-flash-y")
     monkeypatch.delenv("OENOBENCH_VERIFIER_SKIP", raising=False)
     monkeypatch.delenv("OENOBENCH_LLM_CACHE", raising=False)
 

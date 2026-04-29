@@ -230,15 +230,16 @@ def test_level_aware_threshold_rejects_l4_on_one_level_miss(
     )
 
 
-def test_level_aware_threshold_rejects_l3_on_one_level_miss(
+def test_level_aware_threshold_rejects_l3_on_two_level_miss(
     monkeypatch, sample_response_json
 ):
-    """Labelled L3, predicted L2 — delta=1, threshold=1 for L3, reject.
+    """Labelled L3, predicted L1 — delta=2, threshold=2 for L3, reject.
 
-    This was an accepted miss under the old delta>=2 rule. It must now be
-    rejected to catch the L3→L2 miscalibrations gold-v3 exposed.
+    Phase 2g.12 loosened the L3+ threshold from 1 to 2 (tolerates a
+    1-level boundary miss while keeping L3+ strict at 2-level misses).
+    This case still rejects, ensuring the level-aware semantics survive.
     """
-    _mock_classify(monkeypatch, predicted="2")
+    _mock_classify(monkeypatch, predicted="1")
     q = _schemas.parse_llm_response(
         sample_response_json,
         "multiple_choice",
@@ -246,8 +247,8 @@ def test_level_aware_threshold_rejects_l3_on_one_level_miss(
         labelled_difficulty="3",
     )
     assert q is None, (
-        "L3 labelled with L2 prediction (delta=1) must be rejected "
-        "under the new level-aware threshold"
+        "L3 labelled with L1 prediction (delta=2) must be rejected "
+        "under the Phase 2g.12 L3+ threshold of 2"
     )
 
 
@@ -312,3 +313,28 @@ def test_env_escape_hatch_still_works_under_level_aware_threshold(
         labelled_difficulty="4",
     )
     assert q is not None, "env-var escape hatch must still disable the gate"
+
+
+def test_level_aware_threshold_accepts_l1_on_two_level_miss(
+    monkeypatch, sample_response_json
+):
+    """Phase 2g.12 v9 calibration drift: L1 labelled, predicted L3 — accept.
+
+    The C4 classifier consistently over-predicts difficulty for fact-anchored
+    detail questions that the template heuristic correctly buckets at L1/L2.
+    In the v9 audit-pilot build this rejected ~91 questions per build, all
+    at the L1/L2 delta=2 boundary. Phase 2g.12 loosens the L1/L2 reject
+    threshold from 2 to 3 to recover them; audit-side D-gates on per-level
+    distribution catch any drift downstream.
+    """
+    _mock_classify(monkeypatch, predicted="3")
+    q = _schemas.parse_llm_response(
+        sample_response_json,
+        "multiple_choice",
+        verify_difficulty_with_c4=True,
+        labelled_difficulty="1",
+    )
+    assert q is not None, (
+        "L1 labelled with L3 prediction (delta=2) must accept under the "
+        "Phase 2g.12 loosened L1/L2 threshold of 3"
+    )
