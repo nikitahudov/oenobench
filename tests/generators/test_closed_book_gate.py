@@ -1115,7 +1115,7 @@ def test_gate_model_default_l1_is_haiku(monkeypatch):
     _clear_gate_model_env(monkeypatch)
     assert (
         _closed_book_gate._resolve_gate_model("1")
-        == "anthropic/claude-haiku-4.5-20251001"
+        == "anthropic/claude-haiku-4.5"
     )
 
 
@@ -1162,7 +1162,7 @@ def test_gate_model_l2_env_override(monkeypatch):
     )
     assert (
         _closed_book_gate._resolve_gate_model("1")
-        == "anthropic/claude-haiku-4.5-20251001"
+        == "anthropic/claude-haiku-4.5"
     )
     assert (
         _closed_book_gate._resolve_gate_model("3") == "anthropic/claude-opus-4.7"
@@ -1178,7 +1178,7 @@ def test_gate_model_l3_env_override(monkeypatch):
     )
     assert (
         _closed_book_gate._resolve_gate_model("1")
-        == "anthropic/claude-haiku-4.5-20251001"
+        == "anthropic/claude-haiku-4.5"
     )
     assert (
         _closed_book_gate._resolve_gate_model("2") == "anthropic/claude-sonnet-4.6"
@@ -1241,8 +1241,8 @@ def test_screen_question_uses_l1_model_for_l1_question(monkeypatch):
         _closed_book_gate, "_get_client", lambda: SimpleNamespace()
     )
     result = screen_question("Q?", _OPTS, "A", "1", "multiple_choice")
-    assert captured["model"] == "anthropic/claude-haiku-4.5-20251001"
-    assert result.model == "anthropic/claude-haiku-4.5-20251001"
+    assert captured["model"] == "anthropic/claude-haiku-4.5"
+    assert result.model == "anthropic/claude-haiku-4.5"
     assert result.applied is True
 
 

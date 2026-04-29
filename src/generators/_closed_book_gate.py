@@ -61,7 +61,16 @@ GATE_VERSION = "2.4.0"  # 2026-04-28 — lever B4: tier-aware gate model (Haiku 
 # Backwards compatibility: GATE_MODEL is retained as a module attribute
 # (resolves to the L3 default) so prototypes/team_beta_check_leakage.py
 # and existing test fixtures that import the symbol keep working.
-_GATE_MODEL_DEFAULT_L1 = "anthropic/claude-haiku-4.5-20251001"
+#
+# Phase 2g.12 follow-up (2026-04-29): the Haiku slug was originally
+# `anthropic/claude-haiku-4.5-20251001`, which OpenRouter rejects with
+# `400 - 'is not a valid model ID'` (same class of bug as the Phase 2g.12
+# Flash slug fix). v10 build saw 2 fail-open events; gate was effectively
+# dead for L1. Switched to the bare `anthropic/claude-haiku-4.5` slug —
+# matches the Sonnet/Opus pattern (no embedded date), which OpenRouter
+# resolves to whatever the canonical Haiku 4.5 is. Per-tier env-var
+# override (`OENOBENCH_GATE_MODEL_L1`) preserved for future flips.
+_GATE_MODEL_DEFAULT_L1 = "anthropic/claude-haiku-4.5"
 _GATE_MODEL_DEFAULT_L2 = "anthropic/claude-sonnet-4.6"
 _GATE_MODEL_DEFAULT_L3 = "anthropic/claude-opus-4.7"
 
