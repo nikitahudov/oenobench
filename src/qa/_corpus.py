@@ -22,6 +22,7 @@ import os
 import random
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
@@ -34,6 +35,11 @@ from src.generators._question_db import (
     CORPUS_TARGET_ENV_VAR,
     STRATEGY_TARGET_ENV_VAR,
     set_corpus_target,
+)
+from src.qa._attempted_facts import (
+    get_attempted_fact_ids,
+    register_attempted_fact_ids,
+    reset_attempted_fact_ids,
 )
 from src.qa._findings import upsert_gold_label
 from src.utils.db import get_pg
@@ -106,12 +112,34 @@ def _count_strategy_rows_since(strategy: str, since: datetime) -> int:
 # Phase 2g.13 (Team C): multi-pass loop in ``_run_one_strategy``. Default 1
 # preserves Phase 2g.12 behaviour exactly. Audit-pilot scripts can opt in by
 # setting OENOBENCH_MAX_BUILD_PASSES=3 to retry under-budget strategies.
+#
+# Phase 2g.13 follow-up (2026-04-29): the cap was bumped from a hard 1 to a
+# safety ceiling of 20 because the no-progress + wall-time + diminishing-
+# returns exits make the loop self-terminating. Set to a high value
+# (e.g. 10-15) and trust the early-exit logic to stop on real ceilings.
 MAX_BUILD_PASSES_ENV_VAR = "OENOBENCH_MAX_BUILD_PASSES"
 DEFAULT_MAX_BUILD_PASSES = 1
+MAX_BUILD_PASSES_CEILING = 20
+
+# Wall-time budget per strategy (seconds). 0 = no limit. Use this when
+# `OENOBENCH_MAX_BUILD_PASSES` is set high — caps strategy walltime so a
+# stuck-but-still-yielding strategy can't run unboundedly.
+WALL_TIME_LIMIT_ENV_VAR = "OENOBENCH_BUILD_WALL_TIME_LIMIT_S"
+
+# Diminishing-returns exit. If `produced / want < threshold` for
+# CONSECUTIVE passes (>= MIN_YIELD_STREAK), stop. 0.0 = disabled. Set
+# 0.05 for "stop when 2 passes in a row each produce <5% of remaining".
+MIN_YIELD_PCT_ENV_VAR = "OENOBENCH_BUILD_MIN_YIELD_PCT"
+MIN_YIELD_STREAK = 2
 
 
 def _resolve_max_build_passes() -> int:
-    """Resolve OENOBENCH_MAX_BUILD_PASSES with a safe lower bound of 1."""
+    """Resolve OENOBENCH_MAX_BUILD_PASSES with safe bounds.
+
+    Returns a value in ``[1, MAX_BUILD_PASSES_CEILING]``. Default 1
+    preserves Phase 2g.12 single-pass behaviour. Values above the
+    ceiling are clamped down with a warning.
+    """
     raw = os.environ.get(MAX_BUILD_PASSES_ENV_VAR, "").strip()
     if not raw:
         return DEFAULT_MAX_BUILD_PASSES
@@ -123,7 +151,50 @@ def _resolve_max_build_passes() -> int:
             MAX_BUILD_PASSES_ENV_VAR, raw, DEFAULT_MAX_BUILD_PASSES,
         )
         return DEFAULT_MAX_BUILD_PASSES
+    if n > MAX_BUILD_PASSES_CEILING:
+        logger.warning(
+            "{}={} exceeds ceiling {}; clamping",
+            MAX_BUILD_PASSES_ENV_VAR, n, MAX_BUILD_PASSES_CEILING,
+        )
+        return MAX_BUILD_PASSES_CEILING
     return max(1, n)
+
+
+def _resolve_wall_time_limit_s() -> float:
+    """Resolve OENOBENCH_BUILD_WALL_TIME_LIMIT_S. 0 (default) = no limit."""
+    raw = os.environ.get(WALL_TIME_LIMIT_ENV_VAR, "").strip()
+    if not raw:
+        return 0.0
+    try:
+        v = float(raw)
+    except ValueError:
+        logger.warning(
+            "{}={!r} is not a number; falling back to 0 (no limit)",
+            WALL_TIME_LIMIT_ENV_VAR, raw,
+        )
+        return 0.0
+    return max(0.0, v)
+
+
+def _resolve_min_yield_pct() -> float:
+    """Resolve OENOBENCH_BUILD_MIN_YIELD_PCT. 0 (default) = disabled."""
+    raw = os.environ.get(MIN_YIELD_PCT_ENV_VAR, "").strip()
+    if not raw:
+        return 0.0
+    try:
+        v = float(raw)
+    except ValueError:
+        logger.warning(
+            "{}={!r} is not a number; falling back to 0 (disabled)",
+            MIN_YIELD_PCT_ENV_VAR, raw,
+        )
+        return 0.0
+    return max(0.0, v)
+
+
+# Cross-pass attempted-fact-ID registry (Phase 2g.13) lives in
+# ``src/qa/_attempted_facts.py`` to avoid potential import cycles with the
+# strategy modules. Functions are re-exported above.
 
 
 def _execute_strategy_passes(
@@ -164,11 +235,32 @@ def _execute_strategy_passes(
     if count_rows_fn is None:
         count_rows_fn = _count_strategy_rows_since
 
+    # Phase 2g.13 cross-pass threading: clear any stale attempted-IDs from
+    # a previous build in the same process. Strategies will re-populate
+    # this as they sample.
+    reset_attempted_fact_ids(strategy)
+
+    # Dynamic-loop limits (all default OFF — single-pass behaviour preserved).
+    wall_limit_s = _resolve_wall_time_limit_s()
+    min_yield_pct = _resolve_min_yield_pct()
+    start_wall = time.monotonic()
+    low_yield_streak = 0
+
     actual = 0
     for pass_num in range(1, max_passes + 1):
         remaining = want - actual
         if remaining <= 0:
             break
+
+        if wall_limit_s > 0:
+            elapsed = time.monotonic() - start_wall
+            if elapsed >= wall_limit_s:
+                logger.info(
+                    "corpus: {} wall-time budget exhausted "
+                    "({:.1f}s ≥ {:.1f}s), stopping at pass {}/{}",
+                    strategy, elapsed, wall_limit_s, pass_num - 1, max_passes,
+                )
+                break
 
         cell_calls = _build_cell_calls(
             strategy, module, remaining, per_country_cap,
@@ -199,6 +291,26 @@ def _execute_strategy_passes(
                 strategy, pass_num,
             )
             break
+        # Diminishing-returns exit (off by default). Triggers when
+        # `produced` is below `min_yield_pct%` of the budget for two
+        # consecutive passes. Pass 1 doesn't count because it has no
+        # prior pass to compare against.
+        if min_yield_pct > 0 and want > 0 and pass_num > 1:
+            yield_frac = (produced / want) * 100.0
+            if yield_frac < min_yield_pct:
+                low_yield_streak += 1
+                if low_yield_streak >= MIN_YIELD_STREAK:
+                    logger.info(
+                        "corpus: {} diminishing returns "
+                        "({} consecutive passes < {:.1f}% of {}), "
+                        "stopping at pass {}/{}",
+                        strategy, low_yield_streak, min_yield_pct, want,
+                        pass_num, max_passes,
+                    )
+                    actual = new_actual
+                    break
+            else:
+                low_yield_streak = 0
         actual = new_actual
 
     return actual

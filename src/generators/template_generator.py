@@ -62,7 +62,15 @@ from src.generators._question_db import (
     get_used_fact_ids,
     insert_question_gated,
 )
+from src.qa._attempted_facts import (
+    get_attempted_fact_ids,
+    register_attempted_fact_ids,
+)
 from src.utils.db import get_pg
+
+# Strategy name for the cross-pass attempted-fact-ID registry. Must match
+# the key used in ``src.qa._corpus.STRATEGY_MODULES``.
+_STRATEGY_NAME = "template"
 
 # ─── Logging setup ────────────────────────────────────────────────────────────
 
@@ -2209,7 +2217,12 @@ def _run_generate_body(
     if run_all:
         domains = DOMAINS
 
+    # Phase 2g.13: seed used_facts with cross-pass attempted IDs so the
+    # multi-pass loop's previous passes' attempted facts are excluded from
+    # the per-domain bulk sample.
     used_facts = get_used_fact_ids() if not dry_run else set()
+    if not dry_run:
+        used_facts = used_facts | get_attempted_fact_ids(_STRATEGY_NAME)
     total_generated = 0
     total_relabeled_l1 = 0
     total_rejected_overflow = 0
@@ -2276,6 +2289,11 @@ def _run_generate_body(
         if not facts:
             logger.warning(f"No facts available for domain={dom}")
             continue
+        # Phase 2g.13: register the sampled fact IDs so subsequent passes
+        # in the multi-pass loop exclude them.
+        register_attempted_fact_ids(
+            _STRATEGY_NAME, [str(f["id"]) for f in facts],
+        )
 
         tracker = CellTracker() if circuit_breaker else None
         generated = 0

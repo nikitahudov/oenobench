@@ -34,7 +34,15 @@ from src.generators._prompts import (
 )
 from src.generators._question_db import get_used_fact_ids, insert_question_gated
 from src.generators._schemas import parse_llm_response
+from src.qa._attempted_facts import (
+    get_attempted_fact_ids,
+    register_attempted_fact_ids,
+)
 from src.utils.db import get_pg
+
+# Strategy name for the cross-pass attempted-fact-ID registry. Must match
+# the key used in ``src.qa._corpus.STRATEGY_MODULES``.
+_STRATEGY_NAME = "scenario_synthesis"
 
 # ─── Logging setup ────────────────────────────────────────────────────────────
 
@@ -309,7 +317,10 @@ def _run_generate_body(
         }
 
     used_fact_ids = get_used_fact_ids()
-    run_used_ids: set[str] = set()
+    # Phase 2g.13: seed run_used_ids with cross-pass attempted IDs so the
+    # multi-pass loop's previous passes' attempted-but-unsuccessful facts
+    # are excluded from the sampler.
+    run_used_ids: set[str] = set(get_attempted_fact_ids(_STRATEGY_NAME))
     generated = 0
     skipped_parse = 0
     skipped_dup = 0
@@ -350,6 +361,7 @@ def _run_generate_body(
 
             cluster_ids = {str(f["id"]) for f in cluster}
             run_used_ids.update(cluster_ids)
+            register_attempted_fact_ids(_STRATEGY_NAME, cluster_ids)
 
             # Randomly pick difficulty (2-4) and cognitive dim for variety.
             # v2.2 fix #5 — difficulty picked BEFORE parse so we can thread

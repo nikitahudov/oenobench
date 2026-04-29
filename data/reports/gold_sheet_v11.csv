@@ -1,0 +1,87 @@
+uuid,public_qid,strategy,generator,domain,difficulty,cognitive_dim,question_text,options,correct_answer,source_facts,answer_correct,distractors_plausible,not_ambiguous,source_faithful,needs_source,no_vague_language,difficulty_match,cognitive_match,verbatim_copy,wine_category_leak,notes
+835bec99-6dbd-4495-a739-657407ccc0ad,WB-VIT-0436-L3,distractor_mining,qwen,viticulture,3,analysis,"An executive from a regional winegrowers alliance has petitioned to adjust the southern boundary of a California viticultural area so that it aligns precisely with the boundary of another, smaller AVA located to its south. This proposal aims to harmonize the two regions' borders, though the larger area in question was not originally defined to include this southern portion. Which viticultural area is the subject of this proposed boundary expansion?","[{'id': 'A', 'text': 'Mendocino AVA'}, {'id': 'B', 'text': 'Fiddletown AVA'}, {'id': 'C', 'text': 'Cienega Valley AVA'}, {'id': 'D', 'text': 'Cole Ranch AVA'}]",A,"[1] Byrne, Executive Director of the Mendocino Winegrowers Alliance proposing to extend the southern boundary of the Mendocino viticultural area to coincide with the Yorkville Highlands' boundary.
+---
+[2] Indiana Uplands AVA the existing and planned vineyards are geographically distributed throughout the viticultural area, according to a map submitted with the petition.
+---
+[3] The ATF ruled that both Cienega Valley and Lime Kiln Valley viticultural areas both have enough similar characteristics to justify expanding the boundaries of Cienega Valley to include all of.
+---
+[4] The small viticultural area was established on April 15, 1983, by the Bureau of Alcohol, Tobacco and Firearms (ATF).
+---
+[5] Fiddletown is an American Viticultural Area (AVA) in Amador County, California, United States.
+---
+[6] Given this geographic isolation, the Covelo viticultural area has a continental climate.",,,,,,,,,,,
+9f201cd7-c575-4736-970d-d184d662a228,WB-GRP-0568-L3,template,template_only,grape_varieties,1,application,"A vigneron is considering planting Malbec in a region with an established track record. Per the fact, which region is documented as a home for this variety?","[{'id': 'A', 'text': 'Sonoita AVA'}, {'id': 'B', 'text': 'Nashoba Valley AVA'}, {'id': 'C', 'text': 'Red Hills Lake County AVA'}, {'id': 'D', 'text': 'Okanagan Valley'}]",C,[1] Red Hills Lake County AVA permits the Malbec grape variety.,,,,,,,,,,,
+8913f5de-2887-4b9c-b8a5-db825e8c98e2,WB-PRD-0401-L3,distractor_mining,llama,producers,1,analysis,Which American Viticultural Area (AVA) contains 24 commercially-producing vineyards cultivating approximately 125 acres (51 ha) and is home to 11 wineries?,"[{'id': 'A', 'text': 'Verde Valley AVA'}, {'id': 'B', 'text': 'Healdsburg'}, {'id': 'C', 'text': 'Paso Robles'}, {'id': 'D', 'text': 'South Coast AVA'}]",A,"[1] Mia Klein is currently producing wine under her own-labeled, Selene, as well as producing wine for Bressler Winery and Boyanci.
+---
+[2] There are 24 commercially-producing vineyards cultivating approximately 125 acres (51 ha) within the AVA, as well as 11 wineries.
+---
+[3] Rene di Rosa (May 14, 1919 – October 3, 2010) was an American vintner and art collector.
+---
+[4] As of 2025, at least 108 wineries were operating within the area.
+---
+[5] Bella Vineyards & Wine Caves is a wine producer in Healdsburg, United States.
+---
+[6] Austin Hope & Treana Tasting Cellar is a wine producer in Paso Robles, United States.",,,,,,,,,,,
+bbf58c2a-b52d-432c-8c5b-59fd603734b5,WB-WMK-0337-L3,scenario_synthesis,llama,winemaking,1,synthesis,"A winemaker in Trento, Italy is deciding how to produce their sparkling wine. They want to use the traditional method of secondary fermentation, but are considering other options as well. Which of the following methods would allow them to label their wine as Trento DOC?","[{'id': 'A', 'text': 'Charmat method'}, {'id': 'B', 'text': 'Ancestral method'}, {'id': 'C', 'text': 'Méthode traditionnelle'}, {'id': 'D', 'text': 'Carbonation'}]",C,"[1] Trento DOC is an appellation for white and rosé sparkling wines made according to the méthode traditionnelle.
+---
+[2] === Secondary fermentation ===
+
+There are several methods used to carry out this secondary fermentation.
+---
+[3] The term Mousseux is French for ""sparkling"" and can refer to a sparkling wine made using methods other than the méthode champenoise such as the Charmat method.",,,,,,,,,,,
+710a0b71-7e6b-4e79-8a74-88b2c0298c42,WB-PRD-0389-L2,template,template_only,producers,2,recall,True or False: Château Corbin is located in the Saint-Émilion wine region.,"[{'id': 'A', 'text': 'True'}, {'id': 'B', 'text': 'False'}]",A,[1] Château Corbin is a classified Bordeaux estate in Saint-Émilion.,,,,,,,,,,,
+f95895f5-a18c-43ec-a46c-7f3d8bc03fbe,WB-REG-0486-L4,template,template_only,wine_regions,4,application,"An importer wishes to source a single-varietal Vernaccia di Serrapetrona wine. Per the fact, which grape should they look for on the label?","[{'id': 'A', 'text': 'Canaiolo Nero'}, {'id': 'B', 'text': 'Sangiovese Grosso'}, {'id': 'C', 'text': 'Vernaccia Nera'}, {'id': 'D', 'text': 'Corvina Veronese'}]",C,[1] Vernaccia di Serrapetrona DOCG requires minimum 85% Vernaccia Nera.,,,,,,,,,,,
+b7a64fbb-05a9-4411-8645-4918021e5d6e,WB-REG-0494-L4,distractor_mining,qwen,wine_regions,4,analysis,"In 2018, a new American Viticultural Area was officially recognized in Oregon, marking a significant milestone for the region's wine identity. Which AVA corresponds to this founding year and location?","[{'id': 'A', 'text': 'Lehigh Valley AVA'}, {'id': 'B', 'text': 'Columbia Gorge AVA'}, {'id': 'C', 'text': 'Lake Wisconsin AVA'}, {'id': 'D', 'text': 'Van Duzer Corridor AVA'}]",D,"[1] The Santa Ynez Valley AVA was established in 1983 in California.
+---
+[2] The Columbia Gorge AVA was established in 2004.
+---
+[3] The Cumberland Valley AVA was established in 1985.
+---
+[4] The Lake Wisconsin AVA was established in 1994 in Wisconsin.
+---
+[5] The Van Duzer Corridor AVA was established in 2018 in Oregon.
+---
+[6] The Lehigh Valley AVA was established in 2008 in Pennsylvania.",,,,,,,,,,,
+e305fe4f-c932-4ad2-a406-c1e11f211827,WB-GRP-0566-L3,comparative,llama,grape_varieties,3,analysis,Which appellation allows for both red and white wines to be made from Pinot Noir and Chardonnay grape varieties respectively?,"[{'id': 'A', 'text': 'Mâcon AOC'}, {'id': 'B', 'text': 'Pouilly-Fuissé AOC'}, {'id': 'C', 'text': 'Bourgogne AOC'}, {'id': 'D', 'text': 'Beaune AOC'}]",D,"[1] Bourgogne AOC commonly referred to as ""Burgundies"", are dry red wines made from pinot noir grapes and white wines made from chardonnay grapes.
+---
+[2] The appellation d'origine contrôlée (AOC) Beaune may be used for red and white wine with respectively Pinot noir and Chardonnay as the main grape variety.",,,,,,,,,,,
+9da43422-d3d5-4810-acdd-453bc28350c9,WB-VIT-0424-L3,comparative,qwen,viticulture,3,analysis,"Which wine region is distinguished by an AVA boundary that follows the 400-foot elevation contour, specifically demarcating the valley floor from adjacent forested, non-viticultural highlands?","[{'id': 'A', 'text': 'Anderson Valley AVA'}, {'id': 'B', 'text': 'Santa Barbara County wine'}, {'id': 'C', 'text': 'El Dorado AVA'}, {'id': 'D', 'text': 'Comptche AVA'}]",D,"[1] Comptche AVA western boundaries are defined by the 400 feet (122 m) elevation contour and separate the valley floor from the higher, steeper, heavily forested surrounding  non-viticulture regions.
+---
+[2] Since commercial viticulture rebounded in the 1960s, Santa Barbara County has been on the fast track to viticultural stardom.",,,,,,,,,,,
+1c4c1dd1-0920-4e95-a45d-f0b1bb94fd76,WB-VIT-0426-L2,fact_to_question,claude,viticulture,2,recall,"In a long-term study monitoring susceptibility to esca across 46 grapevine cultivars, researchers identified a negative correlation between the incidence of esca leaf symptoms and which physiological indicator?","[{'id': 'A', 'text': 'Stomatal density on the abaxial leaf surface'}, {'id': 'B', 'text': 'Leaf nitrogen content expressed on a dry-weight basis'}, {'id': 'C', 'text': 'Carbon isotope discrimination (δ13C), a proxy for water use efficiency'}, {'id': 'D', 'text': 'Anthocyanin concentration in the berry skins at véraison'}]",C,"[1] Esca disease incidence was negatively correlated with δ13C across cultivars, suggesting that varieties with higher water use efficiency are less prone to the expression of esca symptoms on leaves.",,,,,,,,,,,
+eac2372e-0c65-4e06-bd13-5809f105e5ba,WB-GRP-0583-L2,comparative,llama,grape_varieties,2,analysis,Which grape variety is described as having a black color by UC Davis FPS?,"[{'id': 'A', 'text': 'Pinot Noir'}, {'id': 'B', 'text': 'Couderc 161-49'}, {'id': 'C', 'text': 'Blush Seedless'}, {'id': 'D', 'text': 'Cabernet Sauvignon'}]",B,"[1] Blush Seedless is a red grape variety according to UC Davis FPS.
+---
+[2] Couderc 161-49 is a black grape variety according to UC Davis FPS.",,,,,,,,,,,
+c9137b7a-5754-4712-b315-4a83504d2681,WB-GRP-0581-L2,comparative,llama,grape_varieties,1,analysis,"Which grape variety is used to produce the local white wine of San Gimignano, grown on the sandstone hillsides of the area?","[{'id': 'A', 'text': 'Vermentino'}, {'id': 'B', 'text': 'Vernaccia'}, {'id': 'C', 'text': 'Trebbiano'}, {'id': 'D', 'text': 'Malvasia'}]",B,"[1] San Gimignano local white wine - Vernaccia di San Gimignano - produced from the ancient variety of Vernaccia grape grown on the sandstone hillsides of the area.
+---
+[2] Elsewhere it is used to make off-dry to sweet white wines, often labeled as Moscato in Australia, California and South Africa.",,,,,,,,,,,
+0199b779-e48c-48d2-8cb9-19c4c4b28be3,WB-PRD-0392-L2,fact_to_question,qwen,producers,2,recall,"A vineyard located near the village of Le Perréon, approximately 30 kilometers northwest of Lyon and in proximity to Mont Brouilly, was established in which year?","[{'id': 'A', 'text': '1842'}, {'id': 'B', 'text': '1850'}, {'id': 'C', 'text': '1845'}, {'id': 'D', 'text': '1838'}]",A,"[1] Château Grand'Grange, established in 1842, is a vineyard situated close to Mont Brouilly in Beaujolais, 30 kilometres north-west of Lyon, near the village of Le Perréon.",,,,,,,,,,,
+d6ccba2e-4473-481e-a337-67af00c4866b,WB-REG-0498-L2,scenario_synthesis,chatgpt,wine_regions,2,synthesis,"A winery group is reviewing three still red lots for possible appellation bottling. Lab results show finished alcohol at 10.4% for all three wines. One lot is intended for a commune-level bottling from Saint-Julien, one for Sancerre, and one for Médoc. The winemaking team wants to know which lot can proceed under its planned appellation without needing to raise alcohol or change the destination. Which one is compliant as-is?","[{'id': 'A', 'text': 'Only the Médoc lot'}, {'id': 'B', 'text': 'All three lots'}, {'id': 'C', 'text': 'Only the Sancerre lot'}, {'id': 'D', 'text': 'Only the Saint-Julien lot'}]",C,"[1] Médoc AOC requires a minimum alcohol content of 10.5% for red wines.
+---
+[2] Saint-Julien AOC requires a minimum alcohol content of 10.5% for red wines.
+---
+[3] Sancerre AOC requires a minimum alcohol content of 10.0% for red wines.",,,,,,,,,,,
+e2af3c2a-cc84-4599-8c61-c2cd9e75d833,WB-PRD-0392-L3,template,template_only,producers,3,recall,True or False: Baloh winery is located in the Nova Gorica wine region.,"[{'id': 'A', 'text': 'True'}, {'id': 'B', 'text': 'False'}]",A,[1] Baloh winery is a wine producer located in Nova Gorica.,,,,,,,,,,,
+ad805171-e564-463b-b7f8-12cde6d2cec1,WB-VIT-0437-L3,scenario_synthesis,chatgpt,viticulture,1,application,"A California winery is seeing a rise in blocks with vines confirmed to have GLRaV. The winemaking and vineyard teams are deciding how to limit further infections over the next few seasons. They know that several vine virus problems are commonly encountered in the state, and that some of these agents can move naturally through living carriers in the vineyard. Which plan is most likely to curb secondary spread based on the evidence?","[{'id': 'A', 'text': 'Have each grower manage only their own parcel independently, keep infected vines in place to avoid crop loss, and focus mainly on treating trunk symptoms after they appear'}, {'id': 'B', 'text': 'Rely on the assumption that these viruses do not move naturally in the vineyard, so sanitation at the winery is the main control point'}, {'id': 'C', 'text': 'Launch a district-wide effort with neighboring growers to suppress vector populations and pull out vines infected with GLRaV'}, {'id': 'D', 'text': 'Concentrate only on replanting blocks affected by fanleaf degeneration, leafroll, rootstock stem lesion, and corky bark, without addressing carriers or infected GLRaV vines'}]",C,"[1] Fanleaf degeneration, Leafroll Disease, Rootstock Stem Lesion and Corky Bark are the most common virus diseases in California.
+---
+[2] Natural spread of specific grapevine viruses can occur by insects and nematodes.
+---
+[3] Research has shown that secondary spread of virus is reduced when growers coordinate their efforts in area wide programs that reduce insect vector populations in combination with removal of GLRaV-infected vines.",,,,,,,,,,,
+c1710309-e508-4306-8f46-a55f5511174d,WB-PRD-0394-L2,fact_to_question,llama,producers,2,recall,In which year did Ricardo Bofill design the cellar for Château Lafite Rothschild?,"[{'id': 'A', 'text': '1991'}, {'id': 'B', 'text': '1985'}, {'id': 'C', 'text': '1989'}, {'id': 'D', 'text': '1987'}]",D,"[1] In the beginning, Ricardo Bofill went back into the fold in 1987 and created the Château Lafite Rothschild cellar.",,,,,,,,,,,
+465d08eb-2656-4a4c-a671-b0c187dd77e1,WB-REG-0484-L2,fact_to_question,gemini,wine_regions,1,recall,"Which Australian wine zone's geographical boundaries encompass the majority of local vineyards but specifically omit adjacent shorelines, certain protected parklands, and the metropolitan center of Newcastle?","[{'id': 'A', 'text': 'Shoalhaven Coast'}, {'id': 'B', 'text': 'Hastings River'}, {'id': 'C', 'text': 'Hunter Valley'}, {'id': 'D', 'text': 'Southern Highlands'}]",C,"[1] Hunter Valley includes most of the wine-producing areas, excluding the metropolitan area of Newcastle and nearby coastal areas, some national parks.",,,,,,,,,,,
+dff4cdcd-e9d2-498f-a686-20a8630778a8,WB-VIT-0431-L3,scenario_synthesis,qwen,viticulture,3,synthesis,"A viticulturist is assessing a new vineyard site on the western slopes of a coastal mountain range in a Southern Hemisphere wine-producing country. The region receives ample rainfall, so water scarcity is not a concern. However, the vineyard is situated on a slope with free-draining soils, while the adjacent valley floor has deeper, more fertile soils. The viticulturist is considering whether to install an irrigation system despite the rainfall. Given the site’s characteristics and regional viticultural patterns, what is the most justifiable reason to proceed with installing irrigation infrastructure?","[{'id': 'A', 'text': 'To enable controlled flooding during budbreak, a technique used in maritime-influenced regions to delay phenology and reduce frost risk.'}, {'id': 'B', 'text': 'To supplement water availability during dry summers, as premium vineyards in similar continental climates rely on meltwater from high-altitude snowpacks delivered via irrigation networks.'}, {'id': 'C', 'text': 'To compensate for poor water retention in the fertile valley floor soils, which are prone to rapid evaporation under high solar exposure.'}, {'id': 'D', 'text': 'To dilute excessive soil fertility on the slopes, since free-draining soils combined with high nutrients can lead to over-vigorous canopy growth.'}]",B,"[1] Most of Chile's premium wine regions are dependent on irrigation to sustain vineyards, getting the necessary water from melting snow caps in the Andes.
+---
+[2] On the slopes where the vineyards grow, the soils are free-draining and more fertile on the valley floor.
+---
+[3] In the developing wine regions along the Coastal Ranges and in the far south, there is not a lack in needed rainfall but vineyard owners have to deal with other.",,,,,,,,,,,
+160850f0-6099-43f9-9d20-3d70c64cfa3a,WB-GRP-0582-L3,distractor_mining,chatgpt,grape_varieties,1,analysis,"Which entity fits these clues: it is a grape recognized for use in several Canary Islands DOPs, and DNA work has shown it to be the same vine as the one also called Vijariego Negro?","[{'id': 'A', 'text': 'Bierzo (DO)'}, {'id': 'B', 'text': 'Baboso Negro'}, {'id': 'C', 'text': 'Sumoll Blanc'}, {'id': 'D', 'text': 'Garró'}]",B,"[1] The wines of this designation of origin are made exclusively with authorized grape varieties.
+---
+[2] Although it shares its name with the red grape variety Sumoll, it is genetically unrelated.
+---
+[3] Garró is a native Spanish red wine grape variety close to extinction.
+---
+[4] Using the synonym Vijariego Negro, to which it has been shown to be genetically identical, it is an authorised variety in a number of the Canary Islands DOPs.
+---
+[5] Campo de Borja (DO) permits the | varietals = grape variety.
+---
+[6] Valle de la Orotava permits the | varietals = grape variety.",,,,,,,,,,,

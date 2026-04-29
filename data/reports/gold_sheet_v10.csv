@@ -1,0 +1,86 @@
+uuid,public_qid,strategy,generator,domain,difficulty,cognitive_dim,question_text,options,correct_answer,source_facts,answer_correct,distractors_plausible,not_ambiguous,source_faithful,needs_source,no_vague_language,difficulty_match,cognitive_match,verbatim_copy,wine_category_leak,notes
+f0c3fd48-89e4-4353-975c-a2a7b541b3ff,WB-WMK-0332-L2,fact_to_question,chatgpt,winemaking,2,recall,"In a software-generated diagrammatic scale for assessing grape ripe rot, how many severity steps were created when the range extended from 0% to 91.4%?","[{'id': 'A', 'text': '12 levels'}, {'id': 'B', 'text': '10 levels'}, {'id': 'C', 'text': '14 levels'}, {'id': 'D', 'text': '16 levels'}]",A,"[1] Based on the Weber-Fechner law of visual acuity, the soft­ware calculated the limits of the scale, generating a scale with 12 levels of severity (0 to 91.4%).",,,,,,,,,,,
+2c9f9524-c612-4d3c-ab1a-489317422647,WB-BIZ-0299-L3,distractor_mining,gemini,wine_business,1,analysis,"Situated in the Burgenlandkreis district, this specific wine-producing zone established a dedicated tourist trail for wine enthusiasts that officially launched in 1993. Which entity is being described?","[{'id': 'A', 'text': 'Haus der Deutschen Weinstraße'}, {'id': 'B', 'text': 'Mosel wine region'}, {'id': 'C', 'text': 'Saale-Unstrut'}, {'id': 'D', 'text': 'The German Wine Route'}]",C,"[1] The German Wine Route or Wine Road (German: Deutsche Weinstraße, pronounced [ˌdɔʏtʃə ˈvaɪnˌʃtʁaːsə]) is the oldest of Germany's tourist wine routes.
+---
+[2] In the 20th century, a North American taste for sweet wines saw the prominence of Liebfraumilch and brands like Blue Nun dominate the German import wine market.
+---
+[3] Saale-Unstrut in the district Burgenlandkreis has a wine route which was opened in 1993.
+---
+[4] Apart from its unusual architecture and its position at the end of the German Wine Route, its most obvious feature is a large restaurant.
+---
+[5] The German Wine Queen (German: Deutsche Weinkönigin) is the representative of the German wine industry.
+---
+[6] The vineyards are extremely small compared to New World vineyards and wine making is dominated by craft rather than industry wines.",,,,,,,,,,,
+8be83efd-e39b-44db-a7b5-4c931fdaf2be,WB-REG-0480-L3,distractor_mining,qwen,wine_regions,3,analysis,"Which Burgundy wine is characterized by its optimal drink window shortly after release, yet still benefits from short-term aging of several years to reach its peak expression, despite not being intended for long-term cellaring?","[{'id': 'A', 'text': 'Puligny-Montrachet AOC'}, {'id': 'B', 'text': 'Aligoté'}, {'id': 'C', 'text': 'Chablis wine'}, {'id': 'D', 'text': 'Côte Chalonnaise'}]",B,"[1] Gamay is grown in the Beaujolais cru of Moulin-à-Vent, which extends into the Mâconnais, but has little in common with the wines north of the border.
+---
+[2] 1. Aligoté wines do not age False They are delicious when young, but can also be aged for a few years to be enjoyed in their full glory.
+---
+[3] In comparison with the white wines from the rest of Burgundy, Chablis wine has typically much less influence of oak.
+---
+[4] Côte Chalonnaise is a subregion of the Burgundy wine region of France.
+---
+[5] Côte de Nuits of Vougeot has just one Grand Cru vineyard - Clos Vougeot - that is massive by Burgundy standards.
+---
+[6] Puligny-Montrachet AOC 10,844 hectolitres of wine was produced, of which 10,792 hectolitres white wine and 52 hectolitres red wine.",,,,,,,,,,,
+8eea5af6-c119-4288-ac17-9a52b98903d5,WB-PRD-0385-L2,fact_to_question,llama,producers,2,recall,Near which winery can the historic Tsinandali estate be found in Napareuli?,"[{'id': 'A', 'text': 'Telavi Wine Cellar'}, {'id': 'B', 'text': 'Shumi Winery'}, {'id': 'C', 'text': 'Château Mukhrani'}, {'id': 'D', 'text': 'Twins Wine House'}]",D,"[1] Tsinandali in Napareuli is still visible today, located near the Twins Wine House.",,,,,,,,,,,
+57797f6d-8bc9-4c50-ac28-c57e877d149d,WB-PRD-0387-L4,distractor_mining,llama,producers,4,analysis,Which Israeli winery is among the country's top 10 largest by production volume and is located in the Upper Galilee region?,"[{'id': 'A', 'text': 'Château Musar'}, {'id': 'B', 'text': 'Carmel Winery'}, {'id': 'C', 'text': 'Recanati Winery'}, {'id': 'D', 'text': 'Château Golan'}]",C,"[1] Another newly built winery is Ramat Dalton, located in Ramat Dalton, Upper Galilee.
+---
+[2] Château Golan (Hebrew: יקב שאטו גולן) is an Israeli winery established in 1999.
+---
+[3] The 10 largest wineries in Israel, in terms of production volume, are Carmel, Barkan, Golan Heights, Teperberg 1870, Binyamina Wine Cellar, Galil Mountain, Tishbi Winery, Tabor, Recanati and Dalton Winery.
+---
+[4] Carmel Winery is the largest region for Carmel which surrounds the Zikhron Ya'akov Winery.
+---
+[5] Recanati Winery is a winery situated in the Upper Galilee in Israel.
+---
+[6] == History ==
+The winery was established by Gaston Hochar in 1930 after returning from Bordeaux.",,,,,,,,,,,
+9840ff9d-bed3-43f4-82f7-1b3f5f54f7d7,WB-VIT-0415-L2,comparative,claude,viticulture,2,analysis,"An American Viticultural Area situated chiefly in San Joaquin County, with only a small extension reaching into Sacramento County, is best described as which of the following?","[{'id': 'A', 'text': 'Jahant AVA'}, {'id': 'B', 'text': 'Anderson Valley AVA'}, {'id': 'C', 'text': 'Alta Mesa AVA'}, {'id': 'D', 'text': 'Clements Hills AVA'}]",A,"[1] Jahant is an American Viticultural Area (AVA) located primarily in San Joaquin County, California with a minor portion in Sacramento County.
+---
+[2] Anderson Valley is an American Viticultural Area (AVA) located in the Anderson Valley landform within western Mendocino County, California lying generally along the watershed of the Navarro River.",,,,,,,,,,,
+bb45d1c2-3582-4f59-9a41-7a3b1ca75701,WB-GRP-0553-L3,template,template_only,grape_varieties,3,application,A wine merchant looking for authentic Merlot-based wines consults the fact. Which region should they target?,"[{'id': 'A', 'text': 'Marlborough District'}, {'id': 'B', 'text': 'Southern Flinders Ranges'}, {'id': 'C', 'text': 'Mount Benson wine region'}, {'id': 'D', 'text': 'North Coast'}]",B,[1] Southern Flinders Ranges permits the Merlot grape variety.,,,,,,,,,,,
+e7fe9bb8-3004-41d6-a00e-d260d9268268,WB-GRP-0552-L4,template,template_only,grape_varieties,4,comprehension,"According to the fact, in which wine region is | varietals = cultivated?","[{'id': 'A', 'text': 'Hunter Valley wine region'}, {'id': 'B', 'text': 'Nova Scotia wine'}, {'id': 'C', 'text': 'Southern Flinders Ranges'}, {'id': 'D', 'text': 'Mount Benson wine region'}]",A,[1] Hunter Valley wine region permits the | varietals = grape variety.,,,,,,,,,,,
+aa8020e8-0cac-4b9c-a564-5206f157eeee,WB-VIT-0418-L4,scenario_synthesis,llama,viticulture,4,analysis,"A vineyard manager in Oregon is developing a spray program to prevent powdery mildew infection in their wine grape vines. They are considering using fungicides from groups 3, 7, and 11. However, they have heard that there may be some risks associated with these particular fungicide groups in their region. What should the vineyard manager be most concerned about when considering using these fungicides?","[{'id': 'A', 'text': 'Potential for powdery mildew to develop resistance to the fungicides'}, {'id': 'B', 'text': 'Negative impact on grape flavor profile'}, {'id': 'C', 'text': 'Ineffectiveness of the fungicides against botrytis rot'}, {'id': 'D', 'text': 'Increased risk of spider mite infestations'}]",A,"[1] Download Save for later Print Share Updated: June 10, 2024 Skip to the end of the images gallery Botrytis rot.
+---
+[2] Many of the other materials, such as those in fungicide groups 3, 7, or 11 have a high risk that powdery mildew will become resistant to the chemicals and/or have already developed resistance in the region.
+---
+[3] Pscheidt Published August 2019, Reviewed 2024 | Print (or Save as PDF) | Share Grape growers develop vineyard spray and management programs to prevent powdery mildew from infecting their vineyards by adhering to preventative fungicide applications and timely canopy management.",,,,,,,,,,,
+9fb6ded3-e03c-49e4-b8e5-c4535914b9ab,WB-GRP-0556-L2,scenario_synthesis,llama,grape_varieties,2,synthesis,"A winemaker in Redwood Valley AVA is deciding when to harvest their Chardonnay grapes. Compared to other AVAs like Spring Mountain District that also permit Chardonnay, what unique factor should they consider?","[{'id': 'A', 'text': 'Harvesting based solely on desired acidity levels'}, {'id': 'B', 'text': 'Harvesting later to ensure ripeness due to the cooler climate'}, {'id': 'C', 'text': 'Harvesting earlier to avoid overripeness'}, {'id': 'D', 'text': 'Harvesting at the same time as other Chardonnay-growing AVAs'}]",B,"[1] Redwood Valley AVA permits the Chardonnay grape variety.
+---
+[2] Spring Mountain District AVA permits the Chardonnay grape variety.
+---
+[3] Redwood Valley AVA is cooler in climate and requires a later harvest for grapes to achieve ripeness.",,,,,,,,,,,
+28952798-5457-4e20-9771-2c324f0020db,WB-REG-0471-L2,fact_to_question,qwen,wine_regions,1,recall,Which Italian wine region with 'Superiore' in its designation is specifically authorized to produce red wines under a DOCG classification?,"[{'id': 'A', 'text': 'Barbera del Monferrato Superiore'}, {'id': 'B', 'text': ""Nebbiolo d'Alba Superiore""}, {'id': 'C', 'text': ""Montepulciano d'Abruzzo Superiore""}, {'id': 'D', 'text': 'Sangiovese di Romagna Superiore'}]",A,[1] Barbera del Monferrato Superiore DOCG produces red wine.,,,,,,,,,,,
+f3e9392e-37c5-4412-9009-daeba6ef464a,WB-REG-0475-L3,distractor_mining,claude,wine_regions,1,analysis,A wine region located in the northeastern Italian territory of Friuli-Venezia Giulia holds a DOC classification and is sometimes referred to by a shortened form of its name. Which region matches this description?,"[{'id': 'A', 'text': 'Asolo'}, {'id': 'B', 'text': 'Collio Goriziano'}, {'id': 'C', 'text': 'Valpolicella'}, {'id': 'D', 'text': 'Conegliano Valdobbiadene'}]",B,"[1] Prosecco Conegliano Valdobbiadene Superiore DOCG is made on the hills between the comuni (municipalities) of Conegliano, Valdobbiadene.
+---
+[2] Within the larger designation are two small DOCG areas, Conegliano Valdobbiadene Prosecco in the hills between the comuni (municipalities) of Conegliano and Valdobbiadene, and Asolo Prosecco around the nearby comune of Asolo.
+---
+[3] Collio Goriziano (sometimes designated simply as Collio or Collio DOC) is an Italian wine and winemaking region in northeast Italian region of Friuli-Venezia Giulia.
+---
+[4] However, with DOC recognition also came a large expansion of vineyard areas that were permitted to produce Valpolicella DOC wine, including land in the fertile plains of the Po River.
+---
+[5] Valpolicella ranks just after Chianti in total Italian denominazione di origine controllata (DOC) wine production.
+---
+[6] Apulia wine region is notable in Italy for its large production and the amount of DOC, IGT and DOCG wines manufactured there.",,,,,,,,,,,
+895881e4-a5dd-4a32-a53e-a2de37f7e7ce,WB-PRD-0384-L2,fact_to_question,chatgpt,producers,1,recall,"In French winegrowing debates, the criticism of chaptalization is mainly tied to the idea that it benefits which group of producers?","[{'id': 'A', 'text': 'Growers working in cooler, less favorable climate zones'}, {'id': 'B', 'text': 'Cellars specializing in long lees aging for sparkling wine'}, {'id': 'C', 'text': 'Producers in Mediterranean areas with consistently hot summers'}, {'id': 'D', 'text': 'Estates farming only on limestone-rich soils'}]",A,[1] Chaptalization has generated controversy and discontent in the French wine industry due to advantages that the process is perceived to give producers in poor-climate areas.,,,,,,,,,,,
+b3c905d7-98fc-493e-b3ee-c788f5bdd2eb,WB-REG-0471-L3,template,template_only,wine_regions,1,application,"A retailer lists Verde Valley AVA wines on its website under state. Per the fact, which state should be used?","[{'id': 'A', 'text': 'Oregon'}, {'id': 'B', 'text': 'Idaho'}, {'id': 'C', 'text': 'California'}, {'id': 'D', 'text': 'Arizona'}]",D,[1] The Verde Valley AVA was established in 2021 in Arizona.,,,,,,,,,,,
+4d679cf8-a314-47fb-b6d9-3ee046809ae4,WB-REG-0477-L2,scenario_synthesis,llama,wine_regions,1,analysis,"A winemaker in the Rapel Valley of Chile is considering whether to invest in irrigation infrastructure for their vineyard. The region is known for its warm, arid climate created by the rain shadow effect of the Andes and Coastal Ranges. At what latitude is the vineyard located?","[{'id': 'A', 'text': '40°S'}, {'id': 'B', 'text': '50°S'}, {'id': 'C', 'text': '32°S'}, {'id': 'D', 'text': '45°S'}]",C,"[1] For the Chilean wine regions in the Valle Central, the Andes and Coastal Ranges create a rain shadow effect which traps the warm arid air in the region.
+---
+[2] The vineyards of Chile fall between the latitudes of 32 and 38° s which, in the Northern Hemisphere would be the equivalent of southern Spain and North Africa.
+---
+[3] The Rapel Valley is named after the Rapel River and Lake Rapel and is one of the largest wine-producing regions in the Central Valley.",,,,,,,,,,,
+6ae196e7-1133-4205-b182-eeced52964d8,WB-GRP-0558-L2,comparative,gemini,grape_varieties,1,analysis,"Which Italian red grape variety is officially suggested for cultivation in twenty out of one hundred ten provincial areas across the country, and acts as an authorized or mandatory constituent for classified reds in Umbria, Apulia, Lazio, and Molise?","[{'id': 'A', 'text': 'Sangiovese'}, {'id': 'B', 'text': 'Montepulciano'}, {'id': 'C', 'text': 'Aglianico'}, {'id': 'D', 'text': 'Barbera'}]",B,"[1] Montepulciano (grape) is a recommended planting in 20 of Italy's 110 provinces and is a permitted or required grape in the red wines of DOCs in Apulia, Molise, Lazio, Umbria.
+---
+[2] Barbera the sixth most widely planted red grape variety in Italy.",,,,,,,,,,,
+7a4d5a8b-3060-4d22-8fc1-8e65c6c1d264,WB-REG-0476-L2,scenario_synthesis,qwen,wine_regions,2,analysis,"A viticultural consultant is advising three different estates in northern and southern Italy, each producing a distinct DOCG wine. The estates are evaluating whether they can increase their vineyard yields without violating appellation regulations. One estate, in Piedmont, is currently harvesting at 8.2 tons per hectare and wishes to raise output slightly. Another, in Veneto, is at 9.1 tons per hectare and is considering minor yield reductions to ensure compliance. The third, in Calabria, is harvesting at 10.0 tons per hectare and plans no changes. Based on the maximum permitted yields for their respective DOCGs, which estate is currently exceeding its legal yield limit and must take corrective action?","[{'id': 'A', 'text': 'The Calabria estate, as its DOCG allows only 9.0 tons per hectare'}, {'id': 'B', 'text': 'The Piedmont estate, as its DOCG allows only 8.0 tons per hectare'}, {'id': 'C', 'text': 'The Piedmont estate, as its DOCG allows only 9.0 tons per hectare'}, {'id': 'D', 'text': 'The Veneto estate, as its DOCG allows only 8.2 tons per hectare'}]",B,"[1] Recioto di Gambellara DOCG has a maximum yield of 9.0 tons per hectare.
+---
+[2] Ruchè di Castagnole Monferrato DOCG has a maximum yield of 8.0 tons per hectare.
+---
+[3] Terre di Cosenza DOCG has a maximum yield of 10.0 tons per hectare.",,,,,,,,,,,
+4090a7a6-6279-48b9-9846-c6c3278d5c0f,WB-GRP-0559-L2,comparative,gemini,grape_varieties,2,analysis,"Which grape variety is hypothesized to be a genetic progenitor of the central Italian cultivar Abbuoto, potentially resulting from a spontaneous crossing with Casavecchia?","[{'id': 'A', 'text': 'Sangiovese'}, {'id': 'B', 'text': 'Aglianico'}, {'id': 'C', 'text': 'Trebbiano'}, {'id': 'D', 'text': 'Piedirosso'}]",D,"[1] Trebbiano high acidity makes it important in Cognac and Armagnac productions.
+---
+[2] Piedirosso is believed to be one of the parent varieties of the central Italy grape Abbuoto, possibly a crossing with Casavecchia.",,,,,,,,,,,
+be2dc55f-6091-4d32-b8d8-7116ef1ac4e0,WB-VIT-0419-L2,comparative,qwen,viticulture,1,analysis,"Which viticultural area is defined by a landscape shaped by the drainage basin of a major river and its tributaries, covering a broad region across a single U.S. state known for its arid climate and significant wine production?","[{'id': 'A', 'text': 'Texas High Plains AVA'}, {'id': 'B', 'text': 'Columbia Valley AVA'}, {'id': 'C', 'text': 'Upper Mississippi River Valley AVA'}, {'id': 'D', 'text': 'Finger Lakes AVA'}]",B,"[1] The Lake Wisconsin viticultural area, established in 1994, contains some geographical features similar to those of the AVA, such as annual average frost-free period, elevation.
+---
+[2] The viticultural area includes the drainage basin of the Columbia River and its tributaries through much of Washington.",,,,,,,,,,,
+10b248ce-3b93-4a92-8853-b091f6689af9,WB-PRD-0382-L2,template,template_only,producers,2,recall,Indicate True or False: Weinbau und Buschenschank Der Hirt operates in the Döbling wine region.,"[{'id': 'A', 'text': 'True'}, {'id': 'B', 'text': 'False'}]",A,"[1] Weinbau und Buschenschank Der Hirt is a wine producer in Döbling, Austria.",,,,,,,,,,,

@@ -182,3 +182,97 @@ def test_target_exceeded_on_pass_one_returns_overshoot():
     actual, runner = _run_loop([26], want=24, max_passes=3)
     assert actual == 26
     assert len(runner.cell_calls_per_pass) == 1
+
+
+# ─── Dynamic-loop limits (Phase 2g.13 follow-up) ──────────────────────────────
+
+
+def test_resolve_max_build_passes_clamps_above_ceiling(monkeypatch):
+    """Values > ceiling clamp down with a warning."""
+    from src.qa._corpus import (
+        MAX_BUILD_PASSES_CEILING,
+        MAX_BUILD_PASSES_ENV_VAR,
+    )
+    monkeypatch.setenv(MAX_BUILD_PASSES_ENV_VAR, str(MAX_BUILD_PASSES_CEILING + 5))
+    assert _resolve_max_build_passes() == MAX_BUILD_PASSES_CEILING
+
+
+def test_resolve_wall_time_limit_default_zero(monkeypatch):
+    from src.qa._corpus import (
+        WALL_TIME_LIMIT_ENV_VAR,
+        _resolve_wall_time_limit_s,
+    )
+    monkeypatch.delenv(WALL_TIME_LIMIT_ENV_VAR, raising=False)
+    assert _resolve_wall_time_limit_s() == 0.0
+
+
+def test_resolve_wall_time_limit_explicit(monkeypatch):
+    from src.qa._corpus import (
+        WALL_TIME_LIMIT_ENV_VAR,
+        _resolve_wall_time_limit_s,
+    )
+    monkeypatch.setenv(WALL_TIME_LIMIT_ENV_VAR, "120.5")
+    assert _resolve_wall_time_limit_s() == 120.5
+
+
+def test_resolve_wall_time_limit_invalid_falls_back(monkeypatch):
+    from src.qa._corpus import (
+        WALL_TIME_LIMIT_ENV_VAR,
+        _resolve_wall_time_limit_s,
+    )
+    monkeypatch.setenv(WALL_TIME_LIMIT_ENV_VAR, "NaN-value")
+    assert _resolve_wall_time_limit_s() == 0.0
+
+
+def test_resolve_min_yield_pct_default_zero(monkeypatch):
+    from src.qa._corpus import MIN_YIELD_PCT_ENV_VAR, _resolve_min_yield_pct
+    monkeypatch.delenv(MIN_YIELD_PCT_ENV_VAR, raising=False)
+    assert _resolve_min_yield_pct() == 0.0
+
+
+def test_resolve_min_yield_pct_explicit(monkeypatch):
+    from src.qa._corpus import MIN_YIELD_PCT_ENV_VAR, _resolve_min_yield_pct
+    monkeypatch.setenv(MIN_YIELD_PCT_ENV_VAR, "5.0")
+    assert _resolve_min_yield_pct() == 5.0
+
+
+def test_diminishing_returns_exit_after_two_low_passes(monkeypatch):
+    """Two consecutive passes below min_yield_pct% → exit early.
+
+    With min_yield_pct=10 and want=24:
+      pass 1: 5 (no comparison since first pass)
+      pass 2: 1 (4.2% of 24 → low yield, streak=1)
+      pass 3: 1 (4.2% of 24 → low yield, streak=2 → exit)
+    """
+    from src.qa._corpus import MIN_YIELD_PCT_ENV_VAR
+    monkeypatch.setenv(MIN_YIELD_PCT_ENV_VAR, "10.0")
+    actual, runner = _run_loop([5, 6, 7, 999], want=24, max_passes=10)
+    assert actual == 7  # 5 + 1 + 1
+    assert len(runner.cell_calls_per_pass) == 3, (
+        "must exit after pass 3 (2 consecutive low-yield passes)"
+    )
+
+
+def test_diminishing_returns_streak_resets_on_good_pass(monkeypatch):
+    """Streak counter resets when a pass yields above the threshold."""
+    from src.qa._corpus import MIN_YIELD_PCT_ENV_VAR
+    monkeypatch.setenv(MIN_YIELD_PCT_ENV_VAR, "10.0")
+    # Yields: 5, 6, 12, 13, 14 → pass2 low (streak=1), pass3 good (streak=0),
+    # pass4 low (streak=1), pass5 low (streak=2 → exit) — but want=24 hit at pass4.
+    actual, runner = _run_loop([5, 6, 12, 24], want=24, max_passes=10)
+    assert actual == 24
+    assert len(runner.cell_calls_per_pass) == 4
+
+def test_diminishing_returns_disabled_when_pct_zero(monkeypatch):
+    """min_yield_pct=0 disables the check; loop runs until other exit fires.
+
+    Yields are CUMULATIVE in the fake runner, so [1, 2, 3, 4, 5] simulates
+    one new question per pass. With min_yield_pct=0, the diminishing-
+    returns guard is disabled, and the loop runs all 5 passes (no
+    no-progress trigger because each pass produces 1 new row).
+    """
+    from src.qa._corpus import MIN_YIELD_PCT_ENV_VAR
+    monkeypatch.setenv(MIN_YIELD_PCT_ENV_VAR, "0")
+    actual, runner = _run_loop([1, 2, 3, 4, 5], want=24, max_passes=5)
+    assert actual == 5
+    assert len(runner.cell_calls_per_pass) == 5

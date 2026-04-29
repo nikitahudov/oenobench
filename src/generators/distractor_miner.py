@@ -44,7 +44,15 @@ from src.generators._prompts import (
 )
 from src.generators._question_db import get_used_fact_ids, insert_question_gated
 from src.generators._schemas import parse_llm_response
+from src.qa._attempted_facts import (
+    get_attempted_fact_ids,
+    register_attempted_fact_ids,
+)
 from src.utils.db import get_pg
+
+# Strategy name for the cross-pass attempted-fact-ID registry. Must match
+# the key used in ``src.qa._corpus.STRATEGY_MODULES``.
+_STRATEGY_NAME = "distractor_mining"
 
 # ─── Logging setup ────────────────────────────────────────────────────────────
 
@@ -389,7 +397,10 @@ def _run_generate_body(
         }
 
     used_fact_ids = get_used_fact_ids()
-    run_used_ids: set[str] = set()
+    # Phase 2g.13: seed run_used_ids with cross-pass attempted IDs so the
+    # multi-pass loop's previous passes' attempted-but-unsuccessful facts
+    # are excluded from the sampler.
+    run_used_ids: set[str] = set(get_attempted_fact_ids(_STRATEGY_NAME))
     generated = 0
     skipped_parse = 0
     skipped_dup = 0
@@ -428,6 +439,7 @@ def _run_generate_body(
         target_fact, distractor_facts, dtype = result_tuple
         all_fact_ids = {str(target_fact["id"])} | {str(f["id"]) for f in distractor_facts}
         run_used_ids.update(all_fact_ids)
+        register_attempted_fact_ids(_STRATEGY_NAME, all_fact_ids)
 
         # Difficulty 3-4 for distractor-mined questions. v2.2 fix #5 —
         # threaded into C4 gen-time gate inside parse_llm_response.
