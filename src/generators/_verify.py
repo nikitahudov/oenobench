@@ -124,10 +124,36 @@ GENERATORS_REQUIRING_VERIFICATION = {"llama", "qwen"}
 # 100% answer-correct on the audited sample.
 VERIFIER_POOL: tuple[str, ...] = ("claude", "gemini")
 
-# Pricing (per 1M tokens, USD). Mirrors src/qa/_judges._PRICING for the two
-# verifier models so the cost ledger is consistent across audit + generation.
+# Phase 2g.14 (cost reduction): the verifier role is "agree/disagree on the
+# stated answer for a 1-token output" — it doesn't need Opus-level reasoning
+# depth. Decouple verifier-claude from the generator-claude slot so generation
+# can keep using Opus 4.7 (per user mandate) while verification uses Sonnet
+# 4.6 (5× cheaper per call). For shorts not listed here, we fall back to
+# `GENERATOR_MODELS` so the current behaviour for `gemini` is preserved.
+VERIFIER_MODEL_OVERRIDES: dict[str, str] = {
+    "claude": "anthropic/claude-sonnet-4.6",
+}
+
+
+def _resolve_verifier_model(short_name: str) -> str:
+    """Resolve a verifier short name to a full OpenRouter slug.
+
+    Looks up ``VERIFIER_MODEL_OVERRIDES`` first (Phase 2g.14 cost reduction),
+    then falls back to ``GENERATOR_MODELS`` for any unspecified shorts.
+    Unknown shorts are returned verbatim so a caller passing a full slug
+    is also supported.
+    """
+    if short_name in VERIFIER_MODEL_OVERRIDES:
+        return VERIFIER_MODEL_OVERRIDES[short_name]
+    return GENERATOR_MODELS.get(short_name, short_name)
+
+
+# Pricing (per 1M tokens, USD) for the SHORT-NAME pool. Phase 2g.14: even
+# though the verifier-claude slot now resolves to Sonnet 4.6, this dict still
+# tracks pricing under the rotation short names so the ledger is consistent
+# across audit + generation. The Sonnet pricing is correct for the new resolution.
 _PRICING: dict[str, tuple[float, float]] = {
-    "claude": (3.0, 15.0),
+    "claude": (3.0, 15.0),  # Sonnet 4.6 (Phase 2g.14, was Opus 4.7's 15/75)
     "gemini": (1.25, 10.0),
 }
 
@@ -279,7 +305,11 @@ def verify_question_with_independent_solver(
         }
 
     verifier_model = _pick_verifier(question_text)
-    if verifier_model not in GENERATOR_MODELS:
+    # Phase 2g.14: resolve via the verifier-specific overrides first, then fall
+    # back to GENERATOR_MODELS. This decouples the verifier-claude slot from
+    # the generator-claude slot so the verifier can use Sonnet (cheaper) while
+    # generation continues to use Opus (per user mandate).
+    if verifier_model not in VERIFIER_MODEL_OVERRIDES and verifier_model not in GENERATOR_MODELS:
         # Should never happen, but degrade gracefully.
         logger.error("verify: unknown verifier model '{}'", verifier_model)
         return True, {
@@ -288,10 +318,14 @@ def verify_question_with_independent_solver(
             "reason": "verifier not registered",
         }
 
+    # Phase 2g.14: resolve to a full OpenRouter slug via the verifier-specific
+    # overrides, then pass that directly to client.generate so it doesn't go
+    # through GENERATOR_MODELS (which would re-route claude → Opus). The
+    # cache uses the resolved slug so cached entries follow the model.
+    _resolved_slug = _resolve_verifier_model(verifier_model)
     # Lever B1: content-hash cache lookup. Cache identity scoped by
     # function name so the two verifier paths (independent vs template)
     # never collide on the same input.
-    _cache_model_id = GENERATOR_MODELS.get(verifier_model, verifier_model)
     _cache_key = _llm_cache.cache_key({
         "fn": "verify_question_with_independent_solver",
         "stem": question_text,
@@ -302,7 +336,7 @@ def verify_question_with_independent_solver(
     _cached = _llm_cache.lookup(
         kind="verifier",
         key=_cache_key,
-        model_id=_cache_model_id,
+        model_id=_resolved_slug,
         version_tag=_VERIFY_CACHE_VERSION,
     )
     if _cached is not None:
@@ -313,7 +347,7 @@ def verify_question_with_independent_solver(
     response: LLMResponse = client.generate(
         prompt=prompt,
         system=VERIFIER_SYSTEM,
-        model=verifier_model,
+        model=_resolved_slug,
         temperature=0.0,
         max_tokens=200,
         json_mode=True,
@@ -392,7 +426,7 @@ def verify_question_with_independent_solver(
     _llm_cache.store(
         kind="verifier",
         key=_cache_key,
-        model_id=_cache_model_id,
+        model_id=_resolved_slug,
         version_tag=_VERIFY_CACHE_VERSION,
         payload={"is_valid": bool(is_valid), "debug": debug},
     )

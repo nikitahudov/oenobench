@@ -128,8 +128,15 @@ CONFIDENCE_THRESHOLD = 0.6
 # Maximum share of the 10k corpus that may be tagged `closed_book_solvable`.
 # When this cap is hit at insertion time, additional gate-flagged questions
 # are dropped instead of relabeled. See docs/PROCESS_LOG.md 2026-04-24
-# (Phase 2g.6) for the rationale.
-CLOSED_BOOK_QUOTA_FRACTION = 0.25
+# (Phase 2g.6) for the original rationale.
+#
+# Phase 2g.14 (2026-04-29): tightened from 0.25 → 0.20 as part of the
+# cost-reduction package. The 25% cap was conservative; gold review of
+# v9/v10/v11 didn't flag the cb-tagged subset as too restrictive at the
+# audit level. Lowering to 20% means more gate-flagged questions get
+# DROPPED instead of relabeled, which (a) raises the average cb-free
+# corpus quality and (b) trims downstream operations on cb-tagged rows.
+CLOSED_BOOK_QUOTA_FRACTION = 0.20
 CLOSED_BOOK_TAG = "closed_book_solvable"
 
 # L1/L2/L3 questions of any 4-option type go through the gate. Phase

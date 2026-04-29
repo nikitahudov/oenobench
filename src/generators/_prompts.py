@@ -92,6 +92,54 @@ _JSON_SCHEMA_NOTE = (
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Shared boilerplate (Phase 2g.14 — DRY refactor + minor tightening)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# v9–v11 templates duplicated the PARAPHRASE_RULE and AVOID-WORLD-KNOWLEDGE
+# header across 5–10 occurrences each (~3KB of duplicated boilerplate). Phase
+# 2g.14 factors them into shared constants composed via f-string interpolation
+# at module load. Each template's variant-specific second/third bullets stay
+# inline so per-template wording (singular/plural/target, observable-attribute
+# emphasis, skip-reason) is preserved.
+#
+# The iconic-entities list was tightened from 7 named examples down to 5 of
+# the most-globally-recognised, dropping the more obscure cuts while keeping
+# the prompt's intent. Modest token reduction (~30 chars × 10 occurrences).
+
+_ICONIC_ENTITIES_LIST = (
+    "Château Margaux, Napa Valley, Dom Pérignon, Romanée-Conti, Barolo, etc."
+)
+
+_PARAPHRASE_RULE_SINGULAR = (
+    "PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT "
+    "copy more than 5 consecutive words verbatim from the source fact into "
+    "the question or any option. Synonyms, restructured clauses, and "
+    "inversions are required."
+)
+
+_PARAPHRASE_RULE_PLURAL = (
+    "PARAPHRASE RULE: Rephrase the source facts in your own words. Do NOT "
+    "copy more than 5 consecutive words verbatim from any source fact into "
+    "the question or any option. Synonyms, restructured clauses, and "
+    "inversions are required."
+)
+
+
+def _avoid_wk_first_bullet(fact_phrase: str) -> str:
+    """First bullet of every AVOID-WORLD-KNOWLEDGE block.
+
+    The opening bullet was identical across all 10 templates except for
+    the trailing fact-phrase ("source fact" / "source facts" / "target
+    fact"). Factored here so the iconic-entities list lives in one place.
+    """
+    return (
+        "- DO NOT phrase questions as recall on globally-famous entities "
+        f"({_ICONIC_ENTITIES_LIST}). A well-read taster should not be "
+        f"able to answer without the {fact_phrase}."
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # 1. Fact-to-Question (single fact -> single question)
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -118,18 +166,12 @@ varieties. If a fact treats a blend category as a variety, rephrase the \
 question to use accurate terminology (e.g., "wine style", "blend category", \
 "wine type")."""
 
-FACT_TO_QUESTION_TEMPLATE = """\
-Create a {question_type} question from the following fact.
-
-PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
-than 5 consecutive words verbatim from the source fact into the question or any \
-option. Synonyms, restructured clauses, and inversions are required.
-
-AVOID WORLD-KNOWLEDGE SOLVABILITY:
-- DO NOT phrase questions as recall on globally-famous entities (Château \
-Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
-Champagne houses, etc.). A well-read taster should not be able to answer \
-without the source fact.
+FACT_TO_QUESTION_TEMPLATE = (
+    "Create a {question_type} question from the following fact.\n\n"
+    + _PARAPHRASE_RULE_SINGULAR + "\n\n"
+    + "AVOID WORLD-KNOWLEDGE SOLVABILITY:\n"
+    + _avoid_wk_first_bullet("source fact") + "\n"
+) + """\
 - DO lead questions with an OBSERVABLE ATTRIBUTE from the source fact (aging \
 months, soil type, yield limit, phenolic threshold, clone name, altitude, \
 specific varietal %, regulatory minimum, grape blend percentage) and ask the \
@@ -220,19 +262,13 @@ distractors must be grapes. If it's an appellation, all distractors are \
 appellations. Never mix grapes, regions, producers, or classifications in one \
 option set."""
 
-COMPARATIVE_TEMPLATE = """\
-Create a comparative question using these facts about different but related \
-wine entities.
-
-PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
-than 5 consecutive words verbatim from the source fact into the question or any \
-option. Synonyms, restructured clauses, and inversions are required.
-
-AVOID WORLD-KNOWLEDGE SOLVABILITY:
-- DO NOT phrase questions as recall on globally-famous entities (Château \
-Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
-Champagne houses, etc.). A well-read taster should not be able to answer \
-without the source facts.
+COMPARATIVE_TEMPLATE = (
+    "Create a comparative question using these facts about different but "
+    "related wine entities.\n\n"
+    + _PARAPHRASE_RULE_SINGULAR + "\n\n"
+    + "AVOID WORLD-KNOWLEDGE SOLVABILITY:\n"
+    + _avoid_wk_first_bullet("source facts") + "\n"
+) + """\
 - DO lead with an OBSERVABLE ATTRIBUTE from the facts (aging months, soil \
 type, yield limit, phenolic threshold, clone name, altitude, specific \
 varietal %, regulatory minimum, blend percentage) and ask the test-taker \
@@ -286,19 +322,13 @@ OUTPUT FORMAT (JSON):
 Generate the comparative question now."""
 
 
-COMPARATIVE_TEMPLATE_SAME_VS_DIFFERENT = """\
-Create a comparative question using these facts about two entities that share \
-a common context but differ on a specific dimension.
-
-PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
-than 5 consecutive words verbatim from the source fact into the question or any \
-option. Synonyms, restructured clauses, and inversions are required.
-
-AVOID WORLD-KNOWLEDGE SOLVABILITY:
-- DO NOT phrase questions as recall on globally-famous entities (Château \
-Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
-Champagne houses, etc.). A well-read taster should not be able to answer \
-without the source facts.
+COMPARATIVE_TEMPLATE_SAME_VS_DIFFERENT = (
+    "Create a comparative question using these facts about two entities "
+    "that share a common context but differ on a specific dimension.\n\n"
+    + _PARAPHRASE_RULE_SINGULAR + "\n\n"
+    + "AVOID WORLD-KNOWLEDGE SOLVABILITY:\n"
+    + _avoid_wk_first_bullet("source facts") + "\n"
+) + """\
 - DO lead with the OBSERVABLE VALUE of the {dimension} dimension (e.g. the \
 specific aging months, varietal %, altitude, yield cap) and ask the \
 test-taker to infer which entity matches.
@@ -348,19 +378,13 @@ OUTPUT FORMAT (JSON):
 Generate the comparative question now."""
 
 
-COMPARATIVE_TEMPLATE_WHICH_ONE = """\
-Create a "which one" identification question using these facts about \
-related wine entities.
-
-PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
-than 5 consecutive words verbatim from the source fact into the question or any \
-option. Synonyms, restructured clauses, and inversions are required.
-
-AVOID WORLD-KNOWLEDGE SOLVABILITY:
-- DO NOT phrase questions as recall on globally-famous entities (Château \
-Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
-Champagne houses, etc.). A well-read taster should not be able to answer \
-without the source facts.
+COMPARATIVE_TEMPLATE_WHICH_ONE = (
+    'Create a "which one" identification question using these facts about '
+    "related wine entities.\n\n"
+    + _PARAPHRASE_RULE_SINGULAR + "\n\n"
+    + "AVOID WORLD-KNOWLEDGE SOLVABILITY:\n"
+    + _avoid_wk_first_bullet("source facts") + "\n"
+) + """\
 - DO build the identification clue set from OBSERVABLE ATTRIBUTES (aging \
 months, soil type, yield limit, phenolic threshold, clone name, altitude, \
 varietal %, regulatory minimum, blend percentage) drawn from the facts.
@@ -404,19 +428,13 @@ OUTPUT FORMAT (JSON):
 Generate the identification question now."""
 
 
-COMPARATIVE_TEMPLATE_MOST_LEAST = """\
-Create a superlative comparison question using these facts that contain \
-comparable numeric or ordinal values.
-
-PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
-than 5 consecutive words verbatim from the source fact into the question or any \
-option. Synonyms, restructured clauses, and inversions are required.
-
-AVOID WORLD-KNOWLEDGE SOLVABILITY:
-- DO NOT phrase questions as recall on globally-famous entities (Château \
-Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
-Champagne houses, etc.). A well-read taster should not be able to answer \
-without the source facts.
+COMPARATIVE_TEMPLATE_MOST_LEAST = (
+    "Create a superlative comparison question using these facts that "
+    "contain comparable numeric or ordinal values.\n\n"
+    + _PARAPHRASE_RULE_SINGULAR + "\n\n"
+    + "AVOID WORLD-KNOWLEDGE SOLVABILITY:\n"
+    + _avoid_wk_first_bullet("source facts") + "\n"
+) + """\
 - DO lead with the OBSERVABLE NUMERIC VALUE from the facts (hectares, hl/ha, \
 % alcohol, aging months, etc.) and ask the test-taker to identify which \
 entity ranks highest/lowest on that dimension.
@@ -488,18 +506,12 @@ a question. All 3 audit-run-2 C2 category-leak failures were scenario stems \
 explicitly comparing categories (red-vs-white, Sauvignon-Blanc-vs-premium-reds, \
 pink-sparkling-by-blending-red-and-white)."""
 
-SCENARIO_TEMPLATE = """\
-Create a scenario-based question that synthesizes these facts.
-
-PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
-than 5 consecutive words verbatim from the source fact into the question or any \
-option. Synonyms, restructured clauses, and inversions are required.
-
-AVOID WORLD-KNOWLEDGE SOLVABILITY:
-- DO NOT phrase questions as recall on globally-famous entities (Château \
-Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
-Champagne houses, etc.). A well-read taster should not be able to answer \
-without the source facts.
+SCENARIO_TEMPLATE = (
+    "Create a scenario-based question that synthesizes these facts.\n\n"
+    + _PARAPHRASE_RULE_SINGULAR + "\n\n"
+    + "AVOID WORLD-KNOWLEDGE SOLVABILITY:\n"
+    + _avoid_wk_first_bullet("source facts") + "\n"
+) + """\
 - DO ground the scenario in OBSERVABLE ATTRIBUTES from the facts (aging \
 months, soil type, yield limit, phenolic threshold, clone name, altitude, \
 varietal %, regulatory minimum, blend percentage) and ask the test-taker \
@@ -631,18 +643,13 @@ true about other entities, just wrong for this specific question.
 6. Blend categories (e.g., "Red Blend", "White Blend") are NOT grape varieties. \
 Never refer to them as varieties — use "wine style" or "blend category" instead."""
 
-DISTRACTOR_TEMPLATE = """\
-Create a multiple-choice question where distractors are mined from related facts.
-
-PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
-than 5 consecutive words verbatim from the source fact into the question or any \
-option. Synonyms, restructured clauses, and inversions are required.
-
-AVOID WORLD-KNOWLEDGE SOLVABILITY:
-- DO NOT phrase questions as recall on globally-famous entities (Château \
-Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
-Champagne houses, etc.). A well-read taster should not be able to answer \
-without the target fact.
+DISTRACTOR_TEMPLATE = (
+    "Create a multiple-choice question where distractors are mined from "
+    "related facts.\n\n"
+    + _PARAPHRASE_RULE_SINGULAR + "\n\n"
+    + "AVOID WORLD-KNOWLEDGE SOLVABILITY:\n"
+    + _avoid_wk_first_bullet("target fact") + "\n"
+) + """\
 - DO lead with an OBSERVABLE ATTRIBUTE from the target fact (aging months, \
 soil type, yield limit, phenolic threshold, clone name, altitude, varietal \
 %, regulatory minimum, blend percentage) and ask the test-taker to infer \
@@ -691,19 +698,14 @@ OUTPUT FORMAT (JSON):
 Generate the distractor-mined question now."""
 
 
-DISTRACTOR_TEMPLATE_ATTRIBUTE_SWAP = """\
-Create a question where all entities share the same attribute type but differ \
-in their specific values — the test-taker must know which value belongs to which entity.
-
-PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
-than 5 consecutive words verbatim from the source fact into the question or any \
-option. Synonyms, restructured clauses, and inversions are required.
-
-AVOID WORLD-KNOWLEDGE SOLVABILITY:
-- DO NOT phrase questions as recall on globally-famous entities (Château \
-Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
-Champagne houses, etc.). A well-read taster should not be able to answer \
-without the target fact.
+DISTRACTOR_TEMPLATE_ATTRIBUTE_SWAP = (
+    "Create a question where all entities share the same attribute type but "
+    "differ in their specific values — the test-taker must know which value "
+    "belongs to which entity.\n\n"
+    + _PARAPHRASE_RULE_SINGULAR + "\n\n"
+    + "AVOID WORLD-KNOWLEDGE SOLVABILITY:\n"
+    + _avoid_wk_first_bullet("target fact") + "\n"
+) + """\
 - DO lead with the specific {dimension} VALUE from the target fact and ask \
 the test-taker to identify which entity it matches.
 - If the target fact has only an iconic entity with no fact-specific \
@@ -749,19 +751,13 @@ OUTPUT FORMAT (JSON):
 Generate the attribute-swap question now."""
 
 
-DISTRACTOR_TEMPLATE_ENTITY_ID = """\
-Create an entity identification question: present clues from the target \
-fact and ask which entity they describe.
-
-PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
-than 5 consecutive words verbatim from the source fact into the question or any \
-option. Synonyms, restructured clauses, and inversions are required.
-
-AVOID WORLD-KNOWLEDGE SOLVABILITY:
-- DO NOT phrase questions as recall on globally-famous entities (Château \
-Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
-Champagne houses, etc.). A well-read taster should not be able to answer \
-without the target fact.
+DISTRACTOR_TEMPLATE_ENTITY_ID = (
+    "Create an entity identification question: present clues from the "
+    "target fact and ask which entity they describe.\n\n"
+    + _PARAPHRASE_RULE_SINGULAR + "\n\n"
+    + "AVOID WORLD-KNOWLEDGE SOLVABILITY:\n"
+    + _avoid_wk_first_bullet("target fact") + "\n"
+) + """\
 - DO build the clue set from OBSERVABLE ATTRIBUTES in the target fact \
 (aging months, soil type, yield limit, phenolic threshold, clone name, \
 altitude, varietal %, regulatory minimum, blend percentage).
@@ -810,19 +806,13 @@ OUTPUT FORMAT (JSON):
 Generate the entity identification question now."""
 
 
-DISTRACTOR_TEMPLATE_NUMERIC = """\
-Create a question involving numeric values where distractors use real numbers \
-from similar entities.
-
-PARAPHRASE RULE: Rephrase the source fact in your own words. Do NOT copy more \
-than 5 consecutive words verbatim from the source fact into the question or any \
-option. Synonyms, restructured clauses, and inversions are required.
-
-AVOID WORLD-KNOWLEDGE SOLVABILITY:
-- DO NOT phrase questions as recall on globally-famous entities (Château \
-Margaux, Napa Valley, Bordeaux 1855, Dom Pérignon, Romanée-Conti, Barolo, \
-Champagne houses, etc.). A well-read taster should not be able to answer \
-without the target fact.
+DISTRACTOR_TEMPLATE_NUMERIC = (
+    "Create a question involving numeric values where distractors use real "
+    "numbers from similar entities.\n\n"
+    + _PARAPHRASE_RULE_SINGULAR + "\n\n"
+    + "AVOID WORLD-KNOWLEDGE SOLVABILITY:\n"
+    + _avoid_wk_first_bullet("target fact") + "\n"
+) + """\
 - DO lead with the fact-specific NUMERIC VALUE from the target fact and ask \
 the test-taker to infer the matching entity.
 - If the target fact has only an iconic entity with no fact-specific \

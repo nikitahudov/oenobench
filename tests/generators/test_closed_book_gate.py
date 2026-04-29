@@ -530,30 +530,39 @@ def test_insert_question_gated_preserves_other_tags_during_relabel(monkeypatch):
 
 def test_quota_cap_with_explicit_target_size():
     """When a caller passes an explicit `target_size`, the cap is
-    ceil(target × 0.25) — the correct per-corpus semantics. A 295-Q
-    pilot must produce a 74-Q cap, not the 2500-Q global cap.
+    ceil(target × CLOSED_BOOK_QUOTA_FRACTION) — the correct per-corpus
+    semantics. Phase 2g.14 lowered the fraction from 0.25 → 0.20.
     """
+    import math
+
+    from src.generators._closed_book_gate import CLOSED_BOOK_QUOTA_FRACTION
     from src.generators._question_db import _closed_book_quota_cap
 
-    # 295 × 0.25 = 73.75 → ceil = 74
-    assert _closed_book_quota_cap(target_size=295) == 74
-    # Spot-check a couple more sizes for the ceil() behaviour.
-    assert _closed_book_quota_cap(target_size=100) == 25  # exact
-    assert _closed_book_quota_cap(target_size=101) == 26  # 25.25 → ceil 26
+    # Compute expectations from the live constant so future tweaks
+    # don't break the test.
+    assert _closed_book_quota_cap(target_size=295) == math.ceil(295 * CLOSED_BOOK_QUOTA_FRACTION)
+    assert _closed_book_quota_cap(target_size=100) == math.ceil(100 * CLOSED_BOOK_QUOTA_FRACTION)
+    assert _closed_book_quota_cap(target_size=101) == math.ceil(101 * CLOSED_BOOK_QUOTA_FRACTION)
 
 
 def test_quota_cap_default_unchanged():
-    """Backward compat: calling with no arg must still return 2500
-    (= 10_000 × 0.25, the OVERALL_TARGET full-run cap). The orchestrator
-    relies on this for the production 10k generation.
+    """Backward compat: calling with no arg returns
+    ceil(OVERALL_TARGET × CLOSED_BOOK_QUOTA_FRACTION) = the full-run cap.
+    The orchestrator relies on this for the production 10k generation.
     """
+    import math
+
     from src.generators import _question_db
+    from src.generators._closed_book_gate import CLOSED_BOOK_QUOTA_FRACTION
     from src.generators._question_db import _closed_book_quota_cap
 
     # Defensive: clear any override leaked from an unrelated test.
     _question_db.set_corpus_target(None)
     try:
-        assert _closed_book_quota_cap() == 2500
+        expected = math.ceil(
+            _question_db._OVERALL_TARGET_DEFAULT * CLOSED_BOOK_QUOTA_FRACTION
+        )
+        assert _closed_book_quota_cap() == expected
     finally:
         _question_db.set_corpus_target(None)
 
@@ -641,8 +650,11 @@ def test_quota_cap_uses_env_var_when_override_unset(monkeypatch):
     _question_db.set_corpus_target(None)  # ensure in-process override is clear
     monkeypatch.setenv("OENOBENCH_CORPUS_TARGET", "600")
     try:
-        # ceil(600 × 0.25) = 150 — the v8 audit pilot's intended cap.
-        assert _closed_book_quota_cap() == 150
+        import math
+
+        from src.generators._closed_book_gate import CLOSED_BOOK_QUOTA_FRACTION
+
+        assert _closed_book_quota_cap() == math.ceil(600 * CLOSED_BOOK_QUOTA_FRACTION)
     finally:
         monkeypatch.delenv("OENOBENCH_CORPUS_TARGET", raising=False)
 
@@ -657,8 +669,12 @@ def test_in_process_override_wins_over_env_var(monkeypatch):
     monkeypatch.setenv("OENOBENCH_CORPUS_TARGET", "9999")
     _question_db.set_corpus_target(400)
     try:
-        # ceil(400 × 0.25) = 100; env-var 9999 must NOT be read.
-        assert _closed_book_quota_cap() == 100
+        import math
+
+        from src.generators._closed_book_gate import CLOSED_BOOK_QUOTA_FRACTION
+
+        # In-process 400; env-var 9999 must NOT be read.
+        assert _closed_book_quota_cap() == math.ceil(400 * CLOSED_BOOK_QUOTA_FRACTION)
     finally:
         _question_db.set_corpus_target(None)
         monkeypatch.delenv("OENOBENCH_CORPUS_TARGET", raising=False)
@@ -668,14 +684,20 @@ def test_invalid_env_var_falls_through_to_default(monkeypatch):
     """A malformed env var (non-numeric, zero, negative) must NOT crash the
     insert path. It is logged and we fall through to OVERALL_TARGET / 10k.
     """
+    import math
+
     from src.generators import _question_db
+    from src.generators._closed_book_gate import CLOSED_BOOK_QUOTA_FRACTION
     from src.generators._question_db import _closed_book_quota_cap
 
     _question_db.set_corpus_target(None)
+    expected = math.ceil(
+        _question_db._OVERALL_TARGET_DEFAULT * CLOSED_BOOK_QUOTA_FRACTION
+    )
     for bad in ("not-a-number", "0", "-50", ""):
         monkeypatch.setenv("OENOBENCH_CORPUS_TARGET", bad)
         try:
-            assert _closed_book_quota_cap() == 2500, f"bad value {bad!r} should fall through"
+            assert _closed_book_quota_cap() == expected, f"bad value {bad!r} should fall through"
         finally:
             monkeypatch.delenv("OENOBENCH_CORPUS_TARGET", raising=False)
 
@@ -890,7 +912,8 @@ def test_count_closed_book_solvable_strategy_filter_composes_with_since(monkeypa
 
 def test_insert_question_gated_uses_per_strategy_budget_when_env_set(monkeypatch):
     """With OENOBENCH_STRATEGY_TARGET=40, gate-flagged questions must be
-    counted per generation_method and the cap must be ceil(40 × 0.25) = 10.
+    counted per generation_method, with the cap computed from
+    CLOSED_BOOK_QUOTA_FRACTION (Phase 2g.14: ceil(40 × 0.20) = 8).
     """
     from src.generators import _question_db
 
@@ -936,18 +959,23 @@ def test_insert_question_gated_uses_per_strategy_budget_when_env_set(monkeypatch
 
 
 def test_insert_question_gated_per_strategy_quota_full_at_correct_cap(monkeypatch):
-    """Cap = ceil(per_strategy × 0.25). At per_strategy=40, cap=10. When the
-    per-strategy count is at 10, the gate must reject (quota_full)."""
+    """Cap = ceil(per_strategy × CLOSED_BOOK_QUOTA_FRACTION).
+    Phase 2g.14: ceil(40 × 0.20) = 8. When the per-strategy count
+    is at the cap, the gate must reject (quota_full)."""
+    import math
+
     from src.generators import _question_db
+    from src.generators._closed_book_gate import CLOSED_BOOK_QUOTA_FRACTION
 
     monkeypatch.setenv("OENOBENCH_STRATEGY_TARGET", "40")
     _patch_call(monkeypatch, selected="A", confidence=0.9)
 
-    # Mock returns 10 — exactly at cap — so any further cb-flagged inserts must drop.
+    cap = math.ceil(40 * CLOSED_BOOK_QUOTA_FRACTION)
+    # Mock returns the cap exactly — any further cb-flagged inserts must drop.
     monkeypatch.setattr(
         _question_db,
         "count_closed_book_solvable",
-        lambda since=None, strategy=None: 10,
+        lambda since=None, strategy=None: cap,
     )
 
     def db_explode(*_a, **_kw):
@@ -980,11 +1008,16 @@ def test_insert_question_gated_strategies_have_independent_budgets(monkeypatch):
     keeps the counts separate."""
     from src.generators import _question_db
 
+    import math
+
+    from src.generators._closed_book_gate import CLOSED_BOOK_QUOTA_FRACTION
+
     monkeypatch.setenv("OENOBENCH_STRATEGY_TARGET", "40")
     _patch_call(monkeypatch, selected="A", confidence=0.9)
 
-    # Per-strategy counts: scenario_synthesis is full (10), distractor_mining has room (3).
-    counts = {"scenario_synthesis": 10, "distractor_mining": 3}
+    cap = math.ceil(40 * CLOSED_BOOK_QUOTA_FRACTION)
+    # Per-strategy counts: scenario_synthesis is full (=cap), distractor_mining has room (cap-2).
+    counts = {"scenario_synthesis": cap, "distractor_mining": max(0, cap - 2)}
 
     def fake_count(since=None, strategy=None):
         return counts.get(strategy, 0)

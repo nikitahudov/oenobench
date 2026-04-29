@@ -229,3 +229,70 @@ def test_verifier_skips_when_no_options():
     assert is_valid is True
     assert debug["skipped"] is True
     mock_get_client.assert_not_called()
+
+
+# ─── Phase 2g.14: verifier-claude / generator-claude decoupling ───────────────
+
+
+def test_resolve_verifier_model_prefers_overrides_for_claude():
+    """Verifier-claude resolves to Sonnet 4.6 (not Opus from GENERATOR_MODELS)."""
+    from src.generators._verify import _resolve_verifier_model
+
+    assert _resolve_verifier_model("claude") == "anthropic/claude-sonnet-4.6"
+
+
+def test_resolve_verifier_model_falls_back_to_generator_models_for_gemini():
+    """Verifier-gemini has no override, so it falls back to GENERATOR_MODELS."""
+    from src.generators._llm_client import GENERATOR_MODELS
+    from src.generators._verify import _resolve_verifier_model
+
+    expected = GENERATOR_MODELS["gemini"]
+    assert _resolve_verifier_model("gemini") == expected
+
+
+def test_resolve_verifier_model_passes_full_slug_through():
+    """Unknown shorts (e.g. a literal slug from a future caller) round-trip."""
+    from src.generators._verify import _resolve_verifier_model
+
+    assert _resolve_verifier_model("anthropic/claude-haiku-4.5") == "anthropic/claude-haiku-4.5"
+
+
+def test_generator_claude_unaffected_by_verifier_override():
+    """Phase 2g.14 must NOT change the generator's claude slot.
+
+    The user mandate is to keep Opus 4.7 as the claude generator. Only
+    the verifier-claude slot was decoupled.
+    """
+    from src.generators._llm_client import GENERATOR_MODELS
+
+    # Generator-claude is still Opus.
+    assert GENERATOR_MODELS["claude"] == "anthropic/claude-opus-4.7"
+
+
+def test_verifier_uses_resolved_slug_when_picked_claude(planted_wrong_key_question):
+    """When the rotation picks 'claude', the LLM client receives the Sonnet slug,
+    NOT the Opus slug from GENERATOR_MODELS."""
+    fake_response = _make_llm_response({"chosen": "B", "confidence": 0.95})
+
+    captured: dict = {}
+
+    def fake_generate(*args, **kwargs):
+        captured["model"] = kwargs.get("model")
+        return fake_response
+
+    # Force the rotation to pick "claude" by patching _pick_verifier.
+    with patch("src.generators._verify._pick_verifier", return_value="claude"), \
+         patch("src.generators._verify.get_client") as mock_get_client:
+        mock_get_client.return_value.generate.side_effect = fake_generate
+
+        verify_question_with_independent_solver(
+            question_text=planted_wrong_key_question["question_text"],
+            options=planted_wrong_key_question["options"],
+            correct_answer=planted_wrong_key_question["correct_answer"],
+            source_facts=planted_wrong_key_question["source_facts"],
+            generator="llama",
+        )
+
+    assert captured["model"] == "anthropic/claude-sonnet-4.6", (
+        "verifier-claude must dispatch to Sonnet, not Opus"
+    )
