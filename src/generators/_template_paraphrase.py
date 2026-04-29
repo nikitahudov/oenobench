@@ -36,12 +36,15 @@ from loguru import logger
 
 from src.generators import _llm_cache
 
-# Lever C2 (2026-04-28): swap default Gemini variant from Pro to Flash.
-# Gemini Pro averaged 13.6s on v8 (p95 33s, max 195s) for sub-2K-token
-# JSON tasks like paraphrase (~500 tokens). Flash variants typically run
-# 3-5× faster on these. Default ON; revert via env var.
+# Lever C2 (2026-04-28): default Gemini variant from Pro to Flash.
+# Phase 2g.12 (2026-04-29): the `*-flash-preview-20260219` slug returns
+# OpenRouter 400 ("not a valid model ID"), so every paraphrase call
+# wasted a round-trip before failing over to Pro. Point the default at
+# the Pro slug until a real Flash 3.1 listing appears; the env-var
+# override stays in place so a future Flash slug can be flipped in
+# without a code change.
 PARAPHRASE_MODEL_ENV_VAR = "OENOBENCH_PARAPHRASE_MODEL"
-_PARAPHRASE_FLASH_DEFAULT = "google/gemini-3.1-flash-preview-20260219"
+_PARAPHRASE_FLASH_DEFAULT = "google/gemini-3.1-pro-preview"
 _PARAPHRASE_PRO_FALLBACK = "google/gemini-3.1-pro-preview"
 
 

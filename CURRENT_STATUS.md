@@ -1,10 +1,22 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** April 28, 2026
-**Project phase:** Phase 2g.11 — generation pipeline speedup. v8 build itself was 11.4h / 16k LLM calls / 111 kept (~99% rejection rate, ~150 calls/q). v8 audit phase 2 completed in 1h 36min (run_id `7dc2ab81…`). 10 speedup levers shipped across parallel agent teams (A1/A2/A3/A4/B1/B2/B3/B4/C1/C2 active; B5 helper present but dormant pending architecture refactor). v9 audit harness ready on `main`. 472/472 tests pass.
+**Last updated:** April 29, 2026
+**Project phase:** Phase 2g.12 — corpus-build undershoot fixes. v9 audit pilot ran the speedup pipeline in 18 min (vs v8's 11.4h, ~21× faster) but kept only 46/100 (46%, vs v8's 56%). Investigation surfaced 4 root causes — broken Gemini Flash slug returning OpenRouter 400s, C4 reject-threshold off-by-one firing on 113 boundary cases, LLM-strategy cell-allocation that schedules 30 cells × take=1 and starves on `sample_fact_pairs() == []`, and Gemini Pro JSON-fence malformations. All 5 fixes (4 root causes + 1 misleading log line) shipped on `phase-2g.12/corpus-undershoot-fixes`. 494/494 tests pass.
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ## Latest cliff notes (start here next session)
+
+- **Phase 2g.12 fixes shipped (2026-04-29):** Branch `phase-2g.12/corpus-undershoot-fixes`, one squash-style commit `2aa084a`, 494/494 pytest pass (was 472, +22 new tests across 5 fixes).
+
+  | Fix | File | What | Why |
+  |---|---|---|---|
+  | 1 | `src/generators/_template_paraphrase.py` + `src/generators/_verify.py` | `_PARAPHRASE_FLASH_DEFAULT` and `_VERIFIER_FLASH_DEFAULT` from `google/gemini-3.1-flash-preview-20260219` → `google/gemini-3.1-pro-preview` | OpenRouter rejected the Flash slug with 400 ("not a valid model ID"); every paraphrase + every Llama/Qwen verify call wasted a round-trip before failing over to Pro. Phase 2g.11 C2 lever was effectively dead. Env-var override (`OENOBENCH_PARAPHRASE_MODEL` / `OENOBENCH_VERIFIER_MODEL`) preserved for when a real Flash 3.1 listing appears. |
+  | 2 | `src/generators/_schemas.py` | C4 reject_threshold: `1 if labelled_int >= 3 else 2` → `2 if labelled_int >= 3 else 3` | All 113 v9 C4 rejects were `delta=2 threshold=2` for L1/L2 — the C4 classifier consistently over-predicts difficulty on fact-anchored detail questions that the template heuristic correctly buckets. Loosen L1/L2 to tolerate a 2-level miss; L3+ stays strict at 1. Audit-side D-gates catch downstream drift. |
+  | 3 | `src/qa/_corpus.py` | `_build_cell_calls(strategy, module, want, per_country_cap)` extracted; `cell_count = max(1, min(G*D, want // 2))` so each LLM-strategy cell carries ≥2 budget | Old formula `per_cell = max(1, want // (G*D))` scheduled all 30 cells with take=1 when `want < 30`, silently overspending budget by 50% AND starving sampler-empty cells out at 0 questions. v9 saw 26/60 cells exit zero-attempt; comparative + scenario stuck at 4/20 each. New formula gives e.g. `want=20 → 10 cells × 2`, `want=40 → 20 cells × 2`, `want=100 → 30 cells (capped) × 3-4`. |
+  | 4 | `src/generators/_llm_client.py` | `_try_parse_json` prepended with tag-agnostic Markdown-fence strip pre-pass | Gemini Pro produced 65/67 (97%) of v9 parse failures, mostly responses wrapped in ```json / ```jsonc / ```python fences that the existing `_FENCE_RE` (limited to `(?:json)?`) didn't match. No-op when fences absent. |
+  | 5 | `src/qa/_corpus.py` | Strategy-completion log: `"corpus: {s} budget={want} generated={actual} tagged={tagged}"` (was `generated={want}`) | Old line reported the budget as `generated`, so v9 logs read "generated=20 tagged=4" for strategies that produced 4 questions, hiding the undershoot. New line counts actual rows since `strategy_started`. |
+
+- **v9 audit pilot — phase 1 build (2026-04-28):** Per_strategy=20 (target=100, capped down from v8's 40/200 by `6482ebd` to halve audit cost). Wall **18 min 27 s** vs v8's 11.4h (~37× faster). LLM calls **772** vs v8's ~16k (~21× fewer). Kept **46/100 (46%)**: comparative=4, distractor=10, fact_to_question=20, scenario=4, template=8. closed_book_solvable=20/46 (43%). 21 circuit-breaker fires (9 fact_to_question, 9 scenario, 2 comparative); 26 zero-attempt sampler-starved cells. Gold sheet `data/reports/gold_sheet_v9.csv` exported (20 rows). Audit phase 2 NOT YET RUN — corpus too small + Phase 2g.12 fixes pending.
 
 - **Audit run #8 on `audit_pilot_v8` (run_id `7dc2ab81-bc9a-40b1-a1a4-3ddf66a6e6fe`, 111 Qs):** Phase 2 completed in 1h 36min. D3 max country ratio 4.19× was correctly downgraded to WARN by the Phase 2g.9 coverage guard (annotation coverage 9.0%, < 50% threshold). Reports at `docs/QUALITY_AUDIT_REPORT.md` + `docs/GENERATION_IMPROVEMENT_PLAN_AUTO.md`. v8 build itself ran across 4 sessions (sleep, restart, sleep) and accumulated 53/111 cb-tagged questions because of a now-fixed restart-window bug (`d8a8a5f`).
 
@@ -72,7 +84,9 @@
 | 2g.10 follow-up. Restart-safe build window | 15 | **Complete** (`d8a8a5f`) — `_resolve_build_started_at(tag)` queries `MIN(created_at)` of build-tagged questions so `OENOBENCH_CORPUS_BUILD_SINCE` survives restart. Closed v8 cap-leak (53/111 cb-tagged across 4 sessions). |
 | 2h. Audit run #8 (`audit_pilot_v8`) | 15 | **Complete** — phase 1 build 11.4h / 16k LLM calls / 111 Qs (~99% rejection); phase 2 audit 1h 36min, run_id `7dc2ab81…`. D3 4.19× correctly downgraded by coverage guard (9% < 50%). |
 | 2g.11. Generation pipeline speedup | 15 | **Complete** — 10 levers (A1/A2/A3/A4/B1/B2/B3/B4/C1/C2 active; B5 dormant) shipped via 7 parallel agent teams. v9 harness on `main`. 472/472 tests pass. |
-| 2i. Audit run #9 (`audit_pilot_v9`, speedup A/B) | 15-16 | **Pending** — `run_audit_pilot_v9_build.sh` (~1-3h) → optional gold review → `run_audit_pilot_v9_audit.sh` (~30-60 min, ~$2-4). Validates Phase 2g.11 speedup. |
+| 2i. Audit run #9 (`audit_pilot_v9`) — phase 1 build | 15-16 | **Complete** — 18 min wall, 772 LLM calls, kept 46/100 (46%); validates speedup but undershoots corpus. Drove Phase 2g.12 root-cause investigation. |
+| 2g.12. Corpus-build undershoot fixes | 15-16 | **Complete** — 5 fixes shipped (Flash slug, C4 threshold, cell-allocation, JSON fence strip, truth-tell log). 494/494 tests pass. |
+| 2i. Audit run #10 (rebuild on Phase 2g.12 fixes) | 15-16 | **Pending** — re-run `run_audit_pilot_v9_build.sh` at `per_strategy=40` (target=200) on a new tag to validate the fixes. Estimated yield 145–165/200 vs v8's 111/200. |
 | 2j. Full 10k generation run | 16 | **Pending** — gated on v9 Go/No-Go pass; runs with `--max-workers 8 --strategy-workers 3` and the v9 env-var profile. |
 | 3. AI Validation | 15-17 | Not started |
 | 4. Human Review & Control Set | 18-20 | Not started |

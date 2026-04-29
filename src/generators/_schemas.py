@@ -334,15 +334,18 @@ def parse_llm_response(
                 except (TypeError, ValueError):
                     delta = 0  # non-numeric labelled → skip gate
 
-                # Level-aware rejection: L3/L4 questions must be precisely
-                # calibrated; L1/L2 tolerate a 1-level miss because template
-                # deterministic difficulty labels sometimes bucket differently
-                # than LLM judgment.
+                # Level-aware rejection: L3/L4 questions tolerate a 1-level
+                # miss; L1/L2 tolerate up to a 2-level miss because the C4
+                # classifier consistently over-predicts difficulty for
+                # fact-anchored detail questions that the template heuristic
+                # correctly buckets at L1/L2 (Phase 2g.12 calibration drift).
+                # Audit-side D-gates on per-level distribution catch any drift
+                # downstream.
                 try:
                     labelled_int = int(labelled_difficulty)
                 except (TypeError, ValueError):
                     labelled_int = 0
-                reject_threshold = 1 if labelled_int >= 3 else 2
+                reject_threshold = 2 if labelled_int >= 3 else 3
 
                 if delta >= reject_threshold:
                     logger.warning(

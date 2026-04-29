@@ -85,6 +85,63 @@ LLM_STRATEGIES = {"fact_to_question", "comparative", "scenario_synthesis", "dist
 GENERATORS = ["claude", "chatgpt", "gemini", "llama", "qwen"]
 
 
+def _build_cell_calls(
+    strategy: str,
+    module: str,
+    want: int,
+    per_country_cap: float | None,
+) -> list[dict]:
+    """Build the per-strategy cell list for ``_run_one_strategy``.
+
+    Phase 2g.12 (Team C). Extracted from ``build_pilot_corpus._run_one_strategy``
+    so the cell-allocation formula is unit-testable. Callers must seed
+    ``random`` for deterministic shuffles in tests.
+
+    LLM-pickable strategies use ``cell_count = max(1, min(G*D, want // 2))``
+    so each cell carries ≥2 budget for any want ≥ 4. The previous formula
+    (per_cell = max(1, want // (G*D))) scheduled all 30 cells with take=1
+    when want < 30, silently overspent the budget by up to 50%, and
+    starved sampler-empty cells out at 0 questions each. v9 audit-pilot
+    saw 26/60 cells exit zero-attempt.
+
+    Non-LLM strategies (template) use the simpler per-domain formula —
+    they don't rotate generators and have a denser viable-fact pool.
+    """
+    cell_calls: list[dict] = []
+    if strategy in LLM_STRATEGIES:
+        total_cells = len(GENERATORS) * len(DOMAINS)
+        cell_count = max(1, min(total_cells, want // 2))
+        all_cells = [(g, d) for g in GENERATORS for d in DOMAINS]
+        random.shuffle(all_cells)
+        cells = all_cells[:cell_count]
+        per_cell = max(1, want // cell_count)
+        rem = want - per_cell * cell_count
+        for g, d in cells:
+            take = per_cell + (1 if rem > 0 else 0)
+            if rem > 0:
+                rem -= 1
+            if take <= 0:
+                continue
+            cell_calls.append({
+                "module": module, "domain": d, "count": take,
+                "generator": g, "per_country_cap": per_country_cap,
+            })
+    else:
+        per_cell = max(1, want // len(DOMAINS))
+        rem = want - per_cell * len(DOMAINS)
+        doms = DOMAINS[:]
+        random.shuffle(doms)
+        for d in doms:
+            take = per_cell + (1 if rem > 0 else 0)
+            if rem > 0:
+                rem -= 1
+            cell_calls.append({
+                "module": module, "domain": d, "count": take,
+                "per_country_cap": per_country_cap,
+            })
+    return cell_calls
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 
@@ -573,35 +630,9 @@ def build_pilot_corpus(
         # sequentially (max_workers=1, default — bit-for-bit reproducible)
         # or concurrently (max_workers≥2 via --max-workers / env var).
         # Phase 2g.10 (Team Delta A3).
-        cell_calls: list[dict] = []
-        if strategy in LLM_STRATEGIES:
-            per_cell = max(1, want // (len(GENERATORS) * len(DOMAINS)))
-            rem = want - per_cell * len(GENERATORS) * len(DOMAINS)
-            cells = [(g, d) for g in GENERATORS for d in DOMAINS]
-            random.shuffle(cells)
-            for g, d in cells:
-                take = per_cell + (1 if rem > 0 else 0)
-                if rem > 0:
-                    rem -= 1
-                if take <= 0:
-                    continue
-                cell_calls.append({
-                    "module": module, "domain": d, "count": take,
-                    "generator": g, "per_country_cap": per_country_cap,
-                })
-        else:
-            per_cell = max(1, want // len(DOMAINS))
-            rem = want - per_cell * len(DOMAINS)
-            doms = DOMAINS[:]
-            random.shuffle(doms)
-            for d in doms:
-                take = per_cell + (1 if rem > 0 else 0)
-                if rem > 0:
-                    rem -= 1
-                cell_calls.append({
-                    "module": module, "domain": d, "count": take,
-                    "per_country_cap": per_country_cap,
-                })
+        # Phase 2g.12 (Team C): right-size LLM-strategy cell allocation.
+        # Extracted to ``_build_cell_calls`` for unit-testability.
+        cell_calls = _build_cell_calls(strategy, module, want, per_country_cap)
 
         if workers <= 1:
             for kw in cell_calls:
@@ -621,8 +652,28 @@ def build_pilot_corpus(
             limit=want,
             tag=tag,
         )
-        logger.info("corpus: {} generated={} tagged={}", strategy, want, tagged)
-        return strategy, {"generated": want, "tagged": tagged, "skipped": False}
+        # Phase 2g.12 (Team C): the previous log line reported
+        # `generated={want}` — the budget, not the actual rowcount. v9
+        # logs read "generated=20 tagged=4" for strategies that produced
+        # 4 questions, which buried the undershoot. Count actual rows
+        # produced by this strategy since strategy_started so the log
+        # tells the truth.
+        with get_pg().cursor() as _cur:
+            _cur.execute(
+                "SELECT COUNT(*) AS n FROM questions q "
+                "JOIN generation_metadata gm ON gm.question_id = q.id "
+                "WHERE gm.generation_method = %s AND q.created_at >= %s",
+                (strategy, strategy_started),
+            )
+            actual = _cur.fetchone()["n"]
+        logger.info(
+            "corpus: {} budget={} generated={} tagged={}",
+            strategy, want, actual, tagged,
+        )
+        return strategy, {
+            "budget": want, "generated": actual, "tagged": tagged,
+            "skipped": False,
+        }
 
     results: dict[str, dict] = {}
     try:

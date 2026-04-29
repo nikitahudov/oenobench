@@ -95,10 +95,13 @@ def should_skip_verifier(
 # on every OpenRouter route).
 
 VERIFIER_MODEL_ENV_VAR = "OENOBENCH_VERIFIER_MODEL"
-# OpenRouter listing chosen at lever-C2 time (2026-04-28). If the
-# `*-preview-20260219` slug is not yet listed at runtime, the failover
-# below kicks in and the Pro fallback runs.
-_VERIFIER_FLASH_DEFAULT = "google/gemini-3.1-flash-preview-20260219"
+# Phase 2g.12 (2026-04-29): the `*-flash-preview-20260219` slug returns
+# OpenRouter 400 ("not a valid model ID"), so every Llama/Qwen template
+# verify call wasted a round-trip before failing over to Pro. Point the
+# default at the Pro slug until a real Flash 3.1 listing appears; the
+# env-var override stays in place so a future Flash slug can be flipped
+# in without a code change.
+_VERIFIER_FLASH_DEFAULT = "google/gemini-3.1-pro-preview"
 _VERIFIER_PRO_FALLBACK = "google/gemini-3.1-pro-preview"
 
 
