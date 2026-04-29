@@ -85,6 +85,125 @@ LLM_STRATEGIES = {"fact_to_question", "comparative", "scenario_synthesis", "dist
 GENERATORS = ["claude", "chatgpt", "gemini", "llama", "qwen"]
 
 
+def _count_strategy_rows_since(strategy: str, since: datetime) -> int:
+    """Count actual questions produced by ``strategy`` since ``since``.
+
+    Phase 2g.13 (Team C): used by the multi-pass loop in ``_run_one_strategy``
+    to detect (a) success (actual >= want), (b) no-progress (this pass added
+    zero rows → sampler ceiling reached), and (c) the final yield that the
+    truth-tell log reports.
+    """
+    with get_pg().cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) AS n FROM questions q "
+            "JOIN generation_metadata gm ON gm.question_id = q.id "
+            "WHERE gm.generation_method = %s AND q.created_at >= %s",
+            (strategy, since),
+        )
+        return cur.fetchone()["n"]
+
+
+# Phase 2g.13 (Team C): multi-pass loop in ``_run_one_strategy``. Default 1
+# preserves Phase 2g.12 behaviour exactly. Audit-pilot scripts can opt in by
+# setting OENOBENCH_MAX_BUILD_PASSES=3 to retry under-budget strategies.
+MAX_BUILD_PASSES_ENV_VAR = "OENOBENCH_MAX_BUILD_PASSES"
+DEFAULT_MAX_BUILD_PASSES = 1
+
+
+def _resolve_max_build_passes() -> int:
+    """Resolve OENOBENCH_MAX_BUILD_PASSES with a safe lower bound of 1."""
+    raw = os.environ.get(MAX_BUILD_PASSES_ENV_VAR, "").strip()
+    if not raw:
+        return DEFAULT_MAX_BUILD_PASSES
+    try:
+        n = int(raw)
+    except ValueError:
+        logger.warning(
+            "{}={!r} is not an integer; falling back to {}",
+            MAX_BUILD_PASSES_ENV_VAR, raw, DEFAULT_MAX_BUILD_PASSES,
+        )
+        return DEFAULT_MAX_BUILD_PASSES
+    return max(1, n)
+
+
+def _execute_strategy_passes(
+    *,
+    strategy: str,
+    module: str,
+    want: int,
+    per_country_cap: float | None,
+    workers: int,
+    strategy_started: datetime,
+    max_passes: int,
+    run_generator_fn=None,
+    count_rows_fn=None,
+) -> int:
+    """Run cell allocation + execution up to ``max_passes`` times.
+
+    Phase 2g.13 (Team C). Extracted from ``_run_one_strategy`` so the
+    multi-pass loop is unit-testable independently of the DB.
+
+    Exit conditions:
+      * actual >= want (success — full budget filled)
+      * pass produced 0 new rows AND pass_num > 1 (sampler ceiling)
+      * pass_num == max_passes (cap reached)
+
+    Returns the final ``actual`` rowcount produced by ``strategy`` since
+    ``strategy_started``.
+
+    Args:
+        run_generator_fn: Override for the per-cell dispatch. Tests pass
+            a stub that records cell calls without touching the DB. Falls
+            back to the module-level ``_run_generator`` when None.
+        count_rows_fn: Override for the rowcount query. Tests pass a stub
+            that returns scripted yields. Falls back to
+            ``_count_strategy_rows_since`` when None.
+    """
+    if run_generator_fn is None:
+        run_generator_fn = _run_generator
+    if count_rows_fn is None:
+        count_rows_fn = _count_strategy_rows_since
+
+    actual = 0
+    for pass_num in range(1, max_passes + 1):
+        remaining = want - actual
+        if remaining <= 0:
+            break
+
+        cell_calls = _build_cell_calls(
+            strategy, module, remaining, per_country_cap,
+        )
+
+        if workers <= 1:
+            for kw in cell_calls:
+                run_generator_fn(**kw)
+        else:
+            with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+                futures = [ex.submit(run_generator_fn, **kw) for kw in cell_calls]
+                for fut in cf.as_completed(futures):
+                    try:
+                        fut.result()
+                    except Exception as e:  # noqa: BLE001
+                        logger.error("corpus: {} cell raised: {}", strategy, e)
+
+        new_actual = count_rows_fn(strategy, strategy_started)
+        produced = new_actual - actual
+        logger.info(
+            "corpus: {} pass {}/{} produced={} cumulative={}/{}",
+            strategy, pass_num, max_passes, produced, new_actual, want,
+        )
+        if produced == 0 and pass_num > 1:
+            logger.info(
+                "corpus: {} no-progress on pass {} — sampler ceiling "
+                "hit, stopping early",
+                strategy, pass_num,
+            )
+            break
+        actual = new_actual
+
+    return actual
+
+
 def _build_cell_calls(
     strategy: str,
     module: str,
@@ -626,25 +745,26 @@ def build_pilot_corpus(
         want = per_strategy - already
         strategy_started = datetime.now()
 
-        # Build the per-strategy cell list, then dispatch either
-        # sequentially (max_workers=1, default — bit-for-bit reproducible)
-        # or concurrently (max_workers≥2 via --max-workers / env var).
-        # Phase 2g.10 (Team Delta A3).
-        # Phase 2g.12 (Team C): right-size LLM-strategy cell allocation.
-        # Extracted to ``_build_cell_calls`` for unit-testability.
-        cell_calls = _build_cell_calls(strategy, module, want, per_country_cap)
-
-        if workers <= 1:
-            for kw in cell_calls:
-                _run_generator(**kw)
-        else:
-            with cf.ThreadPoolExecutor(max_workers=workers) as ex:
-                futures = [ex.submit(_run_generator, **kw) for kw in cell_calls]
-                for fut in cf.as_completed(futures):
-                    try:
-                        fut.result()
-                    except Exception as e:  # noqa: BLE001
-                        logger.error("corpus: {} cell raised: {}", strategy, e)
+        # Phase 2g.13 (Team C): multi-pass cell-execution loop.
+        #
+        # v10 build kept 53/120 (44%) — the Phase 2g.12 fixes eliminated
+        # pipeline waste, but the bottleneck moved upstream to legitimate
+        # quality refusals (LLM "fact too vague", substantiveness filter,
+        # sampler exhaustion of multi-fact bundles). Strategies that hit
+        # those gates exit under-budget with no recovery.
+        #
+        # The retry loop re-runs cell allocation with the REMAINING budget
+        # up to OENOBENCH_MAX_BUILD_PASSES iterations. Already-used facts
+        # are excluded naturally via ``get_used_fact_ids()`` inside each
+        # strategy module, so successive passes try fresh facts. Exit
+        # conditions: success (actual >= want), no-progress (pass added
+        # zero rows = hard sampler ceiling), or pass cap.
+        max_passes = _resolve_max_build_passes()
+        actual = _execute_strategy_passes(
+            strategy=strategy, module=module, want=want,
+            per_country_cap=per_country_cap, workers=workers,
+            strategy_started=strategy_started, max_passes=max_passes,
+        )
 
         tagged = _tag_rows(
             generation_method=strategy,
@@ -652,20 +772,6 @@ def build_pilot_corpus(
             limit=want,
             tag=tag,
         )
-        # Phase 2g.12 (Team C): the previous log line reported
-        # `generated={want}` — the budget, not the actual rowcount. v9
-        # logs read "generated=20 tagged=4" for strategies that produced
-        # 4 questions, which buried the undershoot. Count actual rows
-        # produced by this strategy since strategy_started so the log
-        # tells the truth.
-        with get_pg().cursor() as _cur:
-            _cur.execute(
-                "SELECT COUNT(*) AS n FROM questions q "
-                "JOIN generation_metadata gm ON gm.question_id = q.id "
-                "WHERE gm.generation_method = %s AND q.created_at >= %s",
-                (strategy, strategy_started),
-            )
-            actual = _cur.fetchone()["n"]
         logger.info(
             "corpus: {} budget={} generated={} tagged={}",
             strategy, want, actual, tagged,
