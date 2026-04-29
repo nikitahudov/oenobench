@@ -1,0 +1,94 @@
+uuid,public_qid,strategy,generator,domain,difficulty,cognitive_dim,question_text,options,correct_answer,source_facts,answer_correct,distractors_plausible,not_ambiguous,source_faithful,needs_source,no_vague_language,difficulty_match,cognitive_match,verbatim_copy,wine_category_leak,notes
+39a6b6ea-46f8-4212-9235-672f713c1a33,WB-GRP-0542-L3,comparative,claude,grape_varieties,1,analysis,"A red wine DOC is described whose blends are built around Corvina as the signature grape. A separate DOC, Orta Nova in Apulia, permits blending with Uva di Troia, Lambrusco Maestri and Trebbiano. Which pairing correctly matches each classification to its principal grape or region?","[{'id': 'A', 'text': 'Both DOCs are anchored by Corvina, with Montepulciano as an optional blending grape'}, {'id': 'B', 'text': 'Both DOCs are anchored by Montepulciano, with Corvina permitted only in Orta Nova'}, {'id': 'C', 'text': 'Corvina-dominated DOC → Valpolicella; Orta Nova DOC blend partner → Montepulciano'}, {'id': 'D', 'text': 'Corvina-dominated DOC → Montepulciano; Orta Nova DOC blend partner → Valpolicella'}]",C,"[1] == Grapes and wine styles ==
+
+Most of the wines produced under the Valpolicella DOC are red and usually contain a sizable amount of the area's most distinguished grape, Corvina.
+---
+[2] Can be blended with Cabernet Sauvignon
+Orta Nova DOC (Apulia) – can be blended with Uva di Troia, Lambrusco Maestri and Trebbiano.",,,,,,,,,,,
+362f3e77-0d4d-426c-bdf4-8f346822951f,WB-GRP-0547-L3,scenario_synthesis,chatgpt,grape_varieties,1,synthesis,"A Washington winemaker is considering whether to bottle a Malbec on its own instead of using it only to deepen the color and fruit profile of blends, as was more common historically in Bordeaux. In trial lots from a high-desert site with glacially derived soils, the wine shows ripe raspberry and dark-fruit character with medium acidity and tannin. Based on these observations, which vineyard source best supports releasing the varietal wine?","[{'id': 'A', 'text': 'A Malbec block in the Lake Chelan AVA'}, {'id': 'B', 'text': 'Any Washington Malbec site, since glacial soils there generally give the same profile'}, {'id': 'C', 'text': 'A Washington site outside the high-desert exception, where Malbec would be expected to follow the broader state pattern'}, {'id': 'D', 'text': 'A Bordeaux parcel where Malbec is intended mainly to add color and fruit to blends'}]",A,"[1] Malbec grapes grown in the glacial soils found within the Lake Chelan AVA produce wines possessing ripe raspberry - black fruit aromas and flavors with moderate acidity and tannins.
+---
+[2] An exception to this in Washington State is Malbec grown in the high desert Lake Chelan AVA terroir.
+---
+[3] Though the grape was historically a major planting in Bordeaux, providing color and fruit to its blends.",,,,,,,,,,,
+2c274e01-af11-4305-8dd1-dd0dde305aaf,WB-GRP-0540-L2,comparative,qwen,grape_varieties,2,analysis,"Which American Viticultural Area (AVA) includes winemaking regulations that allow the use of a white grape variety known for its aromatic intensity and high acidity, traditionally associated with coastal regions of Spain, in commercial plantings?","[{'id': 'A', 'text': 'Clements Hills AVA'}, {'id': 'B', 'text': 'Finger Lakes AVA'}, {'id': 'C', 'text': 'Indiana Uplands AVA'}, {'id': 'D', 'text': 'Columbia Valley AVA'}]",A,"[1] Clements Hills AVA permits the Albariño grape variety.
+---
+[2] Indiana Uplands AVA permits the Catawba grape variety.",,,,,,,,,,,
+0da30c39-40dc-4633-93e6-57555ac32a82,WB-VIT-0410-L2,scenario_synthesis,llama,viticulture,2,analysis,"A winemaker in the Mosel region is looking to plant Riesling vines in a new vineyard site. The site has no topsoil, only broken slate. Which factor would have the most significant impact on the quality of the resulting Riesling wine?","[{'id': 'A', 'text': 'The altitude of the vineyard site'}, {'id': 'B', 'text': 'The age of the slate deposits'}, {'id': 'C', 'text': 'The proximity to a body of water'}, {'id': 'D', 'text': 'The amount of rainfall the site receives'}]",A,"[1] Many of the best vineyards have no topsoil at all, just broken slate.
+---
+[2] Mosel wine region most common vineyard soil is derived in the main from various kinds of slate deposits.
+---
+[3] Factors such as altitude, aspect and sunlight exposure can have a pronounced effect not only on the resulting quality of the wine but also whether the Riesling grape will even.",,,,,,,,,,,
+ffa684f0-3433-4062-a469-46b24cdc4555,WB-GRP-0545-L3,scenario_synthesis,llama,grape_varieties,1,synthesis,"A winemaker in Cafayate, Argentina is looking to produce a high-quality white wine from Torrontés Riojano grapes. The region's dry climate during the growing season helps maintain the health of the grapes by limiting fungal diseases and rot. However, the rural location of the vineyards means the harvested grapes must be transported for several hours to reach the winemaking facilities in more urban areas. What should the winemaker do to ensure the grapes arrive in the best possible condition?","[{'id': 'A', 'text': 'Spray the grapes with water to prevent dehydration during the long journey'}, {'id': 'B', 'text': 'Harvest the grapes during the coolest part of the day to minimize oxidation and bacterial growth during transport'}, {'id': 'C', 'text': 'Allow the grapes to warm up before transport to promote the development of beneficial compounds'}, {'id': 'D', 'text': 'Crush the grapes at the vineyard and transport the juice instead to reduce the risk of spoilage'}]",B,"[1] Argentine wine particularly its sub-region of Cafayate, have been gaining the most worldwide attention the quality of its full bodied whites made from Torrontés Riojano as well as its fruity.
+---
+[2] Most of the growing season is dry with the lack of humidity limiting the risk and hazard from various grape diseases and fungal rot.
+---
+[3] After harvest, grapes often have to be transported long distances, taking several hours, from the rural vineyards to winemaking facilities located in more urban areas.",,,,,,,,,,,
+966b6bc0-04c2-4958-864f-c0533e8fed12,WB-BIZ-0289-L2,fact_to_question,claude,wine_business,2,recall,"Within the governance structure of Wines of South Africa (WOSA), which body is tasked with drafting legislation that arises from resolutions of the Board and the Management Committee?","[{'id': 'A', 'text': 'The Audit Committee'}, {'id': 'B', 'text': 'The Transformation Committee'}, {'id': 'C', 'text': 'The Marketing Committee'}, {'id': 'D', 'text': 'The Legal Committee'}]",D,[1] The Legal Committee is responsible for formulating draft legislation emanating from decisions made by the Board and the Management Committee.,,,,,,,,,,,
+a533233a-d003-44a3-9c2b-55e3999b0473,WB-WMK-0329-L2,fact_to_question,chatgpt,winemaking,2,recall,"For the traditional-method sparkling appellation Trentodoc, what is the minimum time a non-vintage wine must spend aging on its lees?","[{'id': 'A', 'text': '12 months'}, {'id': 'B', 'text': '15 months'}, {'id': 'C', 'text': '18 months'}, {'id': 'D', 'text': '24 months'}]",B,"[1] According to regulations, Trentodoc can be produced as white or rosé in the following versions: ▪ Non-Vintage : at least 15 months aging on its lees ▪ Millesimato : at.",,,,,,,,,,,
+70385d34-2a6b-4502-aae7-8532e63479b7,WB-REG-0460-L4,template,template_only,wine_regions,4,comprehension,"Given the fact, the Lower Long Tom AVA falls within which county?","[{'id': 'A', 'text': 'Benton|Lane'}, {'id': 'B', 'text': 'Benton|Klickitat|Yakima'}, {'id': 'C', 'text': 'Benton|Yakima'}, {'id': 'D', 'text': 'Benton|Clackamas|Lane|Linn|Marion|Multnomah|Polk|Washington|Yamhill'}]",A,[1] Lower Long Tom AVA is located in Benton|Lane County.,,,,,,,,,,,
+14412862-74cd-4f5d-9679-d179a63539bd,WB-VIT-0409-L3,comparative,claude,viticulture,1,analysis,A central Italian wine zone caps production at 7.5 tonnes per hectare (roughly 3 tonnes per acre) to concentrate quality in its reds. Which region enforces this yield ceiling?,"[{'id': 'A', 'text': 'Morellino di Scansano'}, {'id': 'B', 'text': 'Valpolicella Classico'}, {'id': 'C', 'text': 'Chianti Classico'}, {'id': 'D', 'text': 'Montefalco Sagrantino'}]",C,"[1] The harvest yields for Chianti Classico are restricted to no more than 7.5 t/ha (3 tonnes per acre).
+---
+[2] The steepness of the hills means that everything, from pruning to picking, is principally done by hand.",,,,,,,,,,,
+7404ffd5-dde6-4334-8e32-1238b1225261,WB-VIT-0412-L3,distractor_mining,gemini,viticulture,1,analysis,"Identify the Champagne producer that cultivates an estate spanning twenty-eight hectares, primarily situated within the Côte des Blancs, and includes Premier cru holdings located in Mareuil-sur-Aÿ and Cuis.","[{'id': 'A', 'text': 'Charles de Cazanove'}, {'id': 'B', 'text': 'Pierre Gimonnet & Fils'}, {'id': 'C', 'text': 'Benoît Lahaye'}, {'id': 'D', 'text': 'Veuve Clicquot'}]",B,"[1] == Wine-making ==
+
+
+=== Crayères ===
+
+The oldest parts of the Veuve Clicquot cellars (the ""crayères"") were originally chalk-pits (chalk quarries).
+---
+[2] Veuve Clicquot now owns 971 acres (393 ha) of vineyards, with an average rating of 71% on the ""échelle des crus"".
+---
+[3] Benoît Lahaye has 4.8 hectares (12 acres) of vines, became organic-certified in 2003.
+---
+[4] The viticultural boundaries of Champagne are legally defined and split into five wine-producing districts within the historical province: Aube, Côte des Blancs, Côte de Sézanne, Montagne de Reims.
+---
+[5] Charles de Cazanove was further developed by his botanist son Charles Nicolas de Cazanove who was a leader in the efforts to fight phylloxera.
+---
+[6] Pierre Gimonnet & Fils has  28 hectares based in the Côte des Blancs with Premier cru sites in Cuis and Mareuil-sur Aÿ.",,,,,,,,,,,
+f1341a3c-80c3-4851-98d8-60830141154e,WB-GRP-0550-L2,fact_to_question,qwen,grape_varieties,2,recall,"For a wine to be labeled with a specific viticultural area in Canada, what minimum percentage of the grapes must be sourced from that region?","[{'id': 'A', 'text': '90 percent'}, {'id': 'B', 'text': '95 percent'}, {'id': 'C', 'text': '75 percent'}, {'id': 'D', 'text': '85 percent'}]",B,[1] Wines bearing the name of a viticultural area are produced from a minimum of 95 percent of the grapes grown in the designated area.,,,,,,,,,,,
+77bffa85-40db-432a-8d05-c88ef65932cf,WB-PRD-0381-L2,fact_to_question,gemini,producers,2,recall,"Which enterprise, established by chief executive Red Johnson, focuses on managing international distribution for over twenty domestic UK wine and liquor producers?","[{'id': 'A', 'text': 'Liberty Wines'}, {'id': 'B', 'text': 'Boutinot'}, {'id': 'C', 'text': 'Enotria&Coe'}, {'id': 'D', 'text': 'The British Bottle Company'}]",D,"[1] About The British Bottle Company: The British Bottle Company was founded four years ago by CEO Red Johnson and manages exports for more than 20 British wine, spirits.",,,,,,,,,,,
+1cd0a4aa-7391-403d-b0ae-550512bbc508,WB-PRD-0380-L3,distractor_mining,qwen,producers,1,analysis,"Which individual became the first African American woman to lead a winery in a prominent U.S. wine region, marking a historic milestone in the country's viticultural industry?","[{'id': 'A', 'text': 'Tiquette Bramlett'}, {'id': 'B', 'text': 'Flag Hill Winery'}, {'id': 'C', 'text': 'Hopewell Valley Vineyards'}, {'id': 'D', 'text': 'Jess Stonestreet Jackson Jr.'}]",A,"[1] McManis, owner of McManis Family Vineyards, proposing a new viticultural area in San Joaquin County to be known as ""River Junction.
+---
+[2] The family's 1974 purchase of an 80-acre (32 ha) pear and walnut orchard in Lakeport, California, was converted to a vineyard.
+---
+[3] Hopewell Valley Vineyards is a wine producer in New Jersey, United States.
+---
+[4] Flag Hill Winery is a wine producer in New Hampshire, United States.
+---
+[5] Johnson, owner of Carlos Creek Winery, proposing a viticultural area named ""Alexandria Lakes."" The appellation encompasses approximately 10.
+---
+[6] Tiquette Bramlett is the first black woman appointed to oversee a winery in a major U.S.",,,,,,,,,,,
+76098f84-09cd-4a66-8624-4615f7f9c6b2,WB-GRP-0539-L4,template,template_only,grape_varieties,4,comprehension,"Based on the source fact, | varietals = is grown in which wine region?","[{'id': 'A', 'text': 'Covas do Douro'}, {'id': 'B', 'text': 'Moimenta e Montouto'}, {'id': 'C', 'text': 'Entre-Deux-Mers AOC'}, {'id': 'D', 'text': 'Freguesia de Mar'}]",C,[1] Entre-Deux-Mers AOC permits the | varietals = grape variety.,,,,,,,,,,,
+ec533699-e673-43cb-b7c5-ee2f1e9aa2c2,WB-PRD-0378-L3,template,template_only,producers,3,recall,Decide True or False — Bodegas Palomino y Vergara is a producer of the Jerez de la Frontera wine region.,"[{'id': 'A', 'text': 'True'}, {'id': 'B', 'text': 'False'}]",A,[1] Bodegas Palomino y Vergara is a wine producer located in Jerez de la Frontera.,,,,,,,,,,,
+1a730bb6-2339-4a6d-b115-591c3f3c0361,WB-GRP-0543-L2,comparative,llama,grape_varieties,1,analysis,Which grape variety is principally used in the production of Falerno del Massico wine from the province of Caserta?,"[{'id': 'A', 'text': 'Aglianico'}, {'id': 'B', 'text': 'Nebbiolo'}, {'id': 'C', 'text': 'Barbera'}, {'id': 'D', 'text': 'Sangiovese'}]",A,"[1] More Aglianico can be found in the province of Caserta, as the principal grape of Falerno del Massico.
+---
+[2] In the Veneto, there is a small amount which some producers use to make a Nebbiolo recioto wine.",,,,,,,,,,,
+70b2b03a-2981-4e48-acb3-89dd94461c26,WB-REG-0462-L3,template,template_only,wine_regions,1,application,"A retailer lists Sonoita AVA wines on its website under state. Per the fact, which state should be used?","[{'id': 'A', 'text': 'Idaho'}, {'id': 'B', 'text': 'Oregon'}, {'id': 'C', 'text': 'California'}, {'id': 'D', 'text': 'Arizona'}]",D,[1] The Sonoita AVA was established in 1984 in Arizona.,,,,,,,,,,,
+86404712-08cc-4df1-96aa-3914ec318c0e,WB-GRP-0548-L2,scenario_synthesis,claude,grape_varieties,1,application,"A Sardinian producer is finalizing the blend for a wine to be labeled under the island's main DOC for this grape, which local tradition calls Cannonau. The winemaker has three red lots from the 2023 harvest: a late-picked Cannonau lot brought in roughly two weeks after the estate's Cabernet Sauvignon parcel, a Carignan lot, and a Syrah lot. The cellar team proposes a final blend of 82% Cannonau, 12% Carignan, and 6% Syrah, arguing this balances fruit concentration with structure. Why must the winemaker reject this proposed blend if the wine is to be sold under this DOC?","[{'id': 'A', 'text': 'The DOC prohibits the inclusion of any Syrah in the blend regardless of percentage.'}, {'id': 'B', 'text': 'Because Cannonau typically ripens weeks before Cabernet Sauvignon, the late-picked lot likely suffered hangtime issues and cannot be used in a DOC wine.'}, {'id': 'C', 'text': 'The DOC requires that the designated local grape make up at least 90% of the blend, so Cannonau at 82% falls short of the legal minimum.'}, {'id': 'D', 'text': 'DOC rules require the Cannonau to be harvested before the Cabernet Sauvignon parcel to qualify for appellation labeling.'}]",C,"[1] Grenache history in the Rhône can be traced to the influence of Burgundian wine merchants in the 17-18th centuries who sought a blending variety to add body and alcohol content.
+---
+[2] wine Cannonau di Sardegna is by law at least 90% local Grenache (Cannonau).
+---
+[3] Grenache is often one of the last grapes to be harvested, often ripening weeks after Cabernet Sauvignon.",,,,,,,,,,,
+af65f743-873e-4fc2-a2e4-a02290a09c04,WB-VIT-0411-L3,distractor_mining,chatgpt,viticulture,1,analysis,A Spanish grape now largely confined to Majorca covers about 320 hectares (roughly 790 acres). Which grape matches that vineyard area?,"[{'id': 'A', 'text': 'Trepat — about 1,500 hectares (3,700 acres)'}, {'id': 'B', 'text': 'Mencía — over 9,100 hectares (22,000 acres) in Spain'}, {'id': 'C', 'text': 'Malvar — nearly 2,500 hectares (6,200 acres)'}, {'id': 'D', 'text': 'Manto negro — about 320 hectares (790 acres)'}]",D,"[1] As of 2025 harvest, Penedès makes history as the first wine appellation with 100% certified organic production.
+---
+[2] In Spain, it is planted on over 9,100 hectares (22,000 acres), with another 2,500 hectares (6,200 acres) in neighboring Portugal.
+---
+[3] At just 22 hectares, Pago Calzadilla is the smallest wine DOP in Spain.
+---
+[4] In the late 20th century there was nearly 2,500 hectares (6,200 acres) of Malvar planted.
+---
+[5] Today, Manto negro is almost exclusively found on the island of Majorca with 320 hectares (790 acres).
+---
+[6] Today there are approximately 1,500 hectares (3,700 acres) of the variety, used mostly for light rosé.",,,,,,,,,,,
+5d349cd8-c535-4374-9685-c81827b2cc33,WB-REG-0466-L4,distractor_mining,qwen,wine_regions,4,analysis,"Which individual is associated with achieving the distinction of being the third person from the village of Mehring to be crowned a wine queen of the Moselle region, and thereby becoming the 12th overall representative from that wine region?","[{'id': 'A', 'text': 'Moselle wine'}, {'id': 'B', 'text': 'Lena Endesfelder'}, {'id': 'C', 'text': 'Saxon Wine Queen'}, {'id': 'D', 'text': 'Marlies Dumbsky'}]",B,"[1] Additionally, the wine has to score an average of at least 3 points in the official wine examination (Amtliche Weinprüfung).
+---
+[2] In the year following her 'reign' she is entitled to run for election as the German Wine Queen.
+---
+[3] === Special and regional wine types ===
+There are also a number of specialty and regional wines, considered as special version of some quality category.
+---
+[4] From  2004 to 2006 she was the local wine princess of her home town.
+---
+[5] Moselle wine is produced in three countries along the river Moselle: France, Luxembourg (the Musel) and Germany (the Mosel).
+---
+[6] Lena Endesfelder also became the 12th wine queen from the Moselle region and the third to come from the village of Mehring.",,,,,,,,,,,

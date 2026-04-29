@@ -1,0 +1,173 @@
+uuid,public_qid,strategy,generator,domain,difficulty,cognitive_dim,question_text,options,correct_answer,source_facts,answer_correct,distractors_plausible,not_ambiguous,source_faithful,needs_source,no_vague_language,difficulty_match,cognitive_match,verbatim_copy,wine_category_leak,notes
+295fc4f2-cc77-4b5e-ac55-a6ea5f570841,WB-GRP-0537-L3,scenario_synthesis,claude,grape_varieties,1,application,"A Kakhetian cellar is preparing two dry white cuvées for export labeling review. One is a field blend drawn from vineyards in Telavi and Kvareli, fermented to 10.5% alcohol with 1.5% residual sugar and titrated acidity of 6 g/L. The winemaker wants to bottle it under a traditional Georgian appellation name. Which appellation fits this wine, and what two grapes must the final blend be composed of?","[{'id': 'A', 'text': 'Tsinandali, blended from Mtsvane and Kisi'}, {'id': 'B', 'text': 'Kindzmarauli, blended from Mtsvane and Khikhvi'}, {'id': 'C', 'text': 'Tsinandali, blended from Rkatsiteli and Saperavi'}, {'id': 'D', 'text': 'Tsinandali, blended from Rkatsiteli and Mtsvane'}]",D,"[1] The alcohol content is 9–11.5%, sugar content 1-2%, titrated acidity 5-7 g/L.
+---
+[2] Tsinandali is a blend of Rkatsiteli and Mtsvane grapes from the micro-regions of Telavi and Kvareli in the Kakheti region.
+---
+[3] Georgian wine strength is 18 vol.%, sugar content 7%, titrated acidity 3-7 g/L.",,,,,,,,,,,
+b212fcc9-2ac4-4b82-a86a-b91f236e71d6,WB-WMK-0320-L2,fact_to_question,chatgpt,winemaking,1,recall,"Which country includes the Slavonian oak forest, a notable source of oak in cooperage?","[{'id': 'A', 'text': 'Slovenia'}, {'id': 'B', 'text': 'Serbia'}, {'id': 'C', 'text': 'Croatia'}, {'id': 'D', 'text': 'Hungary'}]",C,[1] Croatia is also home to the Slavonian oak forest.,,,,,,,,,,,
+ec55f621-b50d-46f9-b891-b7999a0f06b5,WB-GRP-0532-L2,comparative,chatgpt,grape_varieties,2,analysis,"One of these two Italian wine contexts allows 60% red grape varieties, while the other allows 33%. Which option matches them correctly?","[{'id': 'A', 'text': 'Both Piedmont wine and Viticulture in Sicily = 60%'}, {'id': 'B', 'text': 'Both Piedmont wine and Viticulture in Sicily = 33%'}, {'id': 'C', 'text': 'Piedmont wine = 60%; Viticulture in Sicily = 33%'}, {'id': 'D', 'text': 'Piedmont wine = 33%; Viticulture in Sicily = 60%'}]",C,"[1] Piedmont wine permits the 60% red varieties grape variety.
+---
+[2] Viticulture in Sicily permits the 33% red varieties grape variety.",,,,,,,,,,,
+601fd2a0-09b4-493f-ab32-b3bde945fdda,WB-GRP-0533-L4,scenario_synthesis,gemini,grape_varieties,4,synthesis,"A California winery group is expanding its red wine portfolio by developing newly acquired vineyard sites in three distinct appellations: Carmel Valley, River Junction, and the Russian River Valley. The viticulture director is finalizing the planting blocks for two specific red varieties to ensure strict compliance with local appellation authorizations. Relying on regional regulations for approved cultivars, which distribution of vines should the director approve?","[{'id': 'A', 'text': 'Cultivate Alicante Bouschet in both the Carmel Valley and River Junction sites, while dedicating the Russian River Valley acreage to Cabernet Sauvignon.'}, {'id': 'B', 'text': 'Cultivate Cabernet Sauvignon in both the Carmel Valley and River Junction sites, while dedicating the Russian River Valley acreage to Alicante Bouschet.'}, {'id': 'C', 'text': 'Assign Alicante Bouschet to the River Junction site, and plant Cabernet Sauvignon across both the Russian River Valley and Carmel Valley properties.'}, {'id': 'D', 'text': 'Assign Cabernet Sauvignon exclusively to the Russian River Valley site, while planting Alicante Bouschet across both Carmel Valley and River Junction.'}]",B,"[1] River Junction AVA permits the Cabernet Sauvignon grape variety.
+---
+[2] Russian River Valley AVA permits the Alicante Bouschet grape variety.
+---
+[3] Carmel Valley AVA permits the Cabernet Sauvignon grape variety.",,,,,,,,,,,
+a0cbb6d7-b0c7-43d7-ad83-049b988824e3,WB-GRP-0516-L3,comparative,llama,grape_varieties,3,analysis,"Which grape variety is a white grape according to the University of California, Davis Viticulture and Enology program?","[{'id': 'A', 'text': 'Merlot'}, {'id': 'B', 'text': 'New York Muscat'}, {'id': 'C', 'text': 'Albillo Mayor'}, {'id': 'D', 'text': 'Cabernet Sauvignon'}]",C,"[1] Albillo Mayor is a white grape variety according to UC Davis FPS.
+---
+[2] New York Muscat is a black grape variety according to UC Davis FPS.",,,,,,,,,,,
+71d2cc4f-c876-4fed-ad95-0c06f27fb5e5,WB-VIT-0408-L3,scenario_synthesis,qwen,viticulture,1,application,"A winemaking team is designing a heritage-focused project in a region known for ancient viticulture, aiming to replicate traditional methods based on archaeological evidence. They plan to cultivate vines in a way that integrates them with existing fruit trees, allowing the grape clusters to hang near ripening fruit. The team also intends to ferment and age the wine in large, egg-shaped clay vessels, which will be buried underground to maintain a stable temperature throughout the maturation process. Historical records indicate that this region has supported grape cultivation and fermentation in such vessels for over eight millennia. Given these conditions, which factor most strongly supports the authenticity of their methodological choices?","[{'id': 'A', 'text': 'The integration of grapevines with fruit trees reflects a historical agricultural pattern documented in ancient viticultural sites.'}, {'id': 'B', 'text': 'The warm climate justifies extended skin contact, a hallmark of oxidative white styles.'}, {'id': 'C', 'text': 'The buried clay vessels correspond to a tradition of subterranean wine storage dating back to the 6th millennium BCE in this area.'}, {'id': 'D', 'text': 'The use of underground fermentation vessels aligns with modern temperature-control practices in cool-climate regions.'}]",C,"[1] == Growing conditions ==
+Georgia's territorial and climate conditions are optimal for wine-making.
+---
+[2] Georgian wine from 6000 BC inhabitants of the current Georgia were cultivating grapes and burying clay vessels, kvevris, in which to store their wine ready for serving at ground temperature.
+---
+[3] The soil in vineyards is so intensively cultivated that the grapevines grow up the trunks of fruit trees eventually hanging down along the fruit when they ripen.",,,,,,,,,,,
+7011deee-3d65-41bb-ad99-fb2c221d91b6,WB-REG-0458-L4,distractor_mining,claude,wine_regions,4,analysis,Which Austrian grape or wine category derives its nickname 'Rabiatperle' ('rabid pearl') from folk belief that its wild ancestor contained compounds capable of causing unusually intense intoxication?,"[{'id': 'A', 'text': 'St. Laurent'}, {'id': 'B', 'text': 'Ausbruch'}, {'id': 'C', 'text': 'Schilcher'}, {'id': 'D', 'text': 'Trockenbeerenauslese'}]",C,"[1] 'dried berry selection'), or TBA, is a German or Austrian botrytized wine made entirely from the individually selected grapes fully ""dried"" from Botrytis cinerea (""noble rot""), hence the name.
+---
+[2] In eastern Austria, a Heuriger (German pronunciation: [ˈhɔʏʁɪɡɐ]; Austrian pronunciation: Heiriga, Hungarian: Kurta kocsma) is a tavern where local winemakers serve their new wine under a special licence in alternating months during the growing season.
+---
+[3] Austrian wine comprises approximately 6% of total vineyards, or 1,053 hectares (2,600 acres).
+---
+[4] The grape was once a wild variety that was said to contain alcohol compounds that, allegedly, would induce wild inebriation, hence its colloquial name Rabiatperle - rabid pearl.
+---
+[5] The category was introduced into Austrian wine legislation in 1970, as a legalization of the production method allegedly already used in the area of Rust.
+---
+[6] Domaene Lilienfeld - Lilienfelderhof - is one of the oldest wine estates in Central Europe.",,,,,,,,,,,
+292119dc-c967-49a4-9962-28a007f3210d,WB-PRD-0360-L3,template,template_only,producers,3,recall,True or False: the producer Château Falfas sits within the Bayon-sur-Gironde wine region.,"[{'id': 'A', 'text': 'True'}, {'id': 'B', 'text': 'False'}]",A,[1] Château Falfas is a wine estate in Bayon-sur-Gironde.,,,,,,,,,,,
+fe235a2a-646a-4e8f-8688-ee3b2d289170,WB-PRD-0375-L3,distractor_mining,llama,producers,1,analysis,Which Georgian estate was home to a fashionable 19th century salon?,"[{'id': 'A', 'text': 'Teliani Valley'}, {'id': 'B', 'text': 'Imereti'}, {'id': 'C', 'text': 'Kakheti'}, {'id': 'D', 'text': 'Tsinandali'}]",D,"[1] Currently, wine is produced by thousands of small farmers (using primarily traditional techniques of wine-making), as well as by certain monasteries and modern wineries.
+---
+[2] Because of this, its cost is quite high at more than US$50 per bottle, direct from the winery.
+---
+[3] In a very good year, there are only about 1,000 bottles produced in the country, mainly by Teliani Valley.
+---
+[4] In recent years, a growing number of boutique family wineries have emerged in regions such as Kakheti, Imereti.
+---
+[5] The National Wine Agency of Georgia (Georgian: ღვინის ეროვნული სააგენტო) is a legal entity of public law under the Ministry of Agriculture of Georgia that was founded in 2014 in.
+---
+[6] In the 19th century a fashionable salon was located in Tsinandali estate.",,,,,,,,,,,
+ae85dcc7-1cec-42a5-ad09-26b56da3f111,WB-REG-0456-L4,distractor_mining,qwen,wine_regions,4,analysis,"This entity is associated with a vineyard located in Marlboro, New York, within the Hudson Valley region, where the proprietor was recognized for cultivating wine grapes in a climate influenced by the nearby river and rugged terrain. The site has historical significance in the northeastern U.S. wine industry, with viticultural activity dating back to the 19th century and later revitalization by a prominent figure in American hybrid grape development. Which entity does this describe?","[{'id': 'A', 'text': 'San Bernabe AVA'}, {'id': 'B', 'text': 'Benmarl Vineyards'}, {'id': 'C', 'text': 'Yountville AVA'}, {'id': 'D', 'text': 'Hames Valley AVA'}]",B,"[1] Hames Valley is 3 miles (5 km) west of the town of Bradley and about 20 miles (32 km) north of the city of Paso Robles and AVA in San.
+---
+[2] Although not officially recognized, many wine connoisseurs further define the Willamette Valley into northern and southern regions with the demarcation being the latitude of Salem (approximately 45° north).
+---
+[3] Yountville AVA was established as the nation's 137th, the state's 83rd and the county's fourteenth appellation on March 19, 1999 by the Bureau of Alcohol, Tobacco and Firearms (ATF).
+---
+[4] Miller was known for being the proprietor of Benmarl Vineyards in the Hudson Valley of Marlboro, N.Y.
+---
+[5] Vidal blanc is also grown just 500 miles south of the Arctic Circle in Sweden where it is also used to make ice wine.
+---
+[6] San Bernabe AVA lies within the larger, enlongated  Monterey AVA  in the Salinas Valley sandwiched between the Salinas River to the east.",,,,,,,,,,,
+221ad69f-a486-4bf9-9ee3-83718954aa34,WB-REG-0459-L3,distractor_mining,gemini,wine_regions,1,analysis,"Which Spanish appellation ranks among the nation's most diminutive, primarily because expanding city infrastructure has steadily consumed its agricultural land?","[{'id': 'A', 'text': 'Yecla DO'}, {'id': 'B', 'text': 'Prado de Irache Vino de Pago'}, {'id': 'C', 'text': 'Alella DO'}, {'id': 'D', 'text': 'Cava DO'}]",C,"[1] Prado de Irache Vino de Pago is located in the municipality of Aberin (Merindad de Estella), in the Foral Community of Navarra, Spain.
+---
+[2] Alella (DO) is one of the smallest DOs in Spain as the vineyards have been encroached upon by urban development.
+---
+[3] Yecla is a Spanish Denominación de Origen Protegida (DOP) for wines located around the town of Yecla in the northernmost corner of the region of Murcia (Spain) and is surrounded.
+---
+[4] Sherry vinegar (Spanish: vinagre de Jerez) is a gourmet wine vinegar made from sherry.
+---
+[5] Although almost all wine regions are confined to specific centres of production, some of the top denominaciones (Cava and Rioja in particular) are the product of more than one Autonomous.
+---
+[6] Catalan wines are those that are produced in the wine regions of Catalonia.",,,,,,,,,,,
+192b0e3d-dec3-4f49-9b52-12ceb2aa917d,WB-REG-0451-L4,distractor_mining,llama,wine_regions,4,analysis,Which California AVA was established in the same year as the Southeastern New England AVA?,"[{'id': 'A', 'text': 'Squaw Valley-Miramonte'}, {'id': 'B', 'text': 'Russian River Valley'}, {'id': 'C', 'text': 'Sloughhouse'}, {'id': 'D', 'text': 'Mendocino Ridge (Outline)'}]",B,"[1] Sloughhouse AVA is defined in 27 CFR 9.201.
+---
+[2] Russian River Valley AVA was established in 1983.
+---
+[3] Lamorinda AVA is defined in 27 CFR 9.254.
+---
+[4] Mendocino Ridge (Outline) AVA is located within the North Coast AVA.
+---
+[5] Squaw Valley-Miramonte AVA is defined in 27 CFR 9.251.
+---
+[6] Southeastern New England AVA was established in 1983.",,,,,,,,,,,
+34c8ca99-1ef5-404b-8649-2a82576030ae,WB-REG-0442-L2,fact_to_question,qwen,wine_regions,1,recall,"In a Bordeaux appellation where classified growths produce approximately one-third of the total output, what proportion of the wine comes from estates ranked in the official classification?","[{'id': 'A', 'text': 'One-quarter'}, {'id': 'B', 'text': 'One-third'}, {'id': 'C', 'text': 'Two-thirds'}, {'id': 'D', 'text': 'One-tenth'}]",B,[1] Pessac-Léognan classed growths account for a third of the wine produced in Pessac-Léognan.,,,,,,,,,,,
+29ab0c00-6097-4737-a8aa-a404db0b3abe,WB-BIZ-0283-L2,fact_to_question,llama,wine_business,1,recall,"In Bordeaux, which entities work closely together to export the region's wines globally?","[{'id': 'A', 'text': 'Wine merchants and châteaux'}, {'id': 'B', 'text': 'Wine critics and negociants'}, {'id': 'C', 'text': 'Sommeliers and importers'}, {'id': 'D', 'text': 'Cooperatives and wine bars'}]",A,"[1] Wine merchants are essential cogs in Bordeaux’s export machine, working hand-in-hand with the châteaux, forming solid partnerships to bring Bordeaux wines to the four corners of the earth.",,,,,,,,,,,
+b48635ad-d454-480a-a8c0-8924be69f403,WB-PRD-0363-L2,template,template_only,producers,2,recall,True or False: the producer Paolo Scavino sits within the Piedmont wine region.,"[{'id': 'A', 'text': 'True'}, {'id': 'B', 'text': 'False'}]",A,[1] Paolo Scavino is a wine producer in the Piedmont region of Italy.,,,,,,,,,,,
+f09c7039-4865-42da-a278-0e0c8daabfee,WB-GRP-0536-L4,scenario_synthesis,llama,grape_varieties,4,synthesis,A winemaker in northern Italy wants to produce a sparkling rosé using a traditional local grape variety. Which grape should they select to make a rosé sparkling wine that showcases the region's rich winemaking heritage?,"[{'id': 'A', 'text': 'Blaufränkisch'}, {'id': 'B', 'text': 'Barbera'}, {'id': 'C', 'text': 'Lambrusco'}, {'id': 'D', 'text': 'Bonarda'}]",A,"[1] Also very well known and with rich tradition are Gutturnio, Bonarda and sparkling Barbera.
+---
+[2] Sparkling rosé are made from the Blaufränkisch grape.
+---
+[3] Sparkling wine is usually either white or rosé, but there are examples of red sparkling wines such as the Italian Brachetto, Bonarda and Lambrusco.",,,,,,,,,,,
+b8bb5aac-cd59-42ca-b884-3e43bd56b170,WB-PRD-0365-L2,fact_to_question,claude,producers,1,recall,"A Canadian winery offers bottlings under two distinct regulatory tiers: one category consists of wines certified under a domestic appellation system guaranteeing 100% Canadian-grown fruit, while the other, known as ICB, permits the use of imported base wine. What does the acronym ICB stand for in this context?","[{'id': 'A', 'text': 'Inter-provincial Canadian Brands'}, {'id': 'B', 'text': 'Imported Cellared Bottlings'}, {'id': 'C', 'text': 'Individual Craft Blends'}, {'id': 'D', 'text': 'International Canadian Blends'}]",D,[1] Jackson-Triggs now sells many different varieties and tiers including both Vintners Quality Alliance wines and ICB (International Canadian Blends.,,,,,,,,,,,
+75cee677-d890-4c8a-bee9-c0a903e3e41b,WB-GRP-0513-L2,fact_to_question,gemini,grape_varieties,1,recall,"Within the jurisdiction of United States federal wine labeling laws, which specific grape designation functions as a legally recognized equivalent term for Moscato?","[{'id': 'A', 'text': 'Muscat Blanc'}, {'id': 'B', 'text': 'Muscat Hamburg'}, {'id': 'C', 'text': 'Muscat of Alexandria'}, {'id': 'D', 'text': 'Muscat Ottonel'}]",A,[1] Muscat Blanc is an approved synonym for Moscato on US wine labels.,,,,,,,,,,,
+f7a122ba-84e9-4380-81c3-fc4501d1e4b6,WB-GRP-0505-L3,template,template_only,grape_varieties,3,comprehension,"Per the fact, which wine region is linked to the cultivation of | varietals =?","[{'id': 'A', 'text': 'Greek wine'}, {'id': 'B', 'text': 'Gali District'}, {'id': 'C', 'text': 'Campo de La Guardia'}, {'id': 'D', 'text': 'Pala (Mortágua)'}]",C,[1] Campo de La Guardia permits the | varietals = grape variety.,,,,,,,,,,,
+73e25c7c-c77c-46af-bc04-25908f8b6660,WB-WMK-0325-L2,scenario_synthesis,chatgpt,winemaking,1,application,"A winemaker is reviewing lab targets for a red cuvée intended to move from the estate’s mid-tier quality band into its top band. The team uses historical benchmarks showing that stronger-performing reds typically sit around 27 mg/L total sulfur dioxide and about 0.37 g/L volatile acidity, while the lower band more often centers near 40 mg/L total sulfur dioxide. Which finished-wine profile best matches the target for the higher-rated band?","[{'id': 'A', 'text': 'Total sulfur dioxide near 40 mg/L and volatile acidity well above 0.37 g/L'}, {'id': 'B', 'text': 'Total sulfur dioxide near 27 mg/L and volatile acidity near 0.37 g/L'}, {'id': 'C', 'text': 'Total sulfur dioxide near 40 mg/L and volatile acidity near 0.37 g/L'}, {'id': 'D', 'text': 'Total sulfur dioxide near 27 mg/L and volatile acidity well above 0.37 g/L'}]",B,"[1] Red wines rated 7 or above have a median volatile acidity of 0.37 g/L.
+---
+[2] Red wines rated 7 or above have a median total sulfur dioxide of 27 mg/L.
+---
+[3] Red wines rated 5-6 have a median total sulfur dioxide of 40 mg/L.",,,,,,,,,,,
+4cb191c7-71a0-4a31-85e9-ba5c64a90991,WB-PRD-0367-L2,fact_to_question,chatgpt,producers,2,recall,Which winery is identified as the exception located just south of Oakville village that uses a Rutherford mailing address?,"[{'id': 'A', 'text': 'Opus One Winery'}, {'id': 'B', 'text': 'Groth Vineyards & Winery'}, {'id': 'C', 'text': 'Rudd Estate'}, {'id': 'D', 'text': 'Silver Oak Cellars'}]",A,[1] The only exceptions are one winery east of the Silverado Trail which uses a Napa address and one winery just south of the village of Oakville which uses a Rutherford.,,,,,,,,,,,
+39503090-e3f3-41b2-a6f1-4de3a5d40b16,WB-PRD-0359-L4,template,template_only,producers,4,recall,Identify the wine region in which Château Falfas is based.,"[{'id': 'A', 'text': 'Bayon-sur-Gironde'}, {'id': 'B', 'text': 'Beaune AOC'}, {'id': 'C', 'text': 'Hondarrabi Zuri'}, {'id': 'D', 'text': 'Covas do Douro'}]",A,[1] Château Falfas is a wine estate in Bayon-sur-Gironde.,,,,,,,,,,,
+e123784e-9e78-48eb-be1a-20d3b0f43e10,WB-PRD-0362-L1,template,template_only,producers,1,comprehension,"Per the fact, the wine estate Paolo Scavino is located in which country?","[{'id': 'A', 'text': 'Italy'}, {'id': 'B', 'text': 'Croatia'}, {'id': 'C', 'text': 'Slovenia'}, {'id': 'D', 'text': 'Greece'}]",A,[1] Paolo Scavino is a wine producer in the Piedmont region of Italy.,,,,,,,,,,,
+60ab473a-e729-44e5-844c-02dfe4a54783,WB-VIT-0406-L2,comparative,chatgpt,viticulture,1,analysis,"One of these regions is characterized by roughly two extra daylight hours per day during the growing season, along with relatively steady temperatures, while the other is noted for cool-growing conditions linked to closeness to the Pacific. Which pairing matches those climate descriptions correctly?","[{'id': 'A', 'text': 'Washington wine = longer growing-season daylight and stable temperatures; Monterey County wine = cool-climate influence from the nearby Pacific'}, {'id': 'B', 'text': 'Washington wine = cool-climate influence from the nearby Pacific; Monterey County wine = longer growing-season daylight and stable temperatures'}, {'id': 'C', 'text': 'Washington wine and Monterey County wine both share the same climate distinction: extra daily sunlight during the growing season'}, {'id': 'D', 'text': 'Washington wine = both longer growing-season daylight and Pacific-driven cool-climate conditions; Monterey County wine = neither of those climate traits'}]",A,"[1] Viticulture in the state is also influenced by long sunlight hours (on average, two more hours a day than in California during the growing season) and consistent temperatures.
+---
+[2] Monterey County wine historic region is one of the popular bastions of cool-climate viticulture because of its proximity to the Pacific coast.",,,,,,,,,,,
+dd5f41b8-b82c-4380-99e9-c501936d5f2d,WB-GRP-0523-L3,scenario_synthesis,claude,grape_varieties,3,application,"A négociant is evaluating a parcel of red wine from a Bordeaux estate for potential bottling under a regional appellation label. The blend on the bench is 68% Merlot, 22% Cabernet Franc, 8% Cabernet Sauvignon, and 2% Carménère, with all fruit sourced from a single estate on the eastern side of the Gironde. The winemaker wants to print the regional name on the front label. Which conclusion is correct?","[{'id': 'A', 'text': 'The blend is compliant, but the Merlot-led composition is atypical for that side of the river, where Cabernet Sauvignon normally leads.'}, {'id': 'B', 'text': 'The blend cannot carry the regional name on the front label because one of the component varieties is not among those permitted for the red appellation.'}, {'id': 'C', 'text': 'The blend is compliant, and because Merlot dominates, the stylistic profile is consistent with estates on that side of the river.'}, {'id': 'D', 'text': 'The blend is compliant only if the Cabernet Sauvignon percentage is raised above the Merlot percentage before bottling.'}]",B,"[1] While wine making styles vary, a rule of thumb is that the Left Bank is predominantly Cabernet Sauvignon based with the Right Bank being more Merlot based.
+---
+[2] Bordeaux wine labels will usually include the region on the front if all the grapes have been harvested in a specific region and the wine otherwise complies with the AOC.
+---
+[3] The permissible grape varieties in red Bordeaux are: Cabernet Sauvignon, Merlot, Cabernet Franc, Malbec and Petit Verdot.",,,,,,,,,,,
+890d2f58-a5d8-4d9f-bbb6-33e6f7a850a1,WB-GRP-0524-L2,scenario_synthesis,llama,grape_varieties,1,analysis,"A winemaker in South America is deciding which variety to plant in a new vineyard. They are considering Torrontés, Torontel, and the Galician variety. The winemaker wants a wine with subtle spice notes and a floral bouquet, similar to Gewürztraminer. Which variety should they choose?","[{'id': 'A', 'text': 'More information is needed to decide'}, {'id': 'B', 'text': 'Torontel'}, {'id': 'C', 'text': 'Torrontés'}, {'id': 'D', 'text': 'The Galician variety'}]",C,"[1] While the aroma of Torrontés is often associated with Muscat, Clarke notes that many examples can be very similar to Gewürztraminer with subtle spice notes mixed with the floral bouquet.
+---
+[2] In 1996, Jancis Robinson noted that there were several hundred hectares of Torontel grown but that some of these plantings may actually be the Galician variety.
+---
+[3] The three grapes are relatively similar but do have some noticeable differences.",,,,,,,,,,,
+77935643-687d-4503-b877-80456ccd1d0f,WB-GRP-0507-L4,template,template_only,grape_varieties,4,application,"A viticulture consultant maps established sites for | varietals =. Per the fact, which region is listed?","[{'id': 'A', 'text': 'Castelo Branco'}, {'id': 'B', 'text': 'Bougado (São Martinho e Santiago)'}, {'id': 'C', 'text': 'La Palma (DO)'}, {'id': 'D', 'text': 'Santa Comba de Vilariça'}]",C,[1] La Palma (DO) permits the | varietals = grape variety.,,,,,,,,,,,
+6285618d-3d85-4a83-b4b6-c2e42fdb9c1d,WB-PRD-0373-L1,template,template_only,producers,1,recall,What wine region is Château Haut Sarpe part of?,"[{'id': 'A', 'text': 'Saint-Émilion'}, {'id': 'B', 'text': 'São Bento'}, {'id': 'C', 'text': 'Saône-et-Loire'}, {'id': 'D', 'text': 'Freguesia de Barrosas Santo Estêvão'}]",A,[1] Château Haut Sarpe is a classified Bordeaux estate in Saint-Émilion.,,,,,,,,,,,
+6c5d7164-a677-4ed7-af06-195a3a98d921,WB-GRP-0515-L2,comparative,llama,grape_varieties,1,analysis,Which grape variety is described by UC Davis FPS as having grey-colored berries?,"[{'id': 'A', 'text': 'Misgali'}, {'id': 'B', 'text': 'Pinot gris'}, {'id': 'C', 'text': 'Sauvignon blanc'}, {'id': 'D', 'text': 'Chardonnay'}]",B,"[1] Misgali is a white grape variety according to UC Davis FPS.
+---
+[2] Pinot gris is a grey grape variety according to UC Davis FPS.",,,,,,,,,,,
+dee0ac6f-0347-4c69-8410-75e3363558c9,WB-REG-0441-L2,fact_to_question,qwen,wine_regions,2,recall,Which AVA is situated in a Texas county known for its Hill Country terrain and German-influenced place names?,"[{'id': 'A', 'text': 'Bell Mountain AVA'}, {'id': 'B', 'text': 'Escondido Valley AVA'}, {'id': 'C', 'text': 'Fredericksburg in the Texas Hill Country AVA'}, {'id': 'D', 'text': 'Texas High Plains AVA'}]",A,[1] Bell Mountain AVA is located in Gillespie County.,,,,,,,,,,,
+cfcce4b1-9c20-4be0-8821-e440055ed048,WB-GRP-0531-L3,comparative,gemini,grape_varieties,3,analysis,"When evaluating the specific grape varieties authorized for cultivation in these two American viticultural areas, which statement accurately contrasts their permitted plantings?","[{'id': 'A', 'text': 'The Seiad Valley appellation authorizes Carignane, while the Redwood Valley region authorizes Riesling.'}, {'id': 'B', 'text': 'The Seiad Valley appellation authorizes Riesling, while the Redwood Valley region authorizes Carignane.'}, {'id': 'C', 'text': 'Both appellations authorize Carignane, but only the Redwood Valley region permits Riesling.'}, {'id': 'D', 'text': 'Both appellations authorize Riesling, but only the Seiad Valley region permits Carignane.'}]",B,"[1] Seiad Valley AVA permits the Riesling grape variety.
+---
+[2] Redwood Valley AVA permits the Carignane grape variety.",,,,,,,,,,,
+6f7b9763-12f4-46a5-a7b1-d13ab5c55beb,WB-GRP-0529-L3,comparative,claude,grape_varieties,3,analysis,"Two California AVAs have expanded their permitted varieties to include grapes outside the typical regional profile. One AVA sanctions the Piedmontese white grape Arneis among its approved plantings, while the other sanctions the Loire/Bordeaux red grape Cabernet Franc. Which pairing correctly matches each grape to its permitting AVA?","[{'id': 'A', 'text': 'Both Arneis and Cabernet Franc are permitted in High Valley AVA, but neither in Russian River Valley AVA.'}, {'id': 'B', 'text': 'Arneis is permitted in Russian River Valley AVA; Cabernet Franc is permitted in High Valley AVA.'}, {'id': 'C', 'text': 'Arneis is permitted in High Valley AVA; Cabernet Franc is permitted in Russian River Valley AVA.'}, {'id': 'D', 'text': 'Both Arneis and Cabernet Franc are permitted in Russian River Valley AVA, but neither in High Valley AVA.'}]",B,"[1] Russian River Valley AVA permits the Arneis grape variety.
+---
+[2] High Valley AVA permits the Cabernet Franc grape variety.",,,,,,,,,,,
+3aaf3f9a-2916-4cef-885d-d1c347b45b57,WB-GRP-0518-L2,comparative,qwen,grape_varieties,2,analysis,"An American Viticultural Area (AVA) allows a white wine grape variety known for its use in Burgundy and California cool-climate expressions, often exhibiting apple, citrus, and mineral notes. Which AVA is defined by permitting this type of grape?","[{'id': 'A', 'text': 'Coombsville AVA'}, {'id': 'B', 'text': 'Stags Leap District AVA'}, {'id': 'C', 'text': 'Spring Mountain District AVA'}, {'id': 'D', 'text': 'Long Valley-Lake County AVA'}]",D,"[1] Long Valley-Lake County AVA permits the | varietals = Chardonnay grape variety.
+---
+[2] Stags Leap District AVA permits the Cabernet Franc grape variety.",,,,,,,,,,,
+4d1e3a66-fbd7-475f-9b71-514ba6642127,WB-PRD-0372-L2,template,template_only,producers,2,recall,Decide True or False — beaujolais-villages is a producer of the Saône-et-Loire wine region.,"[{'id': 'A', 'text': 'True'}, {'id': 'B', 'text': 'False'}]",A,[1] beaujolais-villages is a wine producer located in Saône-et-Loire.,,,,,,,,,,,
+9505bf52-ae03-48e3-948d-d9664a8a3bf5,WB-WMK-0327-L3,distractor_mining,llama,winemaking,3,analysis,"Which Italian wine region is known to have exported wine as early as the 7th century BC, based on archaeological evidence of amphorae?","[{'id': 'A', 'text': 'Soave'}, {'id': 'B', 'text': 'Barolo'}, {'id': 'C', 'text': 'Cannonau'}, {'id': 'D', 'text': 'Tuscany'}]",D,"[1] Amphora remnants originating in the region show that Tuscan wine was exported to southern Italy and Gaul as early as the 7th century BC.
+---
+[2] Although production codes have always stipulated that vineyards must be located on hillsides, the most recent revision of the production code released in 2010 goes further, categorically excluding valley floors.
+---
+[3] Amarone originally, Amarone was Recioto wines that had fermented for too long.
+---
+[4] Soave (wine) had been allowed to constitute up to 15% of the blend.
+---
+[5] Vino cotto can be aged for years, barrels being topped up with each harvest.
+---
+[6] Cannonau is typically over 80% of the blend.",,,,,,,,,,,
+7541a694-a6c1-4407-b6a2-20177e69671b,WB-REG-0452-L3,distractor_mining,claude,wine_regions,1,analysis,Elevation to DOCG status in 1980 placed which appellation among the earliest Italian wines to receive that top-tier designation?,"[{'id': 'A', 'text': 'Pessac-Léognan'}, {'id': 'B', 'text': 'Fronsac'}, {'id': 'C', 'text': 'Vino Nobile di Montepulciano'}, {'id': 'D', 'text': 'Vin de Savoie'}]",C,"[1] Vino Nobile di Montepulciano received DOCG status in 1980, among the first Italian wines to achieve this designation.
+---
+[2] The maximum yield for Pouilly-Fumé AOC is 60 hl/ha.
+---
+[3] Vin de Savoie AOC requires a minimum alcohol content of 9.0% for red wines.
+---
+[4] Haut-Médoc AOC requires a minimum alcohol content of 10.5% for red wines.
+---
+[5] Fronsac AOC permits Merlot, Cabernet Franc, Cabernet Sauvignon for red wine production.
+---
+[6] Pessac-Léognan AOC requires a minimum alcohol content of 10.5% for red wines.",,,,,,,,,,,
+75534da9-16dc-49bb-9876-4d630b07b9e9,WB-REG-0449-L2,scenario_synthesis,llama,wine_regions,2,analysis,A winemaker in the Libourne subregion of Bordeaux is deciding whether to label their red wine under the Lussac-Saint-Émilion or Saint-Émilion appellation. Their vineyards are located within the wine-producing communes that make up 67.5% of the total area of the Saint-Émilion appellation. Which appellation should they choose?,"[{'id': 'A', 'text': 'Neither, as the vineyards are not within the required communes'}, {'id': 'B', 'text': 'Lussac-Saint-Émilion'}, {'id': 'C', 'text': 'Saint-Émilion'}, {'id': 'D', 'text': 'Either appellation would be appropriate'}]",C,"[1] Saint-Émilion (French pronunciation: [sɛ̃t‿emiljɔ̃]; Occitan: Sant-Emilion AOC) is an appellation d'origine contrôlée (AOC) for red wine in the Bordeaux wine region of France, where it is situated in the Libourne subregion on the right bank of the Dordogne.
+---
+[2] Lussac-Saint-Émilion (French pronunciation: [lysak sɛ̃t‿emiljɔ̃]) is an Appellation d'origine contrôlée (AOC) for red wine situated in the Bordeaux wine region.
+---
+[3] Its 5,400 hectares (13,000 acres) represent 67.5% of the total area of wine-producing communes (Saint-Émilion, Saint-Christophe-des-Bardes, Saint-Hippolyte, Saint-Étienne-de-Lisse, Saint-Laurent-des-Combes, Saint-Pey-d’Armens, Saint-Sulpice-de-Faleyrens, Vignonet, and a part of the Libourne commune) and 6% of the total Bordeaux vineyard.",,,,,,,,,,,
+32a61c3d-2a6c-4e48-98a4-f57bbc90b46d,WB-PRD-0368-L2,fact_to_question,gemini,producers,2,recall,"Which South American wine estate sources its fruit from vineyards situated at an elevation of 4,000 feet within the Gualtallary district of Mendoza's Uco Valley?","[{'id': 'A', 'text': 'Bodega Colomé'}, {'id': 'B', 'text': 'Bodega Chacra'}, {'id': 'C', 'text': 'Bodega Weinert'}, {'id': 'D', 'text': 'Bodega Riglos'}]",D,"[1] Bodega Riglos is an Argentine producer of premium wines from Gualtallary, Tupungato, Alto Valle de Uco, Mendoza, located at 4,000 ft above sea level.",,,,,,,,,,,
+4bf32d9e-8785-41fc-b02f-660f534b8272,WB-GRP-0528-L2,comparative,llama,grape_varieties,2,analysis,Which wine style permits a minimum of 50% red grape varieties in its blend?,"[{'id': 'A', 'text': 'Chianti'}, {'id': 'B', 'text': 'Brunello di Montalcino'}, {'id': 'C', 'text': 'Super Tuscan'}, {'id': 'D', 'text': 'Vino Nobile di Montepulciano'}]",C,"[1] Super Tuscan permits the 50% red varieties grape variety.
+---
+[2] Prior to Ricasoli, Canaiolo was emerging as the dominant variety in the Chianti blend with Sangiovese and Malvasia Bianca Lunga playing supporting roles.",,,,,,,,,,,
+64c2fe4c-244e-4b36-a779-3d9a443fa8b1,WB-BIZ-0285-L3,distractor_mining,chatgpt,wine_business,1,analysis,"Which German wine entity is described by this classification detail: it is organized into 2 Bereiche, containing 11 Großlagen and 111 Einzellagen?","[{'id': 'A', 'text': 'Mittelrhein'}, {'id': 'B', 'text': 'Prädikatswein'}, {'id': 'C', 'text': 'German wine classification'}, {'id': 'D', 'text': 'Piesporter'}]",A,"[1] Prädikatswein any level of classification can be used on the label of Qualitätswein and Prädikatswein:
+
+Anbaugebiet, wine growing regions, of which there are 13.
+---
+[2] Palatinate (wine region) holds | comments = 6.5 million hl produced annually classification.
+---
+[3] Piesporter often has a Qualitätswein bestimmter Anbaugebiete (QbA) classification, meaning that it was produced in accordance with regional appellation laws and has been tested for compliance by an official committee.
+---
+[4] == Geographical classification ==
+Mittelrhein is divided into two districts (""Bereiche""), made up of eleven sites (""Großlagen"") and 111 vineyards (""Einzellagen"").
+---
+[5] The two main reasons for criticism are that the official classification does not differentiate between better and lesser vineyards and that the quality levels are less appropriate to high-quality dry.
+---
+[6] German wine classification is a collective name for a number of single vineyards.",,,,,,,,,,,
