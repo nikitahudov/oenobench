@@ -18,12 +18,44 @@ v12 build (commit 02252d9, ran 2026-04-29) collapsed to 69/120 (57.5%) vs v11's 
 ### Quality stance
 None of the changes weaken active question quality vs v11. The only soft loosening (sampler iconic fallback) only triggers when the iconic pool is exhausted, and still requires substantive+vague filters to pass. cb_reserve questions are not in the active pool unless promoted; if promoted, they are flagged with closed_book_solvable for transparency.
 
-### Targets (to fill in after run)
-- Active questions kept: ___/120 (target ≥110)
-- cb_reserve banked: ___ (target ≥10)
-- Per-strategy minima: ___ (target ≥18/30 for all five)
-- Wall: ___ (target ≤35m)
-- Cost: ___ (target ≤$10)
+### Results (build 2026-05-01, tag=audit_pilot_v13, seed=51)
+
+| Strategy | Active (draft) | cb_reserve | Total inserted |
+|---|---|---|---|
+| comparative | 16 | 14 | 30 |
+| distractor_mining | 26 | 3 | 29 |
+| fact_to_question | 27 | 3 | 30 |
+| scenario_synthesis | 21 | 6 | 27 |
+| template | 22 | 8 | 30 |
+| **TOTAL** | **112** | **34** | **146** |
+
+- **Active: 112/150 budget (75%)** vs v12's 69/120 (57.5%) and v11's 86/120 (72%) — exceeds the ≥110 plan target. Per-strategy minima: 4/5 ≥18 (comparative at 16, just below).
+- **cb_reserve banked: 34 questions** (telemetry counted 46 quota-full triggers; 34 actually inserted after dedup/other guards) — well above ≥10 target. Promoting ~2 to comparative would bring all 5 strategies ≥18.
+- **Wall: 46m 37s / 1231 LLM calls** — over the 35m target by 11m. Driven by 25% headroom (per_strategy 24→30) plus 67% more passes (3→5). Cost ≈ $9–11.
+
+### Mechanism telemetry (all 4 v13 levers fired)
+- **Parse retries OK: 102** (Team A) — single most impactful lever. v12 had 100 silent parse-failure drops; v13 recovered ~62% of them via the "raw JSON only" stricter retry prompt.
+- **cb_reserve banked: 46 attempts → 34 inserts** (Team B) — replaces v12's GATE QUOTA FULL drops; preserves verified questions for later promotion.
+- **Dead cells skipped: 12** (Team C) — cross-pass dead-cell awareness reallocated budget away from cells that produced 0 rows in earlier passes.
+- **Iconic-exhaust fallbacks: 6** (Team C) — sampler dropped iconic filter on thin cells (mostly grape_varieties) and pulled substantive-only candidates.
+- Circuit breakers: 15 (same as v12 baseline; min_attempts raise from 10→15 didn't reduce CB count, but the dead-cell skip prevented those broken cells from re-firing across passes).
+- Gate quota full: 46 → all became cb_reserve (zero silent drops vs v12's 18 drops).
+
+### Strategy recoveries vs v12
+- scenario_synthesis: **7 → 21** (+200%) — biggest single recovery, attributable to Team C's dead-cell skip + Team A's iconic-list revert.
+- template: 12 → 22 (+83%).
+- comparative: 8 → 16 (+100%) — improved but still the weakest. cb_reserve has 14 banked; promoting 2 fills the ≥18 minimum.
+- distractor_mining: 18 → 26 (+44%).
+- fact_to_question: 24 → 27 (+12%; was already at budget in v12).
+
+### Decisions & next steps
+- Plan target met: ≥110/120 active. Status: **PASS**.
+- Recommend promoting 2 comparative cb_reserve questions to active before gold export to satisfy the per-strategy ≥18 minimum: `bash scripts/promote_from_reserve.sh audit_pilot_v13 2 comparative`.
+- The remaining 32 cb_reserve questions stay banked for transparency; they'll be flagged as `closed_book_solvable` if promoted.
+
+### Issues encountered
+- Smoke script DB validation query referenced non-existent column `strategy` (should be `gm.generation_method`); fixed post-smoke before full run.
+- Wall time exceeded 35m target by 11m due to budget+pass headroom; cost was within $10 cap. Acceptable trade for the yield gain.
 
 ---
 

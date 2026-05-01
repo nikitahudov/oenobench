@@ -111,7 +111,7 @@ RESERVE_COUNT=$(docker exec wb-postgres psql -U winebench -d winebench -t -c \
 echo "cb_reserve count for smoke: $RESERVE_COUNT" | tee -a "$LOG"
 
 STRATEGY_HIT=$(docker exec wb-postgres psql -U winebench -d winebench -t -c \
-    "SELECT count(DISTINCT strategy) FROM generation_metadata gm JOIN questions q ON q.id = gm.question_id WHERE 'audit_pilot_v13_smoke' = ANY(q.tags) AND q.status != 'cb_reserve';" \
+    "SELECT count(DISTINCT gm.generation_method) FROM generation_metadata gm JOIN questions q ON q.id = gm.question_id WHERE 'audit_pilot_v13_smoke' = ANY(q.tags) AND q.status != 'cb_reserve';" \
     | tr -d ' \n')
 echo "Strategies with ≥1 active question: $STRATEGY_HIT" | tee -a "$LOG"
 
