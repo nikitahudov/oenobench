@@ -27,6 +27,7 @@ from src.qa._corpus import (
     build_pilot_corpus,
     export_gold_sheet,
     import_gold_sheet,
+    promote_from_reserve,
 )
 from src.qa._findings import (
     ALL_SEVERITIES,
@@ -217,9 +218,11 @@ def build_corpus_cmd(
 @click.option("--out", type=click.Path(), default="data/reports/gold_sheet.csv")
 @click.option("--size", default=60, type=int)
 @click.option("--seed", default=DEFAULT_SEED, type=int)
-def export_gold_cmd(tag: str, out: str, size: int, seed: int) -> None:
+@click.option("--include-reserve", is_flag=True, default=False,
+              help="Include cb_reserve questions in the export.")
+def export_gold_cmd(tag: str, out: str, size: int, seed: int, include_reserve: bool) -> None:
     _setup_logging()
-    n = export_gold_sheet(tag, Path(out), size, seed)
+    n = export_gold_sheet(tag, Path(out), size, seed, include_reserve=include_reserve)
     click.echo(f"Wrote {n} rows to {out}")
 
 
@@ -435,6 +438,24 @@ def build_reports_cmd(run_id: str, audit_out: str, plan_out: str) -> None:
     render_audit(run_id, Path(audit_out))
     render_plan(run_id, Path(plan_out))
     click.echo(f"Wrote {audit_out} and {plan_out}")
+
+
+@cli.command("promote-from-reserve")
+@click.option("--tag", required=True, help="Tag that must be present on reserve questions.")
+@click.option("--count", default=10, type=int, show_default=True,
+              help="Maximum number of questions to promote.")
+@click.option("--strategy", default=None,
+              help="Optional generation_method filter (e.g. 'template_only').")
+def promote_from_reserve_cmd(tag: str, count: int, strategy: str | None) -> None:
+    """Promote up to COUNT questions from cb_reserve → draft.
+
+    Finds questions tagged with TAG that have status='cb_reserve', optionally
+    filtered to a single generation strategy, and updates them to status='draft'
+    so they enter the active corpus accounting.
+    """
+    _setup_logging()
+    n = promote_from_reserve(tag=tag, count=count, strategy=strategy)
+    click.echo(f"Promoted {n} questions from cb_reserve → draft")
 
 
 if __name__ == "__main__":

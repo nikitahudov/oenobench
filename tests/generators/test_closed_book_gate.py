@@ -411,19 +411,23 @@ def test_insert_question_gated_disable_flag(monkeypatch):
 # ─── Phase 2g.6 quota / relabel routing ──────────────────────────────────────
 
 
-def test_insert_question_gated_rejects_when_quota_full(monkeypatch):
-    """When the closed_book_solvable quota is full (>= cap), gate-flagged
-    questions must be DROPPED — `insert_question` must not run.
+def test_insert_question_gated_reserves_when_quota_full(monkeypatch):
+    """Phase 2g.15 (Team B): when the closed_book_solvable quota is full (>= cap),
+    gate-flagged questions must be INSERTED with status='cb_reserve' (not dropped).
+    The caller gets a non-None uuid so it can track the reserved question.
     """
     from src.generators import _question_db
 
     _patch_call(monkeypatch, selected="A", confidence=0.9)
     monkeypatch.setattr(_question_db, "count_closed_book_solvable", lambda: 2500)
 
-    def db_explode(*_a, **_kw):
-        raise AssertionError("insert_question must not run when quota is full")
+    captured: dict = {}
 
-    monkeypatch.setattr(_question_db, "insert_question", db_explode)
+    def fake_insert(question_data, generation_meta, fact_ids, source_ids, status="draft"):
+        captured["status"] = status
+        return "uuid-reserved"
+
+    monkeypatch.setattr(_question_db, "insert_question", fake_insert)
 
     q_uuid, gate = _question_db.insert_question_gated(
         question_data={
@@ -439,7 +443,9 @@ def test_insert_question_gated_rejects_when_quota_full(monkeypatch):
         fact_ids=[],
         source_ids=[],
     )
-    assert q_uuid is None
+    # Phase 2g.15: reserved → non-None uuid returned.
+    assert q_uuid == "uuid-reserved"
+    assert captured["status"] == "cb_reserve"
     assert gate.passed is False
     assert gate.quota_full is True
     assert gate.relabeled is False
@@ -961,7 +967,7 @@ def test_insert_question_gated_uses_per_strategy_budget_when_env_set(monkeypatch
 def test_insert_question_gated_per_strategy_quota_full_at_correct_cap(monkeypatch):
     """Cap = ceil(per_strategy × CLOSED_BOOK_QUOTA_FRACTION).
     Phase 2g.14: ceil(40 × 0.20) = 8. When the per-strategy count
-    is at the cap, the gate must reject (quota_full)."""
+    is at the cap, the gate must RESERVE (not drop) — Phase 2g.15."""
     import math
 
     from src.generators import _question_db
@@ -971,17 +977,20 @@ def test_insert_question_gated_per_strategy_quota_full_at_correct_cap(monkeypatc
     _patch_call(monkeypatch, selected="A", confidence=0.9)
 
     cap = math.ceil(40 * CLOSED_BOOK_QUOTA_FRACTION)
-    # Mock returns the cap exactly — any further cb-flagged inserts must drop.
+    # Mock returns the cap exactly — any further cb-flagged inserts must be reserved.
     monkeypatch.setattr(
         _question_db,
         "count_closed_book_solvable",
         lambda since=None, strategy=None: cap,
     )
 
-    def db_explode(*_a, **_kw):
-        raise AssertionError("insert_question must not run when per-strategy quota is full")
+    captured: dict = {}
 
-    monkeypatch.setattr(_question_db, "insert_question", db_explode)
+    def fake_insert(question_data, generation_meta, fact_ids, source_ids, status="draft"):
+        captured["status"] = status
+        return "uuid-pstr-reserved"
+
+    monkeypatch.setattr(_question_db, "insert_question", fake_insert)
 
     q_uuid, gate = _question_db.insert_question_gated(
         question_data={
@@ -997,7 +1006,9 @@ def test_insert_question_gated_per_strategy_quota_full_at_correct_cap(monkeypatc
         fact_ids=[],
         source_ids=[],
     )
-    assert q_uuid is None
+    # Phase 2g.15: reserved, not dropped.
+    assert q_uuid == "uuid-pstr-reserved"
+    assert captured["status"] == "cb_reserve"
     assert gate.quota_full is True
     assert "strategy:scenario_synthesis" in gate.reason
 
@@ -1028,7 +1039,7 @@ def test_insert_question_gated_strategies_have_independent_budgets(monkeypatch):
         lambda *_a, **_kw: "uuid-distractor",
     )
 
-    # Scenario should be rejected (full).
+    # Scenario should be reserved (quota full → Phase 2g.15 reserve path).
     q1, g1 = _question_db.insert_question_gated(
         question_data={
             "question_id": "TEST-A",
@@ -1038,7 +1049,7 @@ def test_insert_question_gated_strategies_have_independent_budgets(monkeypatch):
         generation_meta={"generator": "test", "generation_method": "scenario_synthesis"},
         fact_ids=[], source_ids=[],
     )
-    assert q1 is None
+    assert q1 == "uuid-distractor"  # reserved, not None
     assert g1.quota_full is True
 
     # Distractor should be relabeled (independent budget at 3/10).

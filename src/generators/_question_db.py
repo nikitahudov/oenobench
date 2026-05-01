@@ -202,30 +202,35 @@ def count_closed_book_solvable(
         # Per-strategy count: JOIN generation_metadata so we can filter by
         # generation_method. The two filters compose with AND: cb-tag,
         # strategy, and (optional) created_at scope.
+        # Phase 2g.15: exclude cb_reserve rows — they are parked, not active.
         if since:
             cur.execute(
                 "SELECT count(*) AS cnt FROM questions q "
                 "JOIN generation_metadata gm ON gm.question_id = q.id "
                 "WHERE %s = ANY(q.tags) AND gm.generation_method = %s "
-                "AND q.created_at >= %s::timestamptz",
+                "AND q.created_at >= %s::timestamptz "
+                "AND q.status::text != 'cb_reserve'",
                 (CLOSED_BOOK_TAG, strategy, since),
             )
         else:
             cur.execute(
                 "SELECT count(*) AS cnt FROM questions q "
                 "JOIN generation_metadata gm ON gm.question_id = q.id "
-                "WHERE %s = ANY(q.tags) AND gm.generation_method = %s",
+                "WHERE %s = ANY(q.tags) AND gm.generation_method = %s "
+                "AND q.status::text != 'cb_reserve'",
                 (CLOSED_BOOK_TAG, strategy),
             )
     elif since:
         cur.execute(
             "SELECT count(*) AS cnt FROM questions "
-            "WHERE %s = ANY(tags) AND created_at >= %s::timestamptz",
+            "WHERE %s = ANY(tags) AND created_at >= %s::timestamptz "
+            "AND status::text != 'cb_reserve'",
             (CLOSED_BOOK_TAG, since),
         )
     else:
         cur.execute(
-            "SELECT count(*) AS cnt FROM questions WHERE %s = ANY(tags)",
+            "SELECT count(*) AS cnt FROM questions "
+            "WHERE %s = ANY(tags) AND status::text != 'cb_reserve'",
             (CLOSED_BOOK_TAG,),
         )
     row = cur.fetchone()
@@ -309,16 +314,28 @@ def insert_question_gated(
                 cap_label = "corpus"
             if current >= cap:
                 gate.quota_full = True
+                gate.reserved = True
+                original_reason = gate.reason
                 gate.reason = (
-                    f"reject (quota_full): closed_book_solvable {current}/{cap} "
-                    f"({cap_label}); original={gate.reason}"
+                    f"cb_reserve (quota_full): closed_book_solvable {current}/{cap} "
+                    f"({cap_label}); original={original_reason}"
                 )
+                # Append the closed_book_solvable tag so the reserved question
+                # is discoverable the same way as relabeled questions.
+                existing_tags = list(question_data.get("tags") or [])
+                if CLOSED_BOOK_TAG not in existing_tags:
+                    existing_tags.append(CLOSED_BOOK_TAG)
+                question_data["tags"] = existing_tags
                 _stash_gate_meta(generation_meta, gate)
                 logger.info(
-                    "GATE QUOTA FULL | qid={} | {}",
-                    question_data.get("question_id"), gate.reason,
+                    "GATE QUOTA FULL → RESERVED | qid={} | original_reason={}",
+                    question_data.get("question_id"), original_reason,
                 )
-                return None, gate
+                q_uuid = insert_question(
+                    question_data, generation_meta, fact_ids, source_ids,
+                    status="cb_reserve",
+                )
+                return q_uuid, gate
 
             existing_tags = list(question_data.get("tags") or [])
             if CLOSED_BOOK_TAG not in existing_tags:
@@ -353,6 +370,7 @@ def insert_question(
     generation_meta: dict,
     fact_ids: list[str],
     source_ids: list[str],
+    status: str = "draft",
 ) -> str | None:
     """Atomically insert question + generation_metadata + question_facts + question_sources.
 
@@ -364,6 +382,9 @@ def insert_question(
             template_id, llm_creativity, prompt_hash, raw_response.
         fact_ids: UUIDs of facts this question was generated from.
         source_ids: UUIDs of authoritative sources backing this question.
+        status: Initial question status (default 'draft'). Pass 'cb_reserve' when
+            inserting questions that hit the closed-book quota so they can be
+            promoted later without re-generating.
 
     Returns:
         Question UUID string, or None on failure.
@@ -398,7 +419,7 @@ def insert_question(
                 (id, question_id, version, domain, subdomain, question_type,
                  difficulty, cognitive_dim, question_text, options,
                  correct_answer, correct_answer_text, explanation, status, tags)
-            VALUES (%s, %s, '1.0', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'draft', %s)
+            VALUES (%s, %s, '1.0', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 q_uuid,
@@ -413,6 +434,7 @@ def insert_question(
                 question_data["correct_answer"],
                 question_data.get("correct_answer_text"),
                 question_data.get("explanation"),
+                status,
                 question_data.get("tags", []),
             ),
         )

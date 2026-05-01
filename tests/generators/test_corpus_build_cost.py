@@ -167,7 +167,9 @@ def test_insert_question_gated_pre_screened_pass_path(monkeypatch):
 
 
 def test_insert_question_gated_pre_screened_quota_full(monkeypatch):
-    """Pre-screened reject + quota full → drop, no insert."""
+    """Phase 2g.15 (Team B): pre-screened reject + quota full → INSERT as
+    cb_reserve (not dropped). uuid is non-None; status must be 'cb_reserve'.
+    """
     monkeypatch.setattr(
         _question_db, "screen_question",
         lambda **_kw: (_ for _ in ()).throw(
@@ -177,10 +179,13 @@ def test_insert_question_gated_pre_screened_quota_full(monkeypatch):
     # Quota is at the 25%-of-default-corpus cap (10000 × 0.25 = 2500).
     monkeypatch.setattr(_question_db, "count_closed_book_solvable", lambda: 2500)
 
-    def explode_insert(*_a, **_kw):
-        raise AssertionError("insert_question must not be called when quota is full")
+    captured: dict = {}
 
-    monkeypatch.setattr(_question_db, "insert_question", explode_insert)
+    def fake_insert(*_a, status="draft", **_kw):
+        captured["status"] = status
+        return "uuid-reserved-prescreened"
+
+    monkeypatch.setattr(_question_db, "insert_question", fake_insert)
 
     pre_gate = GateResult(
         passed=False,
@@ -199,7 +204,8 @@ def test_insert_question_gated_pre_screened_quota_full(monkeypatch):
         pre_screened=pre_gate,
     )
 
-    assert q_uuid is None
+    assert q_uuid == "uuid-reserved-prescreened"
+    assert captured["status"] == "cb_reserve"
     assert gate.quota_full is True
     assert gate.relabeled is False
 

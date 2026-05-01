@@ -103,7 +103,8 @@ def _count_strategy_rows_since(strategy: str, since: datetime) -> int:
         cur.execute(
             "SELECT COUNT(*) AS n FROM questions q "
             "JOIN generation_metadata gm ON gm.question_id = q.id "
-            "WHERE gm.generation_method = %s AND q.created_at >= %s",
+            "WHERE gm.generation_method = %s AND q.created_at >= %s "
+            "AND q.status::text != 'cb_reserve'",
             (strategy, since),
         )
         return cur.fetchone()["n"]
@@ -542,6 +543,7 @@ def _existing_corpus_count(tag: str) -> dict[str, int]:
         FROM   questions q
         JOIN   generation_metadata gm ON gm.question_id = q.id
         WHERE  %s = ANY(q.tags)
+        AND    q.status::text != 'cb_reserve'
         GROUP  BY gm.generation_method
         """,
         (tag,),
@@ -1089,13 +1091,20 @@ GOLD_RUBRICS = [
 ]
 
 
-def export_gold_sheet(tag: str, out_path: Path, sample_size: int, seed: int) -> int:
+def export_gold_sheet(
+    tag: str, out_path: Path, sample_size: int, seed: int,
+    include_reserve: bool = False,
+) -> int:
     """Sample `sample_size` questions from the corpus and write a CSV for offline review.
 
     The `source_facts` column contains ALL linked facts joined with `\\n---\\n`
     and prefixed by `[1] ... [2] ... ` so multi-fact strategies (comparative,
     scenario, distractor) can be reviewed against their full evidence base
     (see `docs/GOLD_CALIBRATION_ANALYSIS.md` §3).
+
+    Args:
+        include_reserve: When True, include cb_reserve questions in the export.
+            Default False keeps the gold sheet to active-corpus questions only.
     """
     random.seed(seed)
     conn = get_pg()
@@ -1132,8 +1141,14 @@ def export_gold_sheet(tag: str, out_path: Path, sample_size: int, seed: int) -> 
         JOIN   generation_metadata gm ON gm.question_id = q.id
         LEFT   JOIN ordered_facts of ON of.question_id = q.id
         WHERE  %s = ANY(q.tags)
+        {reserve_filter}
         GROUP  BY q.id, gm.generator, gm.generation_method
-        """,
+        """.format(
+            reserve_filter=(
+                "" if include_reserve
+                else "AND q.status::text != 'cb_reserve'"
+            )
+        ),
         (tag,),
     )
     rows = cur.fetchall()
@@ -1250,6 +1265,66 @@ def import_gold_sheet(csv_path: Path, reviewer: str) -> int:
             imported += 1
     logger.info("gold import: upserted {} rows", imported)
     return imported
+
+
+def promote_from_reserve(tag: str, count: int, strategy: str | None = None) -> int:
+    """Promote up to `count` cb_reserve questions to 'draft' status.
+
+    Finds questions where status='cb_reserve' and `tag` is in their tags array,
+    optionally filtered to a single generation_method. Updates their status to
+    'draft' so they enter the active corpus and are counted by
+    `_count_strategy_rows_since` / `_existing_corpus_count`.
+
+    Args:
+        tag: Corpus build tag that must appear in the question's tags.
+        count: Maximum number of questions to promote in one call.
+        strategy: Optional generation_method filter. When provided, only
+            promotes questions produced by that strategy.
+
+    Returns:
+        Number of rows actually updated.
+    """
+    conn = get_pg()
+    cur = conn.cursor()
+    if strategy is not None:
+        cur.execute(
+            """
+            UPDATE questions
+            SET    status = 'draft'
+            WHERE  id IN (
+                SELECT q.id
+                FROM   questions q
+                JOIN   generation_metadata gm ON gm.question_id = q.id
+                WHERE  q.status::text = 'cb_reserve'
+                AND    %s = ANY(q.tags)
+                AND    gm.generation_method = %s
+                LIMIT  %s
+            )
+            """,
+            (tag, strategy, count),
+        )
+    else:
+        cur.execute(
+            """
+            UPDATE questions
+            SET    status = 'draft'
+            WHERE  id IN (
+                SELECT id
+                FROM   questions
+                WHERE  status::text = 'cb_reserve'
+                AND    %s = ANY(tags)
+                LIMIT  %s
+            )
+            """,
+            (tag, count),
+        )
+    updated = cur.rowcount
+    conn.commit()
+    logger.info(
+        "promote_from_reserve: promoted {} questions (tag={}, strategy={}, limit={})",
+        updated, tag, strategy, count,
+    )
+    return updated
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────
