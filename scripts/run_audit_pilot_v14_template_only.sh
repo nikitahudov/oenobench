@@ -47,8 +47,8 @@ unset OENOBENCH_VERIFIER_MODEL || true
 # ─── Build configuration ──────────────────────────────────────────────────────
 
 TS=$(date -u +%Y%m%dT%H%M%SZ)
-LOG=data/logs/audit_pilot_v14b_only_${TS}.log
-TAG=audit_pilot_v14b
+LOG=data/logs/audit_pilot_v14c_only_${TS}.log
+TAG=audit_pilot_v14c
 SEED=54
 PER_STRATEGY=30
 PER_COUNTRY_CAP=0.30
@@ -99,7 +99,7 @@ BUILD_SEC=$((BUILD_ELAPSED % 60))
 
 echo "" | tee -a "$LOG"
 echo "--- [3/3] audit (teams A,B,C,D on template-only tag): $(date -u) ---" | tee -a "$LOG"
-RUN_LOG=data/logs/audit_pilot_v14b_run_${TS}.log
+RUN_LOG=data/logs/audit_pilot_v14c_run_${TS}.log
 $PY -m src.qa.orchestrator run \
     --tag "$TAG" --seed "$((SEED + 1))" --teams A,B,C,D 2>&1 | tee -a "$LOG" "$RUN_LOG"
 

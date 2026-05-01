@@ -1,33 +1,33 @@
 # OenoBench Quality Audit Report
 
-- Run ID: `9db7c95a-0154-4340-9265-37795694d78a`
-- Corpus tag: `audit_pilot_v14b`
-- Corpus size: 19
+- Run ID: `2335e3f6-4f71-4926-95ce-bd799fe71a51`
+- Corpus tag: `audit_pilot_v14c`
+- Corpus size: 24
 - Config hash: `21ef944a17258e89...`
-- Started: 2026-05-01 21:26:39.734471+00:00
-- Completed: 2026-05-01 21:33:56.670113+00:00
-- LLM calls: 152
-- Cost: $0.26
+- Started: 2026-05-01 22:18:39.124464+00:00
+- Completed: 2026-05-01 22:28:18.433630+00:00
+- LLM calls: 192
+- Cost: $0.33
 
 ## 1 · Executive summary
 
-- Findings across 9 agents: 72 pass · 17 warn · 10 fail · 0 error
+- Findings across 9 agents: 93 pass · 15 warn · 16 fail · 0 error
 
 | Agent | pass | warn | fail | error | total |
 |---|---:|---:|---:|---:|---:|
-| A1_LexicalHygiene | 19 | 0 | 0 | 0 | 19 |
+| A1_LexicalHygiene | 24 | 0 | 0 | 0 | 24 |
 | A2_BiasStats | 1 | 0 | 0 | 0 | 1 |
-| A3_FactEcho | 8 | 11 | 0 | 0 | 19 |
+| A3_FactEcho | 13 | 11 | 0 | 0 | 24 |
 | A4_TemplateFingerprint | 1 | 0 | 0 | 0 | 1 |
-| B1_TriJudgeAnswer | 18 | 1 | 0 | 0 | 19 |
-| B2_ClosedBookSolvability | 5 | 4 | 10 | 0 | 19 |
-| C2_CategoryLeak | 19 | 0 | 0 | 0 | 19 |
+| B1_TriJudgeAnswer | 24 | 0 | 0 | 0 | 24 |
+| B2_ClosedBookSolvability | 5 | 3 | 16 | 0 | 24 |
+| C2_CategoryLeak | 24 | 0 | 0 | 0 | 24 |
 | D1_SelfPreference | 1 | 0 | 0 | 0 | 1 |
 | D3_SkewAudit | 0 | 1 | 0 | 0 | 1 |
 
 ## 2 · Methodology
 
-- Corpus: 19 questions tagged `audit_pilot_v14b`, seed 55.
+- Corpus: 24 questions tagged `audit_pilot_v14c`, seed 55.
 - Agents: ['A1_LexicalHygiene', 'A2_BiasStats', 'A3_FactEcho', 'A4_TemplateFingerprint', 'B1_TriJudgeAnswer', 'B2_ClosedBookSolvability', 'C2_CategoryLeak', 'C4_DifficultyAudit', 'D1_SelfPreference', 'D3_SkewAudit']
 - Judge models: ['claude', 'chatgpt', 'gemini']
 - Thresholds and seeds encoded in config hash (full hash: `21ef944a17258e89bbaf262b2fe9ebe0bbfe697ef714681270431c5a3c7e667d`).
@@ -36,34 +36,35 @@
 
 ### template
 
-- Question count: **19**
-- Severity rollup: pass=69, warn=16, fail=10
+- Question count: **24**
+- Severity rollup: pass=90, warn=14, fail=16
 - Failures by agent:
-  - B2_ClosedBookSolvability: 10
+  - B2_ClosedBookSolvability: 16
 - Sample failures:
-  - WB-REG-0567-L1  ·  B2_ClosedBookSolvability  ·  
-    > According to the fact, in which US state is the The Burn of Columbia Valley AVA located?
-  - WB-REG-0568-L1  ·  B2_ClosedBookSolvability  ·  
-    > An importer purchasing The Burn of Columbia Valley AVA wines is confirming the US state of origin for customs paperwork. Per the fact, which state should appear on the form?
-  - WB-REG-0569-L3  ·  B2_ClosedBookSolvability  ·  
-    > Which region of origin is Rosazzo part of?
+  - WB-REG-0574-L1  ·  B2_ClosedBookSolvability  ·  
+    > The fact assigns the Arroyo Seco AVA to which US state?
+  - WB-REG-0575-L1  ·  B2_ClosedBookSolvability  ·  
+    > A buyer is routing a shipment of South Coast AVA wine. Based on the fact, which US state is the origin?
+  - WB-REG-0576-L1  ·  B2_ClosedBookSolvability  ·  
+    > Given the fact, in which country would a traveller find the Südsteiermark wine region?
 
 ## 4 · Per-generator deep dive
 
 ### template_only
 
-- Authored question count: **19**
-- Total fails: 10, warns: 16
+- Authored question count: **24**
+- Total fails: 16, warns: 14
 
 ## 5 · Cross-cutting findings
 
 ### Template detectability (A4)
-- Held-out AUC: **None**
+- Held-out AUC: **0.7**
+- Top discriminative features: `len:avg_word` (-0.27), `bg:DET-WORD` (+0.22), `bg:SHORT-PUN` (-0.15), `bg:WORD-AUX` (+0.14), `bg:SHORT-WORD` (-0.11), `bg:WORD-PUN` (-0.10), `bg:WORD-DET` (+0.09), `bg:VERB?-PUN` (+0.09)
 
 ### Country / domain skew (D3)
-- Max country over-representation ratio: **42.45**
-- Question country counts (top 10): {'US': 3, 'Italy': 1, 'Canada': 2, 'France': 1}
-- Subdomain Herfindahl per strategy: template=0.1191
+- Max country over-representation ratio: **7.837**
+- Question country counts (top 10): {'Chile': 3, 'France': 1, 'Austria': 1, 'Portugal': 2}
+- Subdomain Herfindahl per strategy: template=0.1562
 
 ## 6 · Gold calibration
 
@@ -100,10 +101,10 @@ Escalation triggers (if the audit finds these, run the deferred agents):
 
 ```sql
 -- All findings for this run
-SELECT agent_id, severity, count(*) FROM audit_findings WHERE run_id = '9db7c95a-0154-4340-9265-37795694d78a' GROUP BY 1,2;
+SELECT agent_id, severity, count(*) FROM audit_findings WHERE run_id = '2335e3f6-4f71-4926-95ce-bd799fe71a51' GROUP BY 1,2;
 
 -- Per-question rollup
-SELECT * FROM v_question_audit_summary WHERE id IN (SELECT question_id FROM audit_findings WHERE run_id = '9db7c95a-0154-4340-9265-37795694d78a');
+SELECT * FROM v_question_audit_summary WHERE id IN (SELECT question_id FROM audit_findings WHERE run_id = '2335e3f6-4f71-4926-95ce-bd799fe71a51');
 ```
 
-_Generated 2026-05-01T21:33:57.608703_
+_Generated 2026-05-01T22:28:19.350198_
