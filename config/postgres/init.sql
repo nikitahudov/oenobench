@@ -30,7 +30,7 @@ CREATE TYPE question_type AS ENUM (
 );
 
 CREATE TYPE question_status AS ENUM (
-    'draft', 'ai_validated', 'flagged', 'human_reviewed',
+    'draft', 'ai_validated', 'cb_reserve', 'flagged', 'human_reviewed',
     'approved', 'rejected'
 );
 

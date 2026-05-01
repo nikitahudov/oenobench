@@ -420,24 +420,30 @@ def test_quota_lock_is_held_during_count_then_insert(monkeypatch):
 
 
 def test_concurrent_inserts_respect_quota_cap(monkeypatch):
-    """N threads racing on insert_question_gated must not exceed the cap."""
+    """N threads racing on insert_question_gated: at most `cap` relabeled
+    (non-reserve) inserts; the rest must be reserved (status='cb_reserve').
+    Phase 2g.15: quota-full questions are reserved, not dropped, so total
+    inserts = 20 but active-cap inserts = cap.
+    """
     from src.generators import _question_db
     from src.generators._closed_book_gate import GateResult
 
     cap = 5
-    counter = {"n": 0}
+    # Track relabeled (draft) inserts separately from cb_reserve inserts.
+    active_counter = {"n": 0}
     counter_lock = threading.Lock()
 
     def fake_count(*_a, **_kw):
         with counter_lock:
-            return counter["n"]
+            return active_counter["n"]
 
-    def fake_insert(*_a, **_kw):
+    def fake_insert(*_a, status="draft", **_kw):
         # Tiny pause to widen the race window without the lock.
         time.sleep(0.001)
         with counter_lock:
-            counter["n"] += 1
-        return f"uuid-{counter['n']}"
+            if status != "cb_reserve":
+                active_counter["n"] += 1
+        return f"uuid-{active_counter['n']}"
 
     monkeypatch.setattr(_question_db, "count_closed_book_solvable", fake_count)
     monkeypatch.setattr(_question_db, "insert_question", fake_insert)
@@ -473,6 +479,6 @@ def test_concurrent_inserts_respect_quota_cap(monkeypatch):
     for t in threads:
         t.join()
 
-    assert counter["n"] <= cap, (
-        f"concurrent inserts blew the cap: {counter['n']}/{cap}"
+    assert active_counter["n"] <= cap, (
+        f"concurrent relabeled inserts blew the cap: {active_counter['n']}/{cap}"
     )
