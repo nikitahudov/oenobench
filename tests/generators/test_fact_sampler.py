@@ -358,3 +358,95 @@ def test_per_country_cap_default_value_is_none():
             f"{fn_name} default for per_country_cap must be None, "
             f"got {sig.parameters['per_country_cap'].default}"
         )
+
+
+# ─── Phase 2g.15 — iconic-exhaust fallback ────────────────────────────────────
+
+
+def _make_iconic_fact(name: str, idx: int) -> dict:
+    """Build a fact whose only entity is the given (iconic) name."""
+    return {
+        "id": idx,
+        "fact_text": (
+            f"{name} is located in a specific wine-growing region with "
+            f"distinct soil composition and elevation characteristics."
+        ),
+        "domain": "grape_varieties",
+        "subdomain": "iconic_test",
+        "entities": [{"type": "producer", "name": name}],
+        "source_id": idx + 1000,
+        "source_name": "FakeSource",
+        "source_url": f"https://example.test/iconic/{idx}",
+        "confidence": 1.0,
+        "tags": [],
+    }
+
+
+def _make_nonsubstantive_fact(idx: int) -> dict:
+    """Build a fact that looks non-specific (caught by _is_fact_specific)."""
+    return {
+        "id": idx + 9000,
+        "fact_text": "This wine is nice.",
+        "domain": "grape_varieties",
+        "subdomain": "iconic_test",
+        "entities": [],
+        "source_id": idx + 9000,
+        "source_name": "FakeSource",
+        "source_url": f"https://example.test/ns/{idx}",
+        "confidence": 1.0,
+        "tags": [],
+    }
+
+
+def test_iconic_exhaust_fallback_fills_to_count(monkeypatch):
+    """Phase 2g.15 Team C: when the iconic-filtered pool has only 2 facts but
+    count=5, the fallback should top up to 5 from the iconic pool and
+    increment _ICONIC_FALLBACK_COUNT exactly once.
+
+    Pool design:
+    - 2 non-iconic facts (entities not in iconic set → primary pass admits them)
+    - 3 iconic-only facts (entities in iconic set → iconic filter rejects them
+      in primary pass; fallback pass rescues them)
+
+    With strategy="fact_to_question" the iconic filter fires (_should_apply).
+    """
+    # Entities for non-iconic facts (not in the iconic set we'll inject).
+    ICONIC_NAMES = {"chateau margaux", "romanee-conti", "petrus"}
+    NON_ICONIC_NAMES = ["Weingut Keller", "Jayer Fils", "Domaine Cathiard"]
+
+    # Build pool: 2 non-iconic + 3 iconic-only.
+    pool: list[dict] = []
+    for i, name in enumerate(NON_ICONIC_NAMES[:2]):
+        f = _make_iconic_fact(name, i)
+        pool.append(f)
+    for j, nm in enumerate(["Chateau Margaux", "Romanee-Conti", "Petrus"]):
+        f = _make_iconic_fact(nm, 10 + j)
+        pool.append(f)
+
+    # Patch DB to serve our pool.
+    monkeypatch.setattr(_fact_sampler, "get_pg", lambda: _FakeConn(pool))
+
+    # Patch country distribution so quota doesn't interfere.
+    monkeypatch.setattr(
+        _fact_sampler, "_country_base_distribution", lambda: {}
+    )
+
+    # Patch iconic set so only the three ICONIC_NAMES are iconic.
+    monkeypatch.setattr(_fact_sampler, "_ICONIC_CACHE", ICONIC_NAMES)
+
+    # Reset counter before the call.
+    _fact_sampler.reset_iconic_fallback_count()
+    _fact_sampler.reset_country_usage()
+
+    results = _fact_sampler.sample_facts(
+        "grape_varieties",
+        count=5,
+        strategy="fact_to_question",   # triggers iconic filter
+    )
+
+    assert len(results) == 5, (
+        f"Expected 5 facts (2 primary + 3 fallback), got {len(results)}"
+    )
+    assert _fact_sampler.get_iconic_fallback_count() == 1, (
+        f"Expected fallback counter=1, got {_fact_sampler.get_iconic_fallback_count()}"
+    )

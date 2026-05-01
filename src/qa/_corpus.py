@@ -197,6 +197,73 @@ def _resolve_min_yield_pct() -> float:
 # strategy modules. Functions are re-exported above.
 
 
+# ─── Cross-pass dead-cell registry (Phase 2g.15 Team C) ──────────────────────
+#
+# When a (model, domain) cell produced 0 questions in a pass it is very likely
+# to fail again in the next pass (sampler pool exhausted, circuit-breaker
+# budget spent). Tracking these "dead" cells and skipping them avoids wasting
+# LLM budget on calls that are nearly certain to yield nothing.
+#
+# Pattern mirrors ``src/qa/_attempted_facts.py`` (Phase 2g.13).
+#
+# Thread safety: the registry is mutated only from ``_execute_strategy_passes``
+# which serialises passes, so no lock is needed.
+
+_dead_cells: dict[str, set[tuple[str, str]]] = {}
+
+
+def register_dead_cell(strategy: str, model: str, domain: str) -> None:
+    """Mark (model, domain) as a zero-yield cell for *strategy* this build."""
+    _dead_cells.setdefault(strategy, set()).add((model, domain))
+
+
+def get_dead_cells(strategy: str) -> set[tuple[str, str]]:
+    """Return the current dead-cell set for *strategy* (may be empty)."""
+    return _dead_cells.get(strategy, set())
+
+
+def reset_dead_cells(strategy: str) -> None:
+    """Clear the dead-cell registry for *strategy*.
+
+    Called at the start of each ``_execute_strategy_passes`` run so stale
+    state from a previous build in the same process doesn't carry over.
+    """
+    _dead_cells.pop(strategy, None)
+
+
+def _count_strategy_rows_per_cell(
+    strategy: str,
+    since: datetime,
+    count_rows_fn=None,
+) -> dict[tuple[str, str], int]:
+    """Return a mapping of (generator, domain) → question count for *strategy*.
+
+    Used after each pass to identify zero-yield cells and mark them dead.
+
+    Args:
+        count_rows_fn: Optional override injected by tests. When provided it
+            must accept ``(strategy, since)`` and return an iterable of
+            ``(generator, domain, count)`` tuples. Falls back to a live DB
+            query when None.
+    """
+    if count_rows_fn is not None:
+        return {(g, d): n for g, d, n in count_rows_fn(strategy, since)}
+
+    conn = get_pg()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT gm.generator, q.domain, COUNT(*) AS n
+            FROM questions q
+            JOIN generation_metadata gm ON gm.question_id = q.id
+            WHERE gm.generation_method = %s AND q.created_at >= %s
+            GROUP BY gm.generator, q.domain
+            """,
+            (strategy, since),
+        )
+        return {(row["generator"], row["domain"]): row["n"] for row in cur.fetchall()}
+
+
 def _execute_strategy_passes(
     *,
     strategy: str,
@@ -240,11 +307,19 @@ def _execute_strategy_passes(
     # this as they sample.
     reset_attempted_fact_ids(strategy)
 
+    # Phase 2g.15 (Team C): reset dead-cell registry so stale state from a
+    # previous build in the same process doesn't carry forward.
+    reset_dead_cells(strategy)
+
     # Dynamic-loop limits (all default OFF — single-pass behaviour preserved).
     wall_limit_s = _resolve_wall_time_limit_s()
     min_yield_pct = _resolve_min_yield_pct()
     start_wall = time.monotonic()
     low_yield_streak = 0
+
+    # Phase 2g.15: track the per-cell rowcount snapshot before each pass so we
+    # can compute per-cell deltas after it completes.
+    _pass_cell_count_fn = None  # optional injection point for tests
 
     actual = 0
     for pass_num in range(1, max_passes + 1):
@@ -262,9 +337,28 @@ def _execute_strategy_passes(
                 )
                 break
 
+        # Phase 2g.15: skip cells that were zero-yield in a previous pass.
+        dead = get_dead_cells(strategy)
+        if dead and pass_num > 1:
+            logger.info(
+                "corpus: {} pass {}/{} skipping {} dead cells: {}",
+                strategy, pass_num, max_passes, len(dead), sorted(dead),
+            )
+
         cell_calls = _build_cell_calls(
             strategy, module, remaining, per_country_cap,
+            skip_cells=dead if dead else None,
         )
+
+        # Phase 2g.15: snapshot pre-pass per-cell counts to detect zeros.
+        # The snapshot is keyed (generator, domain) for LLM strategies and
+        # (None, domain) for template; the heuristic only skips LLM cells
+        # (template cells are always cheap to re-run).
+        pre_pass_counts: dict[tuple[str, str], int] = {}
+        if strategy in LLM_STRATEGIES:
+            pre_pass_counts = _count_strategy_rows_per_cell(
+                strategy, strategy_started, _pass_cell_count_fn,
+            )
 
         if workers <= 1:
             for kw in cell_calls:
@@ -284,6 +378,23 @@ def _execute_strategy_passes(
             "corpus: {} pass {}/{} produced={} cumulative={}/{}",
             strategy, pass_num, max_passes, produced, new_actual, want,
         )
+
+        # Phase 2g.15: after the pass, identify cells that produced 0 rows
+        # and register them as dead so the next pass skips them.
+        if strategy in LLM_STRATEGIES:
+            post_pass_counts = _count_strategy_rows_per_cell(
+                strategy, strategy_started, _pass_cell_count_fn,
+            )
+            newly_dispatched = {
+                (kw.get("generator", ""), kw.get("domain", ""))
+                for kw in cell_calls
+            }
+            for cell in newly_dispatched:
+                pre = pre_pass_counts.get(cell, 0)
+                post = post_pass_counts.get(cell, 0)
+                if post - pre == 0:
+                    register_dead_cell(strategy, cell[0], cell[1])
+
         if produced == 0 and pass_num > 1:
             logger.info(
                 "corpus: {} no-progress on pass {} — sampler ceiling "
@@ -321,6 +432,7 @@ def _build_cell_calls(
     module: str,
     want: int,
     per_country_cap: float | None,
+    skip_cells: set[tuple[str, str]] | None = None,
 ) -> list[dict]:
     """Build the per-strategy cell list for ``_run_one_strategy``.
 
@@ -337,12 +449,21 @@ def _build_cell_calls(
 
     Non-LLM strategies (template) use the simpler per-domain formula —
     they don't rotate generators and have a denser viable-fact pool.
+
+    Args:
+        skip_cells: Phase 2g.15 (Team C). When provided, these (generator,
+            domain) pairs are excluded from the candidate cell list before
+            shuffling. The per-cell budget is redistributed across the
+            remaining cells so the total ``want`` is unchanged.
     """
     cell_calls: list[dict] = []
     if strategy in LLM_STRATEGIES:
         total_cells = len(GENERATORS) * len(DOMAINS)
-        cell_count = max(1, min(total_cells, want // 2))
         all_cells = [(g, d) for g in GENERATORS for d in DOMAINS]
+        # Phase 2g.15: drop dead cells before sizing the run.
+        if skip_cells:
+            all_cells = [(g, d) for g, d in all_cells if (g, d) not in skip_cells]
+        cell_count = max(1, min(len(all_cells) if all_cells else total_cells, want // 2))
         random.shuffle(all_cells)
         cells = all_cells[:cell_count]
         per_cell = max(1, want // cell_count)
