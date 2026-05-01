@@ -4,6 +4,54 @@ Chronological lab notebook for the NeurIPS 2026 paper methodology sections.
 
 ---
 
+## 2026-05-01 — Phase 2g.16: template strategy quality push
+
+### Motivation
+v13 audit + gold review identified the template strategy as the single weakest of the 5 strategies: gold pass rate 50% (2/4 templates failed every rubric), B2 ClosedBookSolvability 14/22 fails (64%), A4 fingerprint AUC 0.8397 (just under the <0.85 threshold). One template, `T-GRP-APP-REGION-PLANT-01`, appeared in BOTH gold-failed examples — single defect concentration. User constraint: keep template's ~1,000-Q share of the 5,000-Q final dataset, but raise quality before scaling.
+
+### Changes (5 levers, single sequential implementation in worktree-agent-a252caee, merged commit a115f0c)
+- **Lever 1: Wine-category-aware distractor pool.** `template_generator.py:1546` — `_candidate_pool_for_type` rejects candidates whose source fact classifies to a different `_classify_wine_category` than the correct answer's source fact, for fields `region`/`producer`/`appellation`/`grape`. Added `_CATEGORY_FILTERED_COUNT` counter.
+- **Lever 2: Substantive-fact floor for templates.** `_fact_sampler.py:962` — `sample_facts` accepts `require_substantive: bool = False`; `template_generator.py:2372` passes `True`, forcing substantive filter on independently of the env var.
+- **Lever 3: Rewrote `T-GRP-APP-REGION-PLANT-01`.** Distractor strategy `same_type` → `same_country_same_category`; new `_same_country_same_category_pool()` filters regions to same country + same wine category, falls back to unconstrained pool below `_MIN_POOL_SIZE_V22`.
+- **Lever 4: γ-5 paraphrase 2-attempt retry + counters.** `template_generator.py:2564` wraps paraphrase call in 2-attempt retry, exceptions and None returns both trigger retry, logs `WARNING template paraphrase FAIL` after both attempts.
+- **Lever 5: 5 new tests** across `test_template_distractors.py` (2), `test_template_registry.py` (1), new `test_template_paraphrase_audit.py` (3). All pass; 541 total tests pass with no regressions.
+
+### Mid-flight fix (commit a115f0c)
+First v14 build (tag `audit_pilot_v14_t2`, 22 templates) showed **50% paraphrase failure rate** (11/22 fell back to raw stems). Direct repro via `client.generate(...)` revealed Gemini 3.1 Pro Preview uses thinking-mode CoT that consumed the 300-token budget — actual response content was `{\n` (2 chars), 286 tokens of thinking. Fix:
+- `_template_paraphrase.py:47` — primary model `google/gemini-3.1-pro-preview` → `anthropic/claude-haiku-4.5` (5× faster, reliable JSON, no thinking-mode burn).
+- `_template_paraphrase.py:205` — `max_tokens` 300 → 1500 (defense-in-depth headroom).
+- Gemini Pro stays as fallback.
+
+### Results
+
+**v14_t2 (pre-paraphrase-fix, tag `audit_pilot_v14_t2`):**
+- 18 active + 4 cb_reserve, build wall 3m 11s, audit wall 7m 28s, cost ~$0.50.
+- Paraphrase fails: **11/22** (50%).
+- C2_CategoryLeak fails: **0** (was 1 in v13). ✅ Lever 1 validated.
+- A1_LexicalHygiene fails: **0** (was 4 in v13 corpus). ✅
+- B1_TriJudgeAnswer fails: **0**.
+- A4 fingerprint AUC: **0.6625** (was 0.8397 in v13 — **−21%**). ✅ Below <0.85 threshold.
+- B2_ClosedBookSolvability fails: 12/22 (55%) — uncalibrated LLM panel; v13 gold review showed κ≈0.07 vs human (panel says 75% solvable, expert says 10%).
+
+**v14b (post-paraphrase-fix, tag `audit_pilot_v14b`):**
+- 13 active + 6 cb_reserve, build wall 1m 11s (3× faster, Haiku), audit wall 7m 19s, cost ~$0.40.
+- Paraphrase fails: **1/19** (5%) — and the 1 is the known True/False safety-guard rejection (`_tf_format_preserved` blocking TF→MCQ flip, not an LLM JSON failure). ✅ Real LLM failure rate is ≈0%.
+- C2_CategoryLeak fails: 0/19. ✅
+- A1, B1, A3 fails: 0.
+- B2 fails: 10/19 (53%) — same uncalibrated LLM panel signal.
+- A4 AUC: not computed (corpus size 19 below the held-out-set threshold).
+
+### Strategy yield trade-off
+- Active count dropped 22 → 13. Hypothesis: the substantive-fact floor (Lever 2) now prunes thin-geo facts that v13 freely sampled, plus better paraphrasing makes more questions readable to the closed-book gate, sending more to cb_reserve. The combined active+reserve count is similar (22 vs 19).
+- Decision: accept the yield drop as a quality trade-off; promote 2-3 cb_reserve templates if needed for downstream balance.
+
+### Next steps
+- User to score `data/reports/gold_sheet_v14b.csv` (13 rows) and confirm gold pass rate climbs from v13's 50% → ≥90%.
+- If gold passes: declare v14 templates as the new template baseline and pivot to NeurIPS paper drafting (deadline 2026-05-04).
+- The B2 calibration issue (LLM panel vs wine-expert) is a known artifact, not a template defect.
+
+---
+
 ## 2026-05-01 — Phase 2g.15: v13 yield recovery (multi-team rollout)
 
 ### Motivation
