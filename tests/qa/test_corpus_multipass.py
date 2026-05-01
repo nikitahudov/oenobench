@@ -276,3 +276,107 @@ def test_diminishing_returns_disabled_when_pct_zero(monkeypatch):
     actual, runner = _run_loop([1, 2, 3, 4, 5], want=24, max_passes=5)
     assert actual == 5
     assert len(runner.cell_calls_per_pass) == 5
+
+
+# ─── Phase 2g.15 — cross-pass dead-cell awareness ─────────────────────────────
+
+
+def test_dead_cell_skipped_in_next_pass(monkeypatch):
+    """Phase 2g.15 Team C: a (generator, domain) cell that produced 0 rows in
+    pass 1 must be excluded from pass 2's _build_cell_calls, and the remaining
+    budget must be redistributed so the total take equals the remaining budget.
+
+    Strategy: ``fact_to_question`` (LLM strategy → dead-cell logic fires).
+    want=24, max_passes=3.
+    """
+    import src.qa._corpus as corpus_mod
+    from src.qa._corpus import (
+        get_dead_cells,
+        GENERATORS,
+        DOMAINS,
+    )
+
+    strategy = "fact_to_question"
+    dead_cell = ("claude", "grape_varieties")
+
+    class _TrackingRunner:
+        def __init__(self, per_pass_yields):
+            self.per_pass_yields = per_pass_yields
+            self._pass_cells: list[list[dict]] = []
+            self._current: list[dict] = []
+            self._count_call = 0
+
+        def run_generator(self, **kw):
+            self._current.append(kw)
+
+        def count_rows(self, strat, since):
+            # Record cells dispatched in this pass, then reset.
+            self._pass_cells.append(list(self._current))
+            self._current = []
+            idx = self._count_call
+            self._count_call += 1
+            if idx < len(self.per_pass_yields):
+                return self.per_pass_yields[idx]
+            return self.per_pass_yields[-1] if self.per_pass_yields else 0
+
+    runner = _TrackingRunner([10, 24])
+
+    # Patch _count_strategy_rows_per_cell to return scripted per-cell data.
+    # Call order: (pre-pass-1, post-pass-1, pre-pass-2, post-pass-2, ...)
+    _call_idx = [0]
+    all_cells = [(g, d) for g in GENERATORS for d in DOMAINS]
+
+    def fake_per_cell(strat, since, fn=None):
+        idx = _call_idx[0]
+        _call_idx[0] += 1
+        if idx == 0:
+            # pre-pass-1 snapshot: everything at 0
+            return {cell: 0 for cell in all_cells}
+        elif idx == 1:
+            # post-pass-1: dead_cell produced 0; all others produced 1
+            return {cell: (0 if cell == dead_cell else 1) for cell in all_cells}
+        elif idx == 2:
+            # pre-pass-2 snapshot: same as post-pass-1
+            return {cell: (0 if cell == dead_cell else 1) for cell in all_cells}
+        else:
+            # post-pass-2: remaining cells each produced 2
+            return {cell: (0 if cell == dead_cell else 2) for cell in all_cells}
+
+    monkeypatch.setattr(corpus_mod, "_count_strategy_rows_per_cell", fake_per_cell)
+
+    actual = _execute_strategy_passes(
+        strategy=strategy,
+        module="fact_to_question",
+        want=24,
+        per_country_cap=0.30,
+        workers=1,
+        strategy_started=datetime(2026, 5, 1, 10, 0, 0),
+        max_passes=3,
+        run_generator_fn=runner.run_generator,
+        count_rows_fn=runner.count_rows,
+    )
+
+    assert actual == 24, f"Expected 24, got {actual}"
+    assert len(runner._pass_cells) == 2, (
+        f"Expected 2 passes (target met on pass 2), got {len(runner._pass_cells)}"
+    )
+
+    # Verify dead_cell is in the registry after pass 1.
+    dead = get_dead_cells(strategy)
+    assert dead_cell in dead, (
+        f"Expected {dead_cell} to be registered dead after pass 1; got {dead}"
+    )
+
+    # Verify pass 2 did NOT dispatch the dead cell.
+    pass2_cells = runner._pass_cells[1]
+    dispatched_pass2 = {(kw.get("generator", ""), kw.get("domain", "")) for kw in pass2_cells}
+    assert dead_cell not in dispatched_pass2, (
+        f"Dead cell {dead_cell} must not be dispatched in pass 2; "
+        f"pass2 dispatched: {dispatched_pass2}"
+    )
+
+    # Verify budget redistribution: pass 2 total take == remaining budget (14).
+    pass2_count = sum(kw["count"] for kw in pass2_cells)
+    assert pass2_count == 14, (
+        f"Pass 2 total take should equal remaining budget 14, got {pass2_count}"
+    )

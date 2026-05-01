@@ -123,6 +123,23 @@ _MIN_SPECIFIC_WORDS = 8
 
 _FACT_SUBSTANTIVE_ENV_VAR = "OENOBENCH_FACT_SUBSTANTIVE_FILTER"
 
+# Phase 2g.15 (Team C): iconic-exhaust fallback counter.
+# Incremented each time sample_facts() falls back to the non-iconic pool
+# because the iconic-filtered candidates were insufficient to fill count.
+_ICONIC_FALLBACK_COUNT: int = 0
+
+
+def get_iconic_fallback_count() -> int:
+    """Return how many times the iconic-exhaust fallback fired this process."""
+    return _ICONIC_FALLBACK_COUNT
+
+
+def reset_iconic_fallback_count() -> None:
+    """Reset the iconic-exhaust fallback counter (useful in tests)."""
+    global _ICONIC_FALLBACK_COUNT
+    _ICONIC_FALLBACK_COUNT = 0
+
+
 _NUMERIC_TOKEN_RE = re.compile(r"\d")
 
 _TECHNICAL_TERMS = frozenset(t.lower() for t in [
@@ -1053,6 +1070,46 @@ def sample_facts(
             iconic_filtered_single += 1
             continue
         candidates.append((1.0, fact_dict))
+
+    # Phase 2g.15 (Team C): iconic-exhaust fallback.
+    # If the iconic filter is active but we still don't have enough candidates
+    # to fill ``count``, retry the loop with apply_iconic_filter=False so the
+    # non-iconic-substantive pool can fill the remaining slots. The vague,
+    # substantive, and wine_category filters STILL apply — only iconic is
+    # dropped for the fallback pass.
+    if apply_iconic_filter and len(candidates) < count:
+        global _ICONIC_FALLBACK_COUNT
+        missing = count - len(candidates)
+        # Track fact IDs already admitted in the primary pass to avoid duplication.
+        existing_fact_ids = {fact.get("id") for _, fact in candidates}
+        fallback_candidates: list[tuple[float, dict]] = []
+        for r in rows:
+            fact_dict = dict(r)
+            # Skip facts already selected in the primary pass.
+            if fact_dict.get("id") in existing_fact_ids:
+                continue
+            if not _is_fact_specific(fact_dict["fact_text"]):
+                continue
+            if substantive_filter_on and not _is_fact_substantive(fact_dict["fact_text"]):
+                continue
+            if wine_category is not None:
+                cat = _classify_wine_category(fact_dict["fact_text"])
+                if cat != wine_category:
+                    continue
+            # Iconic filter intentionally NOT applied here — this is the fallback.
+            # Only iconic-only facts reach this point (non-iconic facts were
+            # already admitted in the primary pass above).
+            if not _fact_is_iconic_only(fact_dict):
+                continue  # already included in the primary pass
+            fallback_candidates.append((1.0, fact_dict))
+        if fallback_candidates:
+            _ICONIC_FALLBACK_COUNT += 1
+            logger.info(
+                "sampler iconic-exhaust fallback: filling {}/{} from "
+                "non-iconic-substantive pool | strategy={} | domain={}",
+                missing, count, strategy, domain,
+            )
+            candidates.extend(fallback_candidates)
 
     # Apply per-country quota weighting + hard cap, then deterministic order
     # by score (highest first) — within the same score the SQL random() order
