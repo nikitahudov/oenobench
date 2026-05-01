@@ -34,3 +34,15 @@ dist/
 
 # Claude Code session-local config + worktrees
 .claude/
+
+# LaTeX build artifacts
+paper/*.aux
+paper/*.bbl
+paper/*.blg
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.log
+paper/*.out
+paper/*.toc
+paper/*.synctex.gz
+paper/main.pdf

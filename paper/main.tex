@@ -36,6 +36,12 @@
     }\par%
   \fi%
 }
+% \PH{...} is the inline variant: short, flows with surrounding text.
+\newcommand{\PH}[1]{%
+  \ifpaperfinal#1\else%
+    \textcolor{red!70!black}{$\langle$\textsf{\small #1}$\rangle$}%
+  \fi%
+}
 \newcommand{\TODO}[1]{\textcolor{orange!80!black}{\textbf{[TODO: #1]}}}
 % -------------------------------------------------------------------------
 

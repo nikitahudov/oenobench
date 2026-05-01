@@ -9,10 +9,10 @@ We argue that domain-specialised benchmarks built around bodies of knowledge tha
 
 \paragraph{Contributions.} This paper makes four contributions.
 \begin{enumerate}
-  \item \textbf{A wine-domain benchmark} of \PLACEHOLDER{5{,}000} questions covering six pillars (regions, varieties, viticulture, winemaking, producers, business), built from 38{,}104 atomic facts whose provenance is recorded down to the source URL and tier of authority.
+  \item \textbf{A wine-domain benchmark} of \PH{$\approx$5{,}000} questions covering six pillars (regions, varieties, viticulture, winemaking, producers, business), built from 38{,}104 atomic facts whose provenance is recorded down to the source URL and tier of authority.
   \item \textbf{A multi-strategy, multi-model question-generation pipeline} (Section~\ref{sec:dataset}) that combines five generation strategies and five generator models, with an explicit fact-grounding constraint: the LLM's role is reformatting verified facts, not providing them.
   \item \textbf{A multi-agent quality audit} (Section~\ref{sec:audit}) consisting of nine deterministic, statistical, and tri-judge agents organised into four teams, calibrated against a human gold sheet using Cohen's $\kappa$ and rejecting any agent signal whose human agreement falls below threshold.
   \item \textbf{A bias-aware evaluation protocol} (Section~\ref{sec:eval}) including held-out per-generator splits, an expert-authored 300-question control set, and a \emph{Self-Preference Score} that quantifies the gap between a model's accuracy on its own questions and on questions written by other generators.
 \end{enumerate}
 
-OenoBench, the source code for the construction and audit pipelines, the multi-agent audit reports, and the human gold sheet are released under \PLACEHOLDER{license + URL after de-anonymisation}.
+OenoBench, the source code for the construction and audit pipelines, the multi-agent audit reports, and the human gold sheet are released under \PH{license + URL pending de-anonymisation}.

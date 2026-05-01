@@ -6,7 +6,7 @@ The evaluation protocol is designed to detect three failure modes simultaneously
 \subsection{Splits}
 We define four evaluation slices over the OenoBench corpus:
 \begin{itemize}\itemsep -1pt
-  \item \textbf{Full corpus} (\PLACEHOLDER{$N=5{,}000$}) --- the headline benchmark.
+  \item \textbf{Full corpus} (\PH{$N\!\approx\!5{,}000$}) --- the headline benchmark.
   \item \textbf{Per-generator held-out splits} --- for each generator model $g$, the slice of questions \emph{not} produced by $g$. Used to compute self-vs-other gaps.
   \item \textbf{Closed-book reserve} (\texttt{cb\_reserve}) --- questions flagged by agent B2 as world-knowledge solvable. Reported separately as a pure-recall slice.
   \item \textbf{Expert control set} ($N=300$) --- the WSET-Diploma--authored, zero-LLM control. Functions as a ground-truth comparator against which we calibrate the rest of the corpus.
@@ -20,7 +20,7 @@ For each model $m$, we define
 A pipeline that successfully neutralises generator bias should produce $|\mathrm{SPS}(m)| < 3\,\mathrm{pp}$ for every $m$ in our model set. Larger gaps imply either (i) the generator's own questions are systematically easier for it than for peers, or (ii) the audit pipeline is failing to remove stylistic fingerprints. We treat $|\mathrm{SPS}|>3\,\mathrm{pp}$ as a corpus-level fail and trigger a re-paraphrase pass on the affected generator's slice.
 
 \subsection{Models evaluated}
-We evaluate \PLACEHOLDER{final list of frontier LLMs}: Claude (Opus 4.6, Sonnet 4.6), GPT (GPT-4o, GPT-5), Gemini (1.5 Pro, 3.1 Pro), Llama (3.1 405B), and at least one open small model as a baseline. Each model is run zero-shot, then with chain-of-thought prompting; we report the better of the two as the headline number, and both separately in the appendix.
+We evaluate \PH{final list of frontier LLMs} including: Claude (Opus 4.6, Sonnet 4.6), GPT (GPT-4o, GPT-5), Gemini (1.5 Pro, 3.1 Pro), Llama (3.1 405B), and at least one open small model as a baseline. Each model is run zero-shot, then with chain-of-thought prompting; we report the better of the two as the headline number, and both separately in the appendix.
 
 \subsection{Headline results}
 \PLACEHOLDER{Table 3: full-corpus accuracy per model, broken down by domain pillar (regions / varieties / viticulture / winemaking / producers / business). 8 rows, 7 columns. Include 95\% bootstrap CI.}
