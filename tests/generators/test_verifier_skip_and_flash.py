@@ -222,8 +222,14 @@ def test_verifier_skip_runs_before_cache_lookup(monkeypatch):
 # ─── C2: paraphrase model swap ────────────────────────────────────────────────
 
 
-def test_paraphrase_uses_flash_by_default(monkeypatch):
-    """With no env override, paraphrase must call the Flash variant."""
+def test_paraphrase_uses_haiku_by_default(monkeypatch):
+    """With no env override, paraphrase must call the Claude Haiku 4.5 default.
+
+    Phase 2g.16: switched from Gemini 3.1 Pro Preview (which burned the
+    300-token budget on thinking-mode CoT, yielding empty content on ~50%
+    of v14 calls) to Claude Haiku 4.5 (5× faster, reliable JSON, no
+    thinking-mode budget burn). Gemini Pro stays as the fallback.
+    """
     monkeypatch.delenv("OENOBENCH_PARAPHRASE_MODEL", raising=False)
     monkeypatch.delenv("OENOBENCH_LLM_CACHE", raising=False)
 
@@ -250,7 +256,7 @@ def test_paraphrase_uses_flash_by_default(monkeypatch):
     )
     # Paraphrase may return None if validation rejects; only assert the
     # MODEL argument we sent.
-    assert captured.get("model") == "google/gemini-3.1-pro-preview"
+    assert captured.get("model") == "anthropic/claude-haiku-4.5"
 
 
 def test_paraphrase_env_override(monkeypatch):

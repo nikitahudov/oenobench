@@ -36,15 +36,15 @@ from loguru import logger
 
 from src.generators import _llm_cache
 
-# Lever C2 (2026-04-28): default Gemini variant from Pro to Flash.
-# Phase 2g.12 (2026-04-29): the `*-flash-preview-20260219` slug returns
-# OpenRouter 400 ("not a valid model ID"), so every paraphrase call
-# wasted a round-trip before failing over to Pro. Point the default at
-# the Pro slug until a real Flash 3.1 listing appears; the env-var
-# override stays in place so a future Flash slug can be flipped in
-# without a code change.
+# Phase 2g.16 (2026-05-01): Gemini 3.1 Pro Preview uses thinking-mode that
+# consumed the 300-token budget on ~50% of paraphrase calls in v14, leaving
+# only `{\n` as the actual response content (286 tokens of CoT, 2 chars of
+# output). Two fixes: (a) primary model → Claude Haiku 4.5 (5× faster,
+# reliable JSON, no thinking-mode budget burn); (b) max_tokens raised
+# 300 → 1500 below to give any future Gemini path enough headroom. The
+# Gemini Pro slug stays as the fallback for when Haiku is down.
 PARAPHRASE_MODEL_ENV_VAR = "OENOBENCH_PARAPHRASE_MODEL"
-_PARAPHRASE_FLASH_DEFAULT = "google/gemini-3.1-pro-preview"
+_PARAPHRASE_FLASH_DEFAULT = "anthropic/claude-haiku-4.5"
 _PARAPHRASE_PRO_FALLBACK = "google/gemini-3.1-pro-preview"
 
 
@@ -202,7 +202,7 @@ def paraphrase_question_text(
             system="You are a careful technical editor for a wine knowledge benchmark.",
             model=model_id,
             temperature=0.3,
-            max_tokens=300,
+            max_tokens=1500,
             json_mode=True,
             # Phase 2g.8: paraphrase prompts are sub-2K tokens. Pin OpenRouter
             # to the cheapest provider for the requested model so we don't
