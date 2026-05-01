@@ -968,6 +968,7 @@ def sample_facts(
     wine_category: str | None = None,
     strategy: str | None = None,
     per_country_cap: float | None = None,
+    require_substantive: bool = False,
 ) -> list[dict]:
     """Sample facts from PostgreSQL for question generation.
 
@@ -993,6 +994,12 @@ def sample_facts(
             unchanged). Pool-relative 1.2× quota (``_country_quota_score``)
             still applies — this is an additional, absolute gate stacked on
             top.
+        require_substantive: Phase 2g.16 Lever 2. When True, forces the
+            substantiveness filter ON regardless of the
+            OENOBENCH_FACT_SUBSTANTIVE_FILTER env var. Use this for strategies
+            that must exclude thin-geo facts (e.g. template generation). The
+            env var still overrides to ON for all strategies when set; this
+            kwarg only allows a caller to force ON without the env var.
     """
     conn = get_pg()
     cur = conn.cursor()
@@ -1051,8 +1058,12 @@ def sample_facts(
     # pass through here still use _bundle_has_non_iconic_anchor.
     apply_iconic_filter = _should_apply_iconic_filter(strategy)
     # Lever B2: opt-in substantiveness pre-screen. Default OFF for v8
-    # byte-for-byte reproducibility.
-    substantive_filter_on = os.environ.get(_FACT_SUBSTANTIVE_ENV_VAR, "").strip() == "1"
+    # byte-for-byte reproducibility. Phase 2g.16 Lever 2: callers may also
+    # pass require_substantive=True to force the filter on without the env var.
+    substantive_filter_on = (
+        os.environ.get(_FACT_SUBSTANTIVE_ENV_VAR, "").strip() == "1"
+        or require_substantive
+    )
     for r in rows:
         if not _is_fact_specific(r["fact_text"]):
             quality_filtered += 1

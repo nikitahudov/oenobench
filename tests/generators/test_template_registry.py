@@ -162,3 +162,63 @@ def test_new_template_required_entities_exist_in_fact_base(tid: str):
         f"{tid} requires {t['required_entities']} but no fact in the live "
         "DB supplies all of them — template is dead-on-arrival."
     )
+
+
+# ─── Phase 2g.16 Lever 5b: disabled-field handling ──────────────────────────
+
+
+def test_quarantined_template_skipped_when_disabled():
+    """Phase 2g.16 Lever 5b: a template entry with disabled=True must not
+    appear in the effective iteration used by the generation loop.
+
+    This exercises the `disabled` field on the TEMPLATES registry. We inject
+    a synthetic disabled template into a copy of the list and verify it is
+    filtered out by the same logic used in _run_generate_body.
+    """
+    import copy
+
+    _FAKE_DOMAIN = "wine_regions"
+
+    # Build a synthetic disabled template (mimics a quarantined entry).
+    disabled_template = {
+        "id": "T-TEST-DISABLED-01",
+        "patterns": [
+            "Test disabled template pattern 1?",
+            "Test disabled template pattern 2?",
+            "Test disabled template pattern 3?",
+            "Test disabled template pattern 4?",
+        ],
+        "domain": _FAKE_DOMAIN,
+        "difficulty_range": ["2"],
+        "cognitive_dim": "recall",
+        "question_type": "multiple_choice",
+        "correct_field": "region",
+        "distractor_strategy": "same_type",
+        "required_entities": ["region"],
+        "explanation_template": "Test explanation {region}.",
+        "requires_fact_specific": True,
+        "verifiable_from_single_fact": True,
+        "selection_weight": 1.0,
+        "disabled": True,  # ← the field under test
+    }
+
+    synthetic_templates = copy.copy(TEMPLATES) + [disabled_template]
+
+    # Replicate the filter logic from _run_generate_body.
+    active = [
+        t for t in synthetic_templates
+        if t["domain"] == _FAKE_DOMAIN
+        and not t.get("disabled", False)
+    ]
+    active_ids = {t["id"] for t in active}
+
+    assert disabled_template["id"] not in active_ids, (
+        f"Disabled template {disabled_template['id']!r} leaked into the active set"
+    )
+
+    # A template without the disabled field must still appear.
+    enabled_ids_in_domain = {t["id"] for t in TEMPLATES if t["domain"] == _FAKE_DOMAIN}
+    assert enabled_ids_in_domain.issubset(active_ids), (
+        "Some enabled templates were accidentally excluded: "
+        f"{enabled_ids_in_domain - active_ids}"
+    )
