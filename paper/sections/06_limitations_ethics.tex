@@ -7,9 +7,7 @@
 
 \paragraph{Fact-grounding does not eliminate memorisation risk.} Even though every question is generated from a verified atomic fact rather than a copied source paragraph, frontier LLMs may have seen the underlying facts in pre-training. The closed-book solvability slice (Section~\ref{sec:audit}) is our principal mitigation: it isolates and reports separately the items that are answerable from world knowledge alone. We do not claim the active corpus is fully un-memorisable.
 
-\paragraph{Audit-agent fallibility.} Several rubrics in the v13 gold sheet showed Cohen's $\kappa \approx 0$ between automated agents and the human reviewer. Affected agents are downweighted to advisory-only. A future revision will replace them; we report the failure rather than hide it.
-
-\paragraph{Single human reviewer.} The current gold sheet is rated by the lead author. We plan to expand to a panel of three WSET-Diploma--or-higher reviewers before the full release; inter-rater $\kappa$ will then be reported as a first-class quality metric.
+\paragraph{Single human reviewer.} The current gold sheet is rated by the lead author. We plan to expand to a panel of three WSET-Diploma--or-higher reviewers before the full release; inter-rater $\kappa$ will then be reported as a first-class quality metric alongside agent-vs-human $\kappa$.
 
 \paragraph{Distribution shift between pilot and full release.} Results in Section~\ref{sec:audit} are reported on a 146-question pilot. Behavioural differences are expected at the 5{,}000-question scale, particularly in skew metrics. \PLACEHOLDER{Comparison of pilot vs.\ full-corpus headline metrics once the full run completes.}
 

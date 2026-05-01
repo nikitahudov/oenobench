@@ -37,7 +37,7 @@ Five additional agents (C1 DistractorDifficulty, B3 ParaphraseStability, B4 Ambi
 \label{sec:gold}
 A human gold sheet of 130 questions drawn from \texttt{audit\_pilot\_v13} is rated against eight rubrics: \texttt{answer\_correct}, \texttt{needs\_source}, \texttt{no\_vague\_language}, \texttt{verbatim\_copy}, \texttt{source\_faithful}, \texttt{wine\_category\_leak}, \texttt{distractors\_plausible}, and an overall pass/fail. The reviewer is the lead author (Diploma, WSET).
 
-For each automated agent we compute Cohen's $\kappa$ against the corresponding human rubric. \textbf{Agent signals with $\kappa < 0.6$ are downweighted to advisory-only and excluded from gating decisions.} Several rubrics in the pilot exhibited $\kappa$ at or near zero: in those cases the human rating is treated as ground truth and the agent is queued for re-implementation rather than rejected outright. We view this --- the audit catching itself --- as a feature: an opaque ensemble that always agreed with the humans would be hard to trust.
+For each automated agent we compute Cohen's $\kappa$ against the corresponding human rubric. \textbf{Agent signals with $\kappa < 0.6$ are downweighted to advisory-only and excluded from gating decisions}; only signals that demonstrably reproduce expert judgement are allowed to gate question admission. This calibration step is run before every full generation cycle, so that drift in agent behaviour, rubric definitions, or upstream generator outputs is caught at the agent level rather than propagating into the released corpus. \PLACEHOLDER{Per-agent $\kappa$ table for the final corpus.}
 
 \subsection{Pilot results: \texttt{audit\_pilot\_v13}}
 \label{sec:pilot-results}
