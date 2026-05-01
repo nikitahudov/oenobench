@@ -136,7 +136,7 @@ CONFIDENCE_THRESHOLD = 0.6
 # audit level. Lowering to 20% means more gate-flagged questions get
 # DROPPED instead of relabeled, which (a) raises the average cb-free
 # corpus quality and (b) trims downstream operations on cb-tagged rows.
-CLOSED_BOOK_QUOTA_FRACTION = 0.20
+CLOSED_BOOK_QUOTA_FRACTION = float(os.environ.get("OENOBENCH_CB_QUOTA", "0.25"))
 CLOSED_BOOK_TAG = "closed_book_solvable"
 
 # L1/L2/L3 questions of any 4-option type go through the gate. Phase

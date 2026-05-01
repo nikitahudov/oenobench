@@ -155,10 +155,24 @@ def _generate_one(
     model_id = GENERATOR_MODELS[generator]
     fact_ids = [str(f["id"]) for f in facts]
 
+    _STRICT_JSON_PREFIX = (
+        "IMPORTANT: Respond with raw JSON only. Do NOT include markdown fences"
+        " (no ```json), prose, or explanation. The first character of your"
+        " response must be { and the last must be }.\n\n"
+    )
+
     for attempt in range(1 + MAX_RETRIES):
+        prompt_for_attempt = (
+            _STRICT_JSON_PREFIX + prompt_rendered if attempt > 0 else prompt_rendered
+        )
+        if attempt > 0:
+            logger.info(
+                "parse-retry attempt=1 generator={}",
+                _STRATEGY_NAME,
+            )
         t0 = time.time()
         response = client.generate(
-            prompt=prompt_rendered,
+            prompt=prompt_for_attempt,
             system=COMPARATIVE_SYSTEM,
             model=model_id,
         )

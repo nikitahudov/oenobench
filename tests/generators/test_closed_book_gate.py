@@ -1303,3 +1303,28 @@ def test_screen_question_uses_l3_model_for_l3_question(monkeypatch):
 def test_gate_version_bumped():
     """B4 bumps GATE_VERSION to 2.4.x for downstream cache invalidation."""
     assert _closed_book_gate.GATE_VERSION.startswith("2.4")
+
+
+# ─── Phase 2g.15 CB quota fraction revert ────────────────────────────────────
+
+
+def test_default_cb_quota_is_quarter(monkeypatch):
+    """2g.15: default CLOSED_BOOK_QUOTA_FRACTION is 0.25 when OENOBENCH_CB_QUOTA
+    is unset. Reverts the 2g.14 cost-cut that tightened it to 0.20."""
+    monkeypatch.delenv("OENOBENCH_CB_QUOTA", raising=False)
+    importlib.reload(_closed_book_gate)
+    try:
+        assert _closed_book_gate.CLOSED_BOOK_QUOTA_FRACTION == pytest.approx(0.25)
+    finally:
+        importlib.reload(_closed_book_gate)
+
+
+def test_cb_quota_env_override(monkeypatch):
+    """OENOBENCH_CB_QUOTA env var must override the default fraction."""
+    monkeypatch.setenv("OENOBENCH_CB_QUOTA", "0.30")
+    importlib.reload(_closed_book_gate)
+    try:
+        assert _closed_book_gate.CLOSED_BOOK_QUOTA_FRACTION == pytest.approx(0.30)
+    finally:
+        monkeypatch.delenv("OENOBENCH_CB_QUOTA", raising=False)
+        importlib.reload(_closed_book_gate)

@@ -657,7 +657,7 @@ class CellTracker:
         self,
         *,
         window: int = 20,
-        min_attempts: int = 10,
+        min_attempts: int = 15,
         threshold: float = 0.05,
     ) -> None:
         self.window = max(1, window)

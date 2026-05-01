@@ -107,7 +107,7 @@ _JSON_SCHEMA_NOTE = (
 # the prompt's intent. Modest token reduction (~30 chars × 10 occurrences).
 
 _ICONIC_ENTITIES_LIST = (
-    "Château Margaux, Napa Valley, Dom Pérignon, Romanée-Conti, Barolo, etc."
+    "Château Margaux, Napa Valley, Dom Pérignon, Romanée-Conti, Barolo, Champagne, Penfolds Grange, etc."
 )
 
 _PARAPHRASE_RULE_SINGULAR = (
