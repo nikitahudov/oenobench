@@ -1,0 +1,76 @@
+\documentclass{article}
+
+\PassOptionsToPackage{numbers, compress}{natbib}
+
+% Track: Evaluations & Datasets (D&B successor in NeurIPS 2026). Double-blind by default.
+\usepackage[eandd]{neurips_2026}
+% After acceptance, switch to:    \usepackage[eandd, final]{neurips_2026}
+% For arXiv preprint:              \usepackage[eandd, preprint]{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{multirow}
+
+% --- Draft-mode helpers --------------------------------------------------
+% \PLACEHOLDER{...} renders a yellow box with the missing content described inside it.
+% Set \paperfinaltrue before submission to hide all placeholder boxes (any remaining
+% holes will then be silently empty — re-grep for \PLACEHOLDER before then).
+\newif\ifpaperfinal
+\paperfinalfalse
+\newcommand{\PLACEHOLDER}[1]{%
+  \ifpaperfinal\else%
+    \par\noindent\fcolorbox{red!60!black}{yellow!15}{%
+      \begin{minipage}{0.96\linewidth}%
+        \textbf{\textcolor{red!70!black}{[PLACEHOLDER]}} #1%
+      \end{minipage}%
+    }\par%
+  \fi%
+}
+\newcommand{\TODO}[1]{\textcolor{orange!80!black}{\textbf{[TODO: #1]}}}
+% -------------------------------------------------------------------------
+
+\title{OenoBench: A Wine-Domain Benchmark for Knowledge-Grounded \\ Evaluation of Large Language Models}
+
+% Author block: hidden automatically at submission (anonymous double-blind);
+% revealed only when [final] or [preprint] is passed to neurips_2026.
+\author{%
+  Nikita Khudov, DipWSET \\
+  StrategAI \\
+  \texttt{nikitahudov@gmail.com}
+}
+
+\begin{document}
+\maketitle
+
+\input{sections/00_abstract}
+\input{sections/01_introduction}
+\input{sections/02_related_work}
+\input{sections/03_dataset_construction}
+\input{sections/04_quality_audit}
+\input{sections/05_evaluation}
+\input{sections/06_limitations_ethics}
+
+\begin{ack}
+\PLACEHOLDER{Funding disclosure and acknowledgements (hidden in anonymous submission; required for camera-ready). Per NeurIPS 2026 policy, declare funding sources and competing interests.}
+\end{ack}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\appendix
+\input{sections/07_appendix_datasheet}
+
+\newpage
+\input{checklist.tex}
+
+\end{document}

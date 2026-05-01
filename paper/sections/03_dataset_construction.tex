@@ -1,0 +1,63 @@
+\section{Dataset Construction}
+\label{sec:dataset}
+
+OenoBench is constructed in two stages: (1) a fact-collection stage that builds a corpus of atomic, provenance-tagged statements from authoritative sources; and (2) a question-generation stage that converts those facts into benchmark questions using five complementary strategies and five generator models. Both stages run inside a Postgres + Elasticsearch + Neo4j stack with full per-fact and per-question metadata, so that every benchmark item can be traced back to the URL, source tier, and generator that produced it.
+
+\subsection{Domain taxonomy}
+We organise wine knowledge into six \emph{domain pillars}, chosen to align with the WSET Level~3 and Diploma syllabi:
+\begin{enumerate}\itemsep -1pt
+  \item \textbf{Wine regions} --- appellations, classifications, geography, climate, soils.
+  \item \textbf{Grape varieties} --- ampelography, parentage, regional distribution, sensory profile.
+  \item \textbf{Viticulture} --- vineyard practice, training systems, pests/diseases, vintage effects.
+  \item \textbf{Winemaking} --- vinification choices, fermentation, ageing, faults.
+  \item \textbf{Producers} --- estates, négociants, co-operatives, key houses.
+  \item \textbf{Wine business} --- markets, regulation, distribution, economics.
+\end{enumerate}
+
+\subsection{Source tiering and provenance integrity}
+Every fact is tagged with one of three source tiers, mirroring evidence-based-medicine practice:
+\begin{itemize}\itemsep -1pt
+  \item \textbf{Tier~1 (official, 19.6\%):} government registries and inter-governmental bodies (INAO, OIV, TTB, Federdoc, UC Davis AVA database).
+  \item \textbf{Tier~2 (authoritative, 76.6\%):} Wikipedia (34.3\%), Wikidata SPARQL (31.0\%), wine consortia, peer-reviewed journals (\emph{OENO One}, \emph{Vitis}, \emph{Australian Journal of Grape and Wine Research}).
+  \item \textbf{Tier~3 (reliable, 3.8\%):} curated open datasets on HuggingFace and Kaggle, secondary reference databases.
+\end{itemize}
+
+A 2026-04 internal audit identified 19 of an earlier 35-scraper set whose ``scraped'' facts were in fact hard-coded LLM-generated content. All 19 were rebuilt against live sources, and the entire 38{,}104-fact corpus reported here passes a per-source URL trace check. We document the rebuild because we believe \textbf{provenance auditing should be a first-class step in any LLM-built benchmark}: model-generated content masquerading as scraped data is a contamination vector that conventional dataset documentation does not detect.
+
+\begin{table}[h]
+  \centering
+  \caption{Atomic-fact corpus: 38{,}104 facts from 35 scrapers across 15 source types.}
+  \label{tab:facts}
+  \begin{tabular}{lrr}
+    \toprule
+    Domain pillar & Facts & Share \\
+    \midrule
+    Wine regions     & 18{,}943 & 49.7\% \\
+    Producers        &  6{,}215 & 16.3\% \\
+    Grape varieties  &  5{,}959 & 15.6\% \\
+    Viticulture      &  3{,}635 &  9.5\% \\
+    Wine business    &  1{,}985 &  5.2\% \\
+    Winemaking       &  1{,}367 &  3.6\% \\
+    \midrule
+    \textbf{Total}   & \textbf{38{,}104} & \textbf{100.0\%} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Atomic fact extraction}
+Facts are required to be (a) atomic --- one assertion per sentence; (b) entity-tagged --- with subject and object linked to canonical IDs in our wine knowledge graph; and (c) source-faithful --- a paraphrase of the original, never a verbatim copy. A scraper-side validation pass enforces minimum length, predicate presence, and near-duplicate suppression. Across $\approx$580 unique source URLs, post-deduplication retention was \PLACEHOLDER{retention statistic}.
+
+\subsection{Question generation: five strategies, five models}
+\label{sec:generation}
+A single-strategy, single-model benchmark inherits the blind-spots of its pipeline. We mitigate this by combining five strategies and five generator models. Strategies and target shares:
+\begin{itemize}\itemsep -1pt
+  \item \textbf{Fact-to-question (40\%)} --- the LLM rewrites a single verified fact as a question; preserves grounding but tends toward recall.
+  \item \textbf{Template-based (25\%)} --- 45 deterministic, parameterised templates across the six pillars; pure entity substitution, zero LLM creativity.
+  \item \textbf{Comparative (15\%)} --- entity-affinity scoring pairs related entities (e.g.\ two Burgundy premiers crus) and asks ``which differs'' or ``what do both share''.
+  \item \textbf{Scenario synthesis (10\%)} --- coherent fact clusters become applied multi-fact reasoning prompts (e.g.\ a buyer scenario, a vintage decision).
+  \item \textbf{Distractor mining (10\%)} --- confusable-entity sampling produces wrong answers that share the right answer's category and dimension, raising plausibility.
+\end{itemize}
+Generator distribution across the corpus is approximately Claude 30\%, GPT 30\%, Gemini 20\%, Llama 10\%, deterministic templates 10\%. A separate \textbf{300-question expert-authored control set} (zero LLM involvement) is held back for use in evaluation (Section~\ref{sec:eval}).
+
+\subsection{Pilot iteration}
+Generation has been iterated through pilot cycles \texttt{audit\_pilot\_v6} through \texttt{v13}, each comprising on the order of 100--150 questions and a full audit pass. The current pilot, \texttt{audit\_pilot\_v13}, contains 146 questions (112 active, 34 in a \texttt{cb\_reserve} pool flagged by the closed-book solvability gate) and is the corpus on which Section~\ref{sec:audit} reports. \PLACEHOLDER{Final 5{,}000-question generation run statistics: count, per-strategy share, per-model share, retention rate, mean facts-per-question.}

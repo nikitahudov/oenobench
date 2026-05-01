@@ -1,0 +1,56 @@
+\section{Multi-Agent Quality Audit}
+\label{sec:audit}
+
+The audit pipeline runs every generated question through nine automated agents organised into four teams. Each agent emits a per-question signal in $\{\textsc{pass}, \textsc{warn}, \textsc{fail}\}$, and signals are calibrated against a human-reviewed gold sheet using Cohen's $\kappa$. Agents whose human agreement falls below a threshold are downweighted in aggregation, on the principle that an automated judge whose verdict humans cannot reproduce should not gate question admission.
+
+\subsection{Team architecture}
+\label{sec:audit-arch}
+
+\begin{table}[h]
+  \centering
+  \caption{Nine audit agents across four teams. Static agents use no LLM; tri-judge agents use a panel of three frontier models with majority voting.}
+  \label{tab:agents}
+  \small
+  \begin{tabular}{llp{0.55\linewidth}}
+    \toprule
+    Team & Agent & Function \\
+    \midrule
+    \multirow{4}{*}{A. Static}    & A1 LexicalHygiene      & Regex sweep for vague phrasing, marketing language, meta-questions. \\
+                                  & A2 BiasStats           & $\chi^2$ position uniformity; Mann--Whitney $U$ on answer length. \\
+                                  & A3 FactEcho            & Longest-common-substring ratio between question text and source fact. \\
+                                  & A4 TemplateFingerprint & POS-bigram logistic regression detector (held-out AUC 0.84). \\
+    \midrule
+    \multirow{2}{*}{B. Tri-judge} & B1 TriJudgeAnswer      & Claude / GPT / Gemini consensus on the marked-correct answer. \\
+                                  & B2 ClosedBookSolvability & 5-judge panel: can the question be answered from world knowledge alone? \\
+    \midrule
+    C. Deterministic               & C2 CategoryLeak        & Wine-type distractor validation; flags impossible-category options. \\
+    \midrule
+    \multirow{2}{*}{D. Population} & D1 SelfPreference      & Per-model self-vs-other accuracy gap on the audited slice. \\
+                                  & D3 SkewAudit           & Country / region over-representation ratio. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Five additional agents (C1 DistractorDifficulty, B3 ParaphraseStability, B4 Ambiguity, C3 SourceSwap, D2 DedupCalibration) are implemented but \emph{escalation-gated}: they are invoked only when an upstream agent flags a corpus-level concern. This deferred-execution policy keeps the routine audit cost bounded while preserving full coverage when a defect class is suspected.
+
+\subsection{Gold-sheet calibration}
+\label{sec:gold}
+A human gold sheet of 130 questions drawn from \texttt{audit\_pilot\_v13} is rated against eight rubrics: \texttt{answer\_correct}, \texttt{needs\_source}, \texttt{no\_vague\_language}, \texttt{verbatim\_copy}, \texttt{source\_faithful}, \texttt{wine\_category\_leak}, \texttt{distractors\_plausible}, and an overall pass/fail. The reviewer is the lead author (Diploma, WSET).
+
+For each automated agent we compute Cohen's $\kappa$ against the corresponding human rubric. \textbf{Agent signals with $\kappa < 0.6$ are downweighted to advisory-only and excluded from gating decisions.} Several rubrics in the pilot exhibited $\kappa$ at or near zero: in those cases the human rating is treated as ground truth and the agent is queued for re-implementation rather than rejected outright. We view this --- the audit catching itself --- as a feature: an opaque ensemble that always agreed with the humans would be hard to trust.
+
+\subsection{Pilot results: \texttt{audit\_pilot\_v13}}
+\label{sec:pilot-results}
+Across 146 questions, the nine-agent ensemble produced 561 \textsc{pass} / 125 \textsc{warn} / 66 \textsc{fail} signals. Headline findings:
+
+\begin{itemize}\itemsep -1pt
+  \item \textbf{B2 (ClosedBookSolvability):} 45 fails (30.8\% of items). The most impactful defect class: nearly a third of the pilot is solvable from world knowledge alone without consulting the supporting fact. These items are not discarded; they are moved to a \texttt{cb\_reserve} pool and used in a separate evaluation slice (Section~\ref{sec:eval}) where pure recall is the explicit target.
+  \item \textbf{A4 (TemplateFingerprint):} 9 of 19 templates flagged (47.4\%). The held-out POS-bigram classifier reaches AUC 0.84 on distinguishing template-generated from human-written questions. Templates exceeding the threshold are sent to a paraphrase pass.
+  \item \textbf{A3 (FactEcho):} 6 fails (4.1\%) and 59 warns. Verbatim source copying is rare but not absent; flagged items are returned to generation with a stronger paraphrase prompt.
+  \item \textbf{D3 (SkewAudit):} maximum country over-representation ratio of $5.84\times$ relative to a uniform baseline at $n=146$. We expect this to attenuate sharply when the corpus reaches the 5{,}000-question target, but we report it explicitly because uneven domain coverage at small $N$ otherwise inflates per-region accuracy estimates.
+\end{itemize}
+
+\PLACEHOLDER{Table: per-agent pass / warn / fail counts and $\kappa$ vs.\ gold sheet for the full 5{,}000-question corpus.}
+
+\subsection{Go / no-go gating}
+A pilot is promoted to a full generation run only when (a) the closed-book solvability fail rate is below 50\%, (b) the template-fingerprint AUC is below 0.90 on held-out paraphrased items, (c) the per-country skew ratio is below $3\times$, and (d) human-rated overall pass rate on the gold sheet is above 80\%. \PLACEHOLDER{Final v13 go/no-go decision and resulting full-corpus generation outcomes.}

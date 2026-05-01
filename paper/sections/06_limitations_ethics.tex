@@ -1,0 +1,25 @@
+\section{Limitations}
+\label{sec:limitations}
+
+\paragraph{Language and cultural scope.} OenoBench is currently English-only and inherits the bias of its primary sources toward European (especially French, Italian, Spanish) and New-World canonical regions. Emerging wine cultures (e.g.\ China, India, much of Eastern Europe) are under-represented. The Tier-2 source mix relies heavily on Wikipedia and Wikidata, both of which are themselves English-skewed. Multilingual extension is the largest single gap.
+
+\paragraph{Snapshot vs.\ a moving target.} Wine regulation, classifications, and producer ownership change on a multi-year cadence (e.g.\ INAO appellation revisions, DOCG promotions, estate sales). The benchmark is a snapshot dated \PLACEHOLDER{snapshot date} and will require periodic re-extraction. We release the scrapers and provenance metadata so that re-extraction is mechanically reproducible.
+
+\paragraph{Fact-grounding does not eliminate memorisation risk.} Even though every question is generated from a verified atomic fact rather than a copied source paragraph, frontier LLMs may have seen the underlying facts in pre-training. The closed-book solvability slice (Section~\ref{sec:audit}) is our principal mitigation: it isolates and reports separately the items that are answerable from world knowledge alone. We do not claim the active corpus is fully un-memorisable.
+
+\paragraph{Audit-agent fallibility.} Several rubrics in the v13 gold sheet showed Cohen's $\kappa \approx 0$ between automated agents and the human reviewer. Affected agents are downweighted to advisory-only. A future revision will replace them; we report the failure rather than hide it.
+
+\paragraph{Single human reviewer.} The current gold sheet is rated by the lead author. We plan to expand to a panel of three WSET-Diploma--or-higher reviewers before the full release; inter-rater $\kappa$ will then be reported as a first-class quality metric.
+
+\paragraph{Distribution shift between pilot and full release.} Results in Section~\ref{sec:audit} are reported on a 146-question pilot. Behavioural differences are expected at the 5{,}000-question scale, particularly in skew metrics. \PLACEHOLDER{Comparison of pilot vs.\ full-corpus headline metrics once the full run completes.}
+
+\section{Ethics and Responsible Use}
+\label{sec:ethics}
+
+\paragraph{Alcohol context.} Wine is an alcoholic beverage. The benchmark is a knowledge evaluation tool, not a consumer-facing product. Models that score highly on OenoBench should not be deployed as drinking-recommendation systems without separate alignment work covering health information, age-gating, and jurisdiction-specific advertising rules.
+
+\paragraph{Source licensing.} Tier-1 government sources are public records. Tier-2 Wikipedia and Wikidata content is used under CC-BY-SA / CC0; OenoBench question texts are derivative works produced by paraphrasing facts, not copies of source paragraphs, and are released under \PLACEHOLDER{license}. Per-fact source URLs are released alongside the corpus so downstream users can verify and re-attribute.
+
+\paragraph{Personal data.} The corpus contains entity names of producers, winemakers, and historical figures who are public-record principals of wine estates. No private individuals are identified. The expert-authored control set contains no personal information; the reviewer is identified only as the lead author.
+
+\paragraph{Misuse considerations.} A wine-knowledge benchmark is low risk for direct misuse. The closest plausible misuse is using high-OenoBench-score models to automate fraudulent product descriptions or counterfeit provenance claims. We note this risk for completeness but do not see a benchmark-side mitigation distinct from general LLM-deployment safeguards.

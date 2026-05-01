@@ -1,0 +1,73 @@
+\section{Datasheet for OenoBench}
+\label{app:datasheet}
+
+We follow the datasheet template of \citet{TODOgebrudatasheets}.
+
+\subsection{Motivation}
+\paragraph{For what purpose was the dataset created?}
+To evaluate factual knowledge of large language models on a multi-disciplinary, externally-validated domain (wine), and to provide a benchmark whose construction includes explicit bias controls (multi-model generation, multi-agent audit, self-preference scoring, expert-authored control set).
+
+\paragraph{Who created the dataset?}
+\PLACEHOLDER{De-anonymised author and affiliation; the lead author holds the WSET Diploma in Wines.}
+
+\paragraph{Funding.}
+\PLACEHOLDER{Funding sources, hidden in anonymous submission.}
+
+\subsection{Composition}
+\paragraph{What do the instances represent?}
+Each instance is a benchmark question with: question text, multiple-choice options (where applicable) with marked-correct answer, supporting fact(s) with source URL and tier, generator model identifier, generation strategy, audit-agent verdicts, and (for the gold-sheet subset) human reviewer ratings.
+
+\paragraph{How many instances are there in total?}
+\PLACEHOLDER{Final question count, target 5{,}000. Pilot at submission time: 146 questions in \texttt{audit\_pilot\_v13} (112 active, 34 \texttt{cb\_reserve}).}
+
+\paragraph{What data does each instance consist of?}
+Structured records over Postgres with columns described in Section~\ref{sec:dataset}.
+
+\paragraph{Are there recommended data splits?}
+Yes, four (Section~\ref{sec:eval}): full corpus, per-generator held-out, closed-book reserve, expert control.
+
+\paragraph{Errors, noise, redundancies?}
+Documented in Section~\ref{sec:audit}. Per-agent fail rates, $\kappa$ vs.\ gold sheet, and known agent calibration issues are released alongside the corpus.
+
+\paragraph{Self-contained, or relies on external resources?}
+Self-contained: question text, supporting facts, and source URLs are all included. Source URLs may rot over time; we mitigate by archiving Tier-1 source pages and recording the access timestamp.
+
+\subsection{Collection process}
+\paragraph{How was the data acquired?}
+35 provenance-verified web scrapers (released as \texttt{src/scrapers/}). Sources span government registries, inter-governmental bodies (OIV), university research groups, Wikipedia/Wikidata, peer-reviewed journals, and curated open datasets. Scraping was rate-limited and used a research-disclosed user agent.
+
+\paragraph{Time frame.}
+Fact extraction: 2026-03 through 2026-04. Question generation: 2026-04 through 2026-05.
+
+\paragraph{Ethical review.}
+\PLACEHOLDER{IRB / ethics-board status, if any.}
+
+\subsection{Preprocessing / cleaning / labelling}
+Atomic-fact extraction with entity tagging; per-source paraphrase to avoid verbatim copy; near-duplicate suppression; nine-agent automated audit; human gold-sheet rating on a 130-question subset.
+
+\subsection{Uses}
+\paragraph{Recommended uses.} Evaluation of LLM factual knowledge in the wine domain; ablation of bias-mitigation techniques in benchmark construction; study of self-preference effects in LLM-as-judge pipelines.
+\paragraph{Discouraged uses.} Direct deployment as a wine-recommendation or purchasing system without separate alignment and age-gating; fine-tuning on the benchmark itself for ranking purposes (would invalidate the benchmark for the trained model).
+
+\subsection{Distribution}
+\paragraph{Will the dataset be distributed?} Yes, under \PLACEHOLDER{license}. Hosting: \PLACEHOLDER{HuggingFace Datasets URL after de-anonymisation}.
+\paragraph{Citation.} \PLACEHOLDER{BibTeX entry after de-anonymisation.}
+
+\subsection{Maintenance}
+\paragraph{Maintainer.} \PLACEHOLDER{Maintainer name and contact.}
+\paragraph{Update cadence.} Wine regulation changes on a multi-year cadence; we plan annual re-extraction. Scraper code is released so the community can re-extract independently.
+\paragraph{Errata.} A public errata log will be maintained at \PLACEHOLDER{URL}; corrections to questions, facts, or audit verdicts will be versioned.
+
+\section{Additional Methodology Detail}
+
+\subsection{Audit agent implementations}
+\PLACEHOLDER{Per-agent algorithmic detail, prompt templates for tri-judge agents, threshold values for each warn/fail boundary, training data and held-out AUC for the A4 TemplateFingerprint classifier.}
+
+\subsection{Generation prompts}
+\PLACEHOLDER{Per-strategy generation prompts (fact-to-question, comparative, scenario, distractor mining), with per-model temperature and top-$p$ settings.}
+
+\subsection{Full per-domain evaluation tables}
+\PLACEHOLDER{Per-pillar, per-model, per-prompting-strategy accuracy tables with bootstrap CIs.}
+
+\subsection{Per-country and per-region skew detail}
+\PLACEHOLDER{Distribution of facts and questions by country and region; over-representation ratios; comparison to OIV global production statistics as an external baseline for ``neutral'' coverage.}

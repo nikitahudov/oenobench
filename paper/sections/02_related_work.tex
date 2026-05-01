@@ -1,0 +1,12 @@
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Broad knowledge benchmarks.} MMLU \citep{hendrycks2021mmlu}, BIG-Bench \citep{TODObigbench}, AGIEval \citep{TODOagieval} and more recently GPQA \citep{rein2024gpqa} and HLE \citep{TODOhle} measure factual breadth across many subjects. As headline scores have saturated for frontier models, attention has shifted toward harder reasoning benchmarks and toward auditing the construction process \citep{TODOaudit}. Our work is complementary: rather than maximising difficulty, we maximise depth within a single, externally-validated knowledge domain.
+
+\paragraph{Domain benchmarks.} MedQA \citep{TODOmedqa}, PubMedQA \citep{TODOpubmedqa}, LegalBench \citep{TODOlegalbench}, and FinanceBench \citep{TODOfinancebench} demonstrate the value of grounding evaluation in a regulated profession. We adopt their structure --- expert syllabus as taxonomy, source-traceable facts as backbone --- and add multi-model question generation and self-preference auditing as additional bias controls.
+
+\paragraph{LLM-as-judge bias and self-preference.} A growing literature documents that models tend to favour outputs stylistically similar to their own \citep{TODOselfpref, TODOpanderingjudge}. This biases benchmarks where the same model generates and grades. Our pipeline distributes generation across five models and reports per-model self-vs-other accuracy gaps as a first-class diagnostic.
+
+\paragraph{Benchmark contamination and solvability.} \citet{TODOcontamination1, TODOcontamination2} show that questions present in pre-training data inflate apparent capability. We mitigate this in two ways: (i) generating questions from atomic facts rather than copying source text, and (ii) running an explicit \emph{closed-book solvability} check that flags questions answerable from world knowledge alone, allowing us to reserve them for a separate evaluation slice.
+
+\paragraph{Wine and beverage NLP.} Prior NLP work on wine has focused on review-text generation \citep{TODOwinereviews}, recommendation \citep{TODOwinerec}, and sensory descriptor extraction \citep{TODOwinedesc}. To our knowledge, OenoBench is the first benchmark targeting structured factual knowledge of viticulture, winemaking, and wine regions evaluated against frontier LLMs.
