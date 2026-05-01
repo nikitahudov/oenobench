@@ -54,7 +54,7 @@ from pathlib import Path
 import click
 from loguru import logger
 
-from src.generators._fact_sampler import DOMAIN_TARGETS, sample_facts
+from src.generators._fact_sampler import DOMAIN_TARGETS, _classify_wine_category, sample_facts
 from src.generators._id_generator import mint_question_id
 from src.generators._question_db import (
     delete_questions_by_ids,
@@ -71,6 +71,44 @@ from src.utils.db import get_pg
 # Strategy name for the cross-pass attempted-fact-ID registry. Must match
 # the key used in ``src.qa._corpus.STRATEGY_MODULES``.
 _STRATEGY_NAME = "template"
+
+# ─── Phase 2g.16 — Lever 1: wine-category distractor filter counter ──────────
+#
+# Tracks how many candidates were rejected from distractor pools because
+# they belonged to a different wine category than the correct answer.
+_CATEGORY_FILTERED_COUNT: int = 0
+
+
+def get_category_filtered_count() -> int:
+    """Return how many distractor candidates were rejected by category filter."""
+    return _CATEGORY_FILTERED_COUNT
+
+
+def reset_category_filtered_count() -> None:
+    """Reset the category-filter counter (used in tests)."""
+    global _CATEGORY_FILTERED_COUNT
+    _CATEGORY_FILTERED_COUNT = 0
+
+
+# ─── Phase 2g.16 — Lever 4: paraphrase success/failure counters ───────────────
+#
+# Tracks γ-5 paraphrase outcomes per process / CLI invocation so the run
+# report can surface the success rate without parsing logs.
+_PARAPHRASE_OK_COUNT: int = 0
+_PARAPHRASE_FAIL_COUNT: int = 0
+
+
+def get_paraphrase_stats() -> dict[str, int]:
+    """Return a dict with keys 'ok' and 'fail' for γ-5 paraphrase outcomes."""
+    return {"ok": _PARAPHRASE_OK_COUNT, "fail": _PARAPHRASE_FAIL_COUNT}
+
+
+def reset_paraphrase_stats() -> None:
+    """Reset paraphrase counters (used in tests and repeated CLI invocations)."""
+    global _PARAPHRASE_OK_COUNT, _PARAPHRASE_FAIL_COUNT
+    _PARAPHRASE_OK_COUNT = 0
+    _PARAPHRASE_FAIL_COUNT = 0
+
 
 # ─── Logging setup ────────────────────────────────────────────────────────────
 
@@ -1160,6 +1198,10 @@ TEMPLATES: list[dict] = [
     # T-GRP-APP-REGION-PLANT-01 — application: a vigneron considers where
     # to plant a variety; answer comes from the fact's documented region.
     # Uses `{grape, region}`.
+    # Phase 2g.16 Lever 3: changed distractor_strategy from "same_type" to
+    # "same_country_same_category" so distractors are other regions in the
+    # same country and same wine category — preventing cross-country leaks
+    # (e.g. Portuguese parishes as distractors for Spanish DOs).
     {
         "id": "T-GRP-APP-REGION-PLANT-01",
         "patterns": [
@@ -1174,7 +1216,7 @@ TEMPLATES: list[dict] = [
         "cognitive_dim": "application",
         "question_type": "multiple_choice",
         "correct_field": "region",
-        "distractor_strategy": "same_type",
+        "distractor_strategy": "same_country_same_category",
         "required_entities": ["grape", "region"],
         "explanation_template": "The fact documents {region} as a home for {grape}.",
         "requires_fact_specific": True,
@@ -1509,12 +1551,21 @@ def _candidate_pool_for_type(
     entity_type: str,
     correct_value: str,
     facts: list[dict],
+    source_fact_text: str = "",
+    template_id: str = "",
 ) -> list[str]:
     """v2.2 fix #8c — hardened candidate pool for distractor sampling.
 
     Applies: type whitelist, country-sentinel, shape-homogeneity, min size 20.
+    Phase 2g.16 Lever 1: wine-category coherence filter for category-sensitive
+    fields (region, producer, appellation, grape). Candidates whose source fact
+    text classifies to a different wine category than the correct answer are
+    rejected. Falls back to no-category constraint if the correct answer is
+    unclassifiable or if post-filter pool drops below _MIN_POOL_SIZE_V22.
+
     Returns [] if the hardened pool is too small; caller skips the template.
     """
+    global _CATEGORY_FILTERED_COUNT
     from src.generators._template_validators import is_iconic_bare_country
 
     allowed = _FIELD_ALLOWED_ENTITY_TYPES.get(entity_type, frozenset({entity_type}))
@@ -1522,6 +1573,17 @@ def _candidate_pool_for_type(
     seen: set[str] = set()
     out: list[str] = []
     correct_lower = correct_value.lower()
+
+    # Phase 2g.16 Lever 1: determine whether to apply category coherence.
+    # Only applies to fields where wine category coherence is meaningful.
+    _CATEGORY_SENSITIVE_FIELDS = frozenset({"region", "producer", "appellation", "grape"})
+    apply_category_filter = entity_type in _CATEGORY_SENSITIVE_FIELDS
+    correct_category: str | None = None
+    if apply_category_filter and source_fact_text:
+        correct_category = _classify_wine_category(source_fact_text)
+        # If the correct answer is unclassifiable, skip category constraint.
+        if correct_category is None:
+            apply_category_filter = False
 
     def _accept(val: str, etype: str) -> bool:
         # Type gate: candidate must be tagged with an allowed entity_type.
@@ -1538,6 +1600,16 @@ def _candidate_pool_for_type(
             return False
         return True
 
+    def _category_accept(candidate_fact_text: str) -> bool:
+        """Return True if the candidate's wine category matches the correct answer."""
+        if not apply_category_filter:
+            return True
+        cand_cat = _classify_wine_category(candidate_fact_text)
+        if cand_cat is None:
+            # Unclassifiable candidates are allowed through (permissive).
+            return True
+        return cand_cat == correct_category
+
     # In-memory pool first.
     for fact in facts:
         ents_map = _extract_entities(fact)  # type → first name
@@ -1546,12 +1618,20 @@ def _candidate_pool_for_type(
             continue
         if not _accept(val, entity_type):
             continue
+        # Phase 2g.16 Lever 1: category coherence check.
+        if apply_category_filter:
+            cand_fact_text = fact.get("fact_text", "")
+            if not _category_accept(cand_fact_text):
+                _CATEGORY_FILTERED_COUNT += 1
+                continue
         key = val.lower()
         if key not in seen:
             seen.add(key)
             out.append(val)
 
     # DB fallback when local pool is thin.
+    # Note: DB fallback candidates have no source fact text available, so
+    # category filter cannot apply to them — they pass through unchecked.
     if len(out) < _MIN_POOL_SIZE_V22 + 2:
         for cand in _global_candidates_for_type(entity_type):
             if not _accept(cand, entity_type):
@@ -1564,8 +1644,15 @@ def _candidate_pool_for_type(
             if len(out) >= 60:  # cap pool size to control embedding cost
                 break
 
-    # Fail closed if the hardened pool is too small.
+    # Phase 2g.16 Lever 1: if post-category-filter pool is too small, log and
+    # fail closed so the caller skips this template instance.
     if len(out) < _MIN_POOL_SIZE_V22:
+        if apply_category_filter and template_id:
+            logger.info(
+                "template distractor pool depleted by category filter | "
+                "template={} | field={} | post_filter_size={}",
+                template_id, entity_type, len(out),
+            )
         return []
     return out
 
@@ -1787,6 +1874,65 @@ def source_distractors(
     return candidates[:count]
 
 
+def _same_country_same_category_pool(
+    correct_value: str,
+    source_fact: dict,
+    all_facts: list[dict],
+) -> list[str]:
+    """Phase 2g.16 Lever 3 — 'same_country_same_category' distractor pool.
+
+    Returns region names from facts that share BOTH the country AND wine category
+    of the source fact. Requires a pool of at least _MIN_POOL_SIZE_V22 to proceed;
+    falls back to an unconstrained same-type pool if fewer candidates are found.
+
+    Used exclusively by T-GRP-APP-REGION-PLANT-01 to prevent cross-country
+    distractors (e.g. Portuguese parishes appearing for Spanish DOs).
+    """
+    # Extract country from source fact.
+    source_ents = _extract_entities(source_fact)
+    source_country = source_ents.get("country", "")
+    source_fact_text = source_fact.get("fact_text", "")
+    source_category = _classify_wine_category(source_fact_text)
+
+    correct_lower = correct_value.lower()
+    seen: set[str] = set()
+    same_country_same_cat: list[str] = []
+    same_country_only: list[str] = []
+
+    for fact in all_facts:
+        ents = _extract_entities(fact)
+        region_val = ents.get("region", "")
+        if not region_val or region_val.lower() == correct_lower:
+            continue
+        candidate_country = ents.get("country", "")
+        if source_country and candidate_country != source_country:
+            continue  # different country — skip regardless
+        key = region_val.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        # Categorise this candidate.
+        cand_fact_text = fact.get("fact_text", "")
+        cand_category = _classify_wine_category(cand_fact_text)
+        if source_category is not None and cand_category == source_category:
+            same_country_same_cat.append(region_val)
+        else:
+            same_country_only.append(region_val)
+
+    # Prefer strictly same-country + same-category.
+    combined = same_country_same_cat + same_country_only
+    if len(combined) >= _MIN_POOL_SIZE_V22:
+        return combined
+
+    # Fallback: unconstrained same-type pool.
+    logger.debug(
+        "same_country_same_category pool too small ({}) for correct_value={!r}; "
+        "falling back to unconstrained same-type pool",
+        len(combined), correct_value,
+    )
+    return _candidate_pool_for_type("region", correct_value, all_facts)
+
+
 def fill_template(
     template: dict,
     fact: dict,
@@ -1855,7 +2001,18 @@ def fill_template(
         correct_answer = "A"
         correct_answer_text = "True"
     elif question_type == "multiple_choice":
-        candidate_pool = _candidate_pool_for_type(correct_field, correct_value, all_facts)
+        # Phase 2g.16 Lever 3: dispatch on distractor_strategy.
+        distractor_strategy = template.get("distractor_strategy", "same_type")
+        if distractor_strategy == "same_country_same_category":
+            candidate_pool = _same_country_same_category_pool(
+                correct_value, fact, all_facts
+            )
+        else:
+            candidate_pool = _candidate_pool_for_type(
+                correct_field, correct_value, all_facts,
+                source_fact_text=source_fact_text,
+                template_id=template["id"],
+            )
         distractors: list[str] = []
         if use_embeddings and len(candidate_pool) >= _EMB_TOPK:
             distractors = embedding_similarity_distractors(
@@ -2274,6 +2431,7 @@ def _run_generate_body(
         templates_for_domain = [
             t for t in TEMPLATES if t["domain"] == dom
             and (not difficulty or difficulty in t["difficulty_range"])
+            and not t.get("disabled", False)  # Phase 2g.16 Lever 5: skip disabled templates
         ]
         if not templates_for_domain:
             logger.warning(f"No templates for domain={dom}")
@@ -2285,6 +2443,7 @@ def _run_generate_body(
         facts = sample_facts(
             dom, count=target * 10, exclude_ids=used_facts, strategy="template",
             per_country_cap=per_country_cap,
+            require_substantive=True,  # Phase 2g.16 Lever 2: force substantive filter for templates
         )
         if not facts:
             logger.warning(f"No facts available for domain={dom}")
@@ -2403,12 +2562,35 @@ def _run_generate_body(
                 # Skipped on gate-flagged questions (Phase 2g.8): they are
                 # destined for the closed_book_solvable bucket and don't
                 # benefit from A4 stylometric obfuscation.
+                # Phase 2g.16 Lever 4: 1-shot retry on failure + OK/FAIL counters.
                 if paraphrase_fn is not None and gate_skipped:
-                    rephrased = paraphrase_fn(
-                        result["question_text"], result["options"]
-                    )
+                    global _PARAPHRASE_OK_COUNT, _PARAPHRASE_FAIL_COUNT
+                    _tid_for_log = result.get("_template_id", template["id"])
+                    rephrased: str | None = None
+                    for _attempt in range(1, 3):  # attempts 1, 2
+                        try:
+                            rephrased = paraphrase_fn(
+                                result["question_text"], result["options"]
+                            )
+                        except Exception as _perr:
+                            logger.warning(
+                                "template paraphrase EXCEPTION tid={} attempt={} err={}",
+                                _tid_for_log, _attempt, _perr,
+                            )
+                            rephrased = None
+                        if rephrased:
+                            break  # success — stop retrying
+                        # failure mode A: returned None/falsy
                     if rephrased:
                         result["question_text"] = rephrased
+                        _PARAPHRASE_OK_COUNT += 1
+                    else:
+                        logger.warning(
+                            "WARNING template paraphrase FAIL qid={} attempt=2 "
+                            "falling back to raw template stem",
+                            _tid_for_log,
+                        )
+                        _PARAPHRASE_FAIL_COUNT += 1
 
                 # v2.2 fix #8e — mandatory Gemini answer-verification. One
                 # call per template question before insert; rejects on

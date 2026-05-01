@@ -8,6 +8,10 @@ expected behaviour is:
     neighbours (skipping position 0 which may be a near-alias).
   * If fewer than ``count + 1`` neighbours are viable, the function
     returns [] so the caller can drop the question rather than fall back
+
+Phase 2g.16 Lever 1 tests are also in this file:
+  * test_wine_category_filter_rejects_cross_category_distractors
+  * test_min_pool_size_after_category_filter_skips_template
     to random.
 """
 
@@ -161,3 +165,107 @@ def test_distractors_band_does_not_include_farthest():
     # The picks should all be in the high-similarity band, NOT in the far group.
     far = {"Bordeaux", "Tuscany", "Napa Valley", "Mendoza"}
     assert not (set(picks) & far), f"far candidates leaked into distractors: {picks}"
+
+
+# ─── Phase 2g.16 Lever 1: wine-category distractor filter ───────────────────
+
+
+def _make_fact(entity_type: str, name: str, fact_text: str, country: str = "") -> dict:
+    """Helper: build a minimal fact dict for pool tests."""
+    entities = [{"type": entity_type, "name": name}]
+    if country:
+        entities.append({"type": "country", "name": country})
+    return {"fact_text": fact_text, "entities": entities}
+
+
+def test_wine_category_filter_rejects_cross_category_distractors():
+    """Lever 1: candidates classified as a different wine category than the
+    correct answer must be filtered out of the distractor pool.
+
+    Correct answer source fact: classified as 'red' (contains 'Cabernet Sauvignon').
+    Pool members with 'vinho_verde'-style sparkling text should be rejected.
+    """
+    from unittest.mock import patch
+
+    import src.generators.template_generator as tg
+
+    tg.reset_category_filtered_count()
+
+    # Correct answer source fact — red wine category
+    correct_fact_text = "Napa Valley is known for Cabernet Sauvignon red wine production."
+
+    # Build a pool: 25 red-wine facts + 10 sparkling/white-wine facts.
+    # Use multi-word names so they pass shape-homogeneity with "Napa Valley".
+    # Red-wine facts (same category — should be accepted)
+    red_facts = [
+        _make_fact("region", f"Red Valley{i}", f"Red Valley{i} produces Cabernet Sauvignon red wines.", "USA")
+        for i in range(25)
+    ]
+    # Sparkling facts (different category — should be rejected by category filter)
+    sparkling_facts = [
+        _make_fact("region", f"Spark Valley{i}", f"Spark Valley{i} produces sparkling méthode champenoise wines.", "USA")
+        for i in range(10)
+    ]
+    all_facts = red_facts + sparkling_facts
+
+    # Patch _global_candidates_for_type to return empty (isolate to in-memory pool)
+    with patch.object(tg, "_global_candidates_for_type", return_value=()):
+        pool = tg._candidate_pool_for_type(
+            "region",
+            "Napa Valley",
+            all_facts,
+            source_fact_text=correct_fact_text,
+            template_id="T-GRP-APP-REGION-PLANT-01",
+        )
+
+    # Sparkling-category candidates should have been filtered out
+    sparkling_names = {f"Spark Valley{i}" for i in range(10)}
+    pool_set = set(pool)
+    cross_category_leaked = sparkling_names & pool_set
+    assert not cross_category_leaked, (
+        f"Cross-category candidates leaked into pool: {cross_category_leaked}"
+    )
+    # Category-filter counter should have fired (at least for some sparkling facts)
+    assert tg.get_category_filtered_count() > 0, (
+        "Expected _CATEGORY_FILTERED_COUNT > 0 but counter is 0"
+    )
+
+
+def test_min_pool_size_after_category_filter_skips_template():
+    """Lever 1: when the post-category-filter pool drops below 20, the
+    function returns [] so the caller skips the template instance.
+    """
+    from unittest.mock import patch
+
+    import src.generators.template_generator as tg
+
+    tg.reset_category_filtered_count()
+
+    correct_fact_text = "Rioja produces world-class Tempranillo red wine."
+
+    # Build a pool with only 5 same-category facts (below _MIN_POOL_SIZE_V22=20).
+    # Use multi-word names to pass shape-homogeneity check with "Rioja" (single-word)...
+    # Actually "Rioja" is single-word; use single-word names for compat.
+    small_red_pool = [
+        _make_fact("region", f"Redoja{i}", f"Redoja{i} produces Tempranillo red wines.", "Spain")
+        for i in range(5)
+    ]
+    # 20 sparkling facts that will be filtered out (same single-word shape as Rioja)
+    sparkling_facts = [
+        _make_fact("region", f"Cavaoja{i}", f"Cavaoja{i} produces sparkling Cava wines.", "Spain")
+        for i in range(20)
+    ]
+    all_facts = small_red_pool + sparkling_facts
+
+    with patch.object(tg, "_global_candidates_for_type", return_value=()):
+        pool = tg._candidate_pool_for_type(
+            "region",
+            "Rioja",
+            all_facts,
+            source_fact_text=correct_fact_text,
+            template_id="T-GRP-APP-REGION-PLANT-01",
+        )
+
+    assert pool == [], (
+        f"Expected empty pool when post-category-filter size < 20, got {pool}"
+    )
