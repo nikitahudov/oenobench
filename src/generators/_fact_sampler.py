@@ -193,6 +193,78 @@ def _is_fact_substantive(fact_text: str) -> bool:
     return False
 
 
+# ─── Phase 2g.16 — grape-variety name validity filter ────────────────────────
+#
+# v14b gold review found 3/13 (23%) failing templates were caused by garbage
+# entity names in grape_varieties facts (extracted scraper-side):
+#   * "457 grape variety"             — pure number (probably a row index)
+#   * "55% white varieties"           — regulation rule misextracted as a name
+#   * "Champagne Blend"               — vague category, not a specific cultivar
+#
+# These pass _is_fact_substantive() because the surrounding fact text contains
+# a multi-word proper noun (e.g. "New Zealand wine") and/or numeric tokens.
+# This filter checks the EXTRACTED grape-variety NAME and rejects obvious
+# malformations. Cheap regex-only — no LLM/DB calls.
+_GRAPE_NAME_EXTRACTION_PATTERNS = (
+    re.compile(r"permits the (.+?) grape variety", re.I),
+    re.compile(r"^(.+?) is a widely reviewed grape variety", re.I),
+    re.compile(r"^(.+?) is a cultivated grape variety", re.I),
+    re.compile(r"^(.+?) is a grape variety", re.I),
+)
+
+_GRAPE_NAME_INVALID_PATTERNS = (
+    re.compile(r"^\d+(\.\d+)?$"),                 # Pure number
+    re.compile(r"%"),                             # Contains percent
+    re.compile(r"\bvarieties\b", re.I),           # Plural/generic
+    re.compile(
+        r"^(Champagne|Local|Native|Indigenous|"
+        r"Rare|White|Red|Generic|Mixed|Other)\s+(Blend|varieties?|grapes?)$",
+        re.I,
+    ),
+)
+
+_GRAPE_NAME_FILTERED_COUNT = 0
+
+
+def get_grape_name_filtered_count() -> int:
+    """Return how many facts were rejected by the grape-name validity filter."""
+    return _GRAPE_NAME_FILTERED_COUNT
+
+
+def reset_grape_name_filtered_count() -> None:
+    """Reset the grape-name-filter counter (used in tests)."""
+    global _GRAPE_NAME_FILTERED_COUNT
+    _GRAPE_NAME_FILTERED_COUNT = 0
+
+
+def _extract_grape_name(fact_text: str) -> str | None:
+    """Extract the apparent grape-variety name from a fact_text using common
+    fact patterns. Returns the matched name (whitespace-trimmed) or None when
+    no pattern matched.
+    """
+    if not fact_text:
+        return None
+    for pat in _GRAPE_NAME_EXTRACTION_PATTERNS:
+        m = pat.search(fact_text)
+        if m:
+            return m.group(1).strip()
+    return None
+
+
+def _is_grape_fact_valid(fact_text: str) -> bool:
+    """Return False if the fact's extracted grape-variety name is malformed
+    (a pure number, regulation-percentage rule, or vague generic blend).
+
+    When no name pattern matches the fact, returns True (don't over-block —
+    the fact may be using a phrasing this filter doesn't recognise; let
+    other guards decide).
+    """
+    name = _extract_grape_name(fact_text)
+    if name is None:
+        return True
+    return not any(p.search(name) for p in _GRAPE_NAME_INVALID_PATTERNS)
+
+
 def _should_apply_iconic_filter(strategy: str | None) -> bool:
     """Lever B2: apply the iconic-only filter for every strategy that
     passes a non-None value to ``sample_facts``. Multi-fact strategies
@@ -1053,6 +1125,7 @@ def sample_facts(
     substantive_filtered = 0
     category_filtered = 0
     iconic_filtered_single = 0
+    grape_name_filtered = 0
     # v2.2 fix #11 → Lever B2 (2026-04-28): apply iconic-only filter for any
     # strategy that calls sample_facts(). Multi-fact strategies that don't
     # pass through here still use _bundle_has_non_iconic_anchor.
@@ -1070,6 +1143,15 @@ def sample_facts(
             continue
         if substantive_filter_on and not _is_fact_substantive(r["fact_text"]):
             substantive_filtered += 1
+            continue
+        # Phase 2g.16: grape-variety name validity filter — rejects facts
+        # whose extracted grape name is a pure number, regulation rule, or
+        # vague generic blend (e.g. "457", "55% white varieties",
+        # "Champagne Blend"). Only applied to grape_varieties facts.
+        if domain == "grape_varieties" and not _is_grape_fact_valid(r["fact_text"]):
+            grape_name_filtered += 1
+            global _GRAPE_NAME_FILTERED_COUNT
+            _GRAPE_NAME_FILTERED_COUNT += 1
             continue
         if wine_category is not None:
             cat = _classify_wine_category(r["fact_text"])
@@ -1102,6 +1184,9 @@ def sample_facts(
             if not _is_fact_specific(fact_dict["fact_text"]):
                 continue
             if substantive_filter_on and not _is_fact_substantive(fact_dict["fact_text"]):
+                continue
+            # Phase 2g.16: grape-name validity filter also applies on fallback.
+            if domain == "grape_varieties" and not _is_grape_fact_valid(fact_dict["fact_text"]):
                 continue
             if wine_category is not None:
                 cat = _classify_wine_category(fact_dict["fact_text"])
