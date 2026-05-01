@@ -4,6 +4,29 @@ Chronological lab notebook for the NeurIPS 2026 paper methodology sections.
 
 ---
 
+## 2026-05-01 — Phase 2g.15: v13 yield recovery (multi-team rollout)
+
+### Motivation
+v12 build (commit 02252d9, ran 2026-04-29) collapsed to 69/120 (57.5%) vs v11's 86/120 (72%). Three v12 cost-cuts caused this: (1) Lever 4 tightened cb quota 0.25 → 0.20 → 18 GATE QUOTA FULL drops vs 7 in v11; (2) Lever 2 trimmed iconic-entities prompt 7 → 5 examples → starved thin grape_varieties cells, scenario_synthesis circuit-broke 8x; (3) Lever 3' decoupled verifier-claude to Sonnet — neutral on yield, kept.
+
+### v13 changes (split across 4 teams)
+- Team A: Revert Lever 4 (0.20 → 0.25, env-overridable), revert Lever 2 (5 → 7), raise CellTracker.min_attempts (10 → 15), parse-failure 1-shot retry with stricter "raw JSON only" prompt across all 5 generators.
+- Team B: New "cb_reserve" question_status enum value. cb_quota_full questions are now INSERTed with status='cb_reserve' instead of dropped, tagged closed_book_solvable. Read paths (_count_strategy_rows_since, _existing_corpus_count, export_gold_sheet) filter status != 'cb_reserve' by default. New CLI: orchestrator promote-from-reserve --tag X --count N [--strategy Y].
+- Team C: Cross-pass dead-cell awareness — cells that produce 0 rows in pass N are skipped in pass N+1, their budget reallocated to healthy cells. Sampler iconic-exhaust fallback — when iconic pool exhausts, retry with iconic filter off (substantive-only) to fill remaining slots.
+- Team D: New v13 build script (per_strategy=30, max_passes=5, seed=51) + smoke variant (per_strategy=4) + promote-from-reserve wrapper.
+
+### Quality stance
+None of the changes weaken active question quality vs v11. The only soft loosening (sampler iconic fallback) only triggers when the iconic pool is exhausted, and still requires substantive+vague filters to pass. cb_reserve questions are not in the active pool unless promoted; if promoted, they are flagged with closed_book_solvable for transparency.
+
+### Targets (to fill in after run)
+- Active questions kept: ___/120 (target ≥110)
+- cb_reserve banked: ___ (target ≥10)
+- Per-strategy minima: ___ (target ≥18/30 for all five)
+- Wall: ___ (target ≤35m)
+- Cost: ___ (target ≤$10)
+
+---
+
 ## 2026-04-11 — Phase 0: Shared Infrastructure & DB Purge
 
 ### What was done
