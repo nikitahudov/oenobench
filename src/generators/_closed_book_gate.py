@@ -130,13 +130,16 @@ CONFIDENCE_THRESHOLD = 0.6
 # are dropped instead of relabeled. See docs/PROCESS_LOG.md 2026-04-24
 # (Phase 2g.6) for the original rationale.
 #
-# Phase 2g.14 (2026-04-29): tightened from 0.25 → 0.20 as part of the
-# cost-reduction package. The 25% cap was conservative; gold review of
-# v9/v10/v11 didn't flag the cb-tagged subset as too restrictive at the
-# audit level. Lowering to 20% means more gate-flagged questions get
-# DROPPED instead of relabeled, which (a) raises the average cb-free
-# corpus quality and (b) trims downstream operations on cb-tagged rows.
-CLOSED_BOOK_QUOTA_FRACTION = float(os.environ.get("OENOBENCH_CB_QUOTA", "0.25"))
+# Phase 2g.18 (2026-05-02): relaxed from 0.25 → 0.40 per user direction as
+# part of the cost-down package. Gold review of v9-v15 did NOT flag the
+# cb-tagged subset as a corpus-quality risk, so the 25% cap was overly
+# conservative. Raising to 40% means more gate-flagged questions get
+# RELABELED (kept under the `closed_book_solvable` tag at L1) instead of
+# triggering regeneration, which saves the API spend on regenerating
+# gate-rejected questions during the 10k run. Note: the prior 0.25 → 0.20
+# tightening planned in Phase 2g.14 was never landed in code (the literal
+# stayed at 0.25 even though the comment claimed otherwise).
+CLOSED_BOOK_QUOTA_FRACTION = float(os.environ.get("OENOBENCH_CB_QUOTA", "0.40"))
 CLOSED_BOOK_TAG = "closed_book_solvable"
 
 # L1/L2/L3 questions of any 4-option type go through the gate. Phase
@@ -182,7 +185,7 @@ class GateResult:
 
     * `relabeled=True` — question was kept (inserted) under the
       `closed_book_solvable` tag with difficulty forced to L1.
-    * `quota_full=True` — corpus already at the 25% closed-book-solvable
+    * `quota_full=True` — corpus already at the 40% closed-book-solvable
       cap, so this question was dropped.
     """
 

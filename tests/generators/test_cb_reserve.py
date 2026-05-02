@@ -80,8 +80,8 @@ def test_cb_quota_full_inserts_to_reserve_not_drops(monkeypatch):
 
     # Gate will flag this question (correct answer, high confidence).
     _patch_call(monkeypatch, selected="A", confidence=0.9)
-    # Quota is at cap.
-    monkeypatch.setattr(_question_db, "count_closed_book_solvable", lambda: 2500)
+    # Quota is at cap. Phase 2g.18: cap is now 4000 (10k × 0.40), was 2500.
+    monkeypatch.setattr(_question_db, "count_closed_book_solvable", lambda: 4000)
 
     captured: dict = {}
 
