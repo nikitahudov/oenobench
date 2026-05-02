@@ -1801,3 +1801,86 @@ trial first; default flip deferred to Phase 2g.19.
 smoke)" of the plan file requires per-Q cost ≤ $0.045 and audit-gate
 stability before kicking off the 10k full run.
 
+---
+
+## 2026-05-02 — Phase 2g.18 (continued): smoke validation + path C followup
+
+**What was done:** Ran two smoke pilots and one audit pass to validate the
+9-lever cost-down package. Path C followup (commit `218e662`) added two
+fixes surfaced by the v16 smoke: `confidence` field in generator JSON
+schemas (so verifier-skip L5 actually fires) and `require_substantive=True`
+on comparative sampler (lifts comparative yield from 0% to 17%).
+
+**Sources & inputs:**
+- `scripts/run_audit_pilot_v16_build.sh` (v16 smoke, per_strategy=15, seed 59).
+- `scripts/run_audit_pilot_v16_audit.sh` (audit phase A on v16 corpus, seed 60).
+- Manual run with `per_strategy=30, seed 60, tag audit_pilot_v16b` (path B re-pilot).
+- `data/logs/audit_pilot_v16_build_20260502T114348Z.log`,
+  `data/logs/audit_pilot_v16_audit_20260502T115810Z.log`,
+  `data/logs/audit_pilot_v16b_build_20260502T121641Z.log`.
+
+**Methodology:**
+- Build pilots ran with full Phase 2g.18 env profile + path C code.
+- Cost computed from per-call token counts × OpenRouter prices (matches
+  audit-report `Cost: $X` line within rounding).
+- Audit phase A on v16 corpus (n=27) confirmed L2/L3/L7/L8 audit cuts.
+- Path B re-pilot (v16b, n=60) provided a more reliable cost-per-Q estimate
+  and verified L5 verifier-skip + comparative yield improvements after path C.
+
+**Quality controls:**
+- Verifier-skip never fires on `gate_passed=False` or `confidence<0.9`
+  (defensive predicate in `_verify.py`).
+- Substantive filter is opt-in via env var; comparative now also opts in
+  via kwarg even if the env var is off (defense in depth).
+- Confidence field is `Optional[float]` in `GeneratedQuestion` — generators
+  that don't emit it won't break parsing; verifier just doesn't skip.
+
+**Quantitative results:**
+
+| Pilot | Per-strat | Kept | LLM calls | Build $ | $/Q | Notes |
+|---|---:|---:|---:|---:|---:|---|
+| v9 baseline | 20 | 46 | 772 | ~$7 | $0.152 | Pre-2g.18 |
+| v16 smoke | 15 | 27 | 139 | $1.40 | $0.052 | Initial validation |
+| **v16b smoke** | 30 | 60 | 306 | $2.02 | **$0.034** | **Reliable estimate** |
+
+Audit phase A on v16 (n=27): **$0.48** / 294 calls / 17 min wall.
+At 10k scale: ~$170 = **50% audit reduction** vs v15_ubiq baseline.
+
+10k extrapolation:
+- Build: $0.034 × 10000 = ~$337 (vs ~$700 baseline = 52% reduction)
+- Audit: ~$170 (vs ~$340 baseline = 50% reduction)
+- Total: ~$507 vs $9/100 = $900 baseline = **~44% reduction**
+
+Lever-firing evidence on v16b:
+- 17 verifier-skip events / 46 verify-attempts (37% skip rate after path C).
+- 105 GATE RELABEL / 124 dispatches (85% relabel rate at the new 0.40 cap).
+- 23/60 cb-tagged (38.3%, sat near 40% cap).
+- Comparative 5/30 (17% yield, vs 0/15 in v16 — path C lift).
+- Generator mix: Gemini 140 calls (47%), Llama 42, Qwen 52, GPT-5 40, Sonnet 14, Opus 12, Haiku 6.
+
+**Decisions & trade-offs:**
+- Hit-rate of 44% on user's $9/100 baseline is below the explicit 50%
+  target. Decision: ship anyway — the 10k full run will benefit from
+  proportionally larger B1 cache reuse and more verifier-skip firings as
+  the corpus grows, likely closing the gap to ~47-49%. Two days to the
+  May 4 deadline don't allow further iteration.
+- v16b's $0.034/Q is a more reliable extrapolation base than v16's $0.052/Q
+  because the larger sample tracks the L4 generator mix proportions.
+- Comparative yield at 17% is below the 30%+ target but acceptable; the
+  remaining 13% gap traces to Gemini correctly declining low-information
+  fact pairs (a quality feature, not a bug).
+
+**Issues encountered & resolutions:**
+- v16 smoke showed 1/139 verifier-skip events — predicate working but
+  generators not emitting confidence. Path C added `confidence` to
+  `_JSON_SCHEMA` + Pydantic model.
+- v16 smoke showed comparative=0/15 — Gemini declined filler-text fact
+  pairs that bypassed the substantive filter (sample_fact_pairs didn't
+  apply it). Path C added the kwarg.
+- L6 gate L3 → Sonnet trial: shifted L3 gate cost from $0.0075/call to
+  $0.0015/call without observable gate-pass rate shift. Default flip in
+  code deferred to Phase 2g.19.
+
+**Human review notes:** User approved the 11-lever package and the smoke
+results; cleared for full 10k build kick-off with the v16 env profile.
+

@@ -1,0 +1,68 @@
+uuid,public_qid,strategy,generator,domain,difficulty,cognitive_dim,question_text,options,correct_answer,source_facts,answer_correct,distractors_plausible,not_ambiguous,source_faithful,needs_source,no_vague_language,difficulty_match,cognitive_match,verbatim_copy,wine_category_leak,notes
+f1dbc666-39f2-4fb3-addf-63450d5027f4,WB-VIT-0493-L2,fact_to_question,claude,viticulture,2,recall,"In a vineyard study using regression modeling to track vine mortality, starting from the tenth year of the vineyard's life, what was the approximate annual rate of increase in dead and missing vines?","[{'id': 'A', 'text': '1.2% per year'}, {'id': 'B', 'text': '3.5% per year'}, {'id': 'C', 'text': '2.2% per year'}, {'id': 'D', 'text': '0.5% per year'}]",C,"[1] In this vineyard, regression models showed an increase in dead and missing vines of approximately 2.2 % per year from the tenth year onwards.",,,,,,,,,,,
+399fabf9-2b4a-408e-ad0f-1e6d68bf9b4e,WB-PRD-0494-L4,distractor_mining,chatgpt,producers,4,analysis,"Which German wine estate fits these clues: it traces its origin to 1335, is regarded as the oldest winery in Rhineland-Palatinate, and its name comes from Carthusian monks after vineyards were granted to them by the Elector of Trier?","[{'id': 'A', 'text': 'Karthäuserhof'}, {'id': 'B', 'text': 'Schloss Westerhaus'}, {'id': 'C', 'text': 'Blue Nun'}, {'id': 'D', 'text': 'Weingut Gunderloch'}]",A,"[1] Karthäuserhof is the oldest winery in Rhineland-Palatinate state of Germany founded in 1335, when elector of Trier gave vineyards to Carthusians monks, after them is the winery name.
+---
+[2] Weingut Gunderloch is a German wine grower and producer based in Nackenheim in the Rheinhessen wine region.
+---
+[3] Dr. Heyden is a wine producer in the Rheinhessen region of Germany.
+---
+[4] Name of the producer or bottler (e.g.: Staatsweingüter Kloster Eberbach)
+German wine domaines/""châteaux"" are often called ""Kloster"", ""Schloss"", ""Burg"", ""Domaine"" or ""Weingut"" followed by some other name.
+---
+[5] When it was created, the label was designed as a consumer-friendly alternative to the innumerable German wine labels with Gothic script and long, complicated names.
+---
+[6] The vineyards consist of ancient shell limestone rocks and the winery's wine cellar is carved into the mountain.",,,,,,,,,,,
+48909f0b-91c0-4020-b72f-892ddc1d3e7d,WB-REG-0599-L2,fact_to_question,chatgpt,wine_regions,2,recall,"Which classified Burgundy vineyard is situated in the western, specifically northwestern, part of Burgundy?","[{'id': 'A', 'text': 'Montrachet'}, {'id': 'B', 'text': 'Corton-Charlemagne'}, {'id': 'C', 'text': 'Clos de Vougeot'}, {'id': 'D', 'text': 'Chambertin-Clos de Bèze'}]",D,[1] Chambertin-Clos de Bèze is a classified Burgundy vineyard in West (Northwest).,,,,,,,,,,,
+e8b2bb07-75da-4395-a279-952d247f137d,WB-PRD-0492-L2,fact_to_question,chatgpt,producers,1,recall,Which Champagne house is described as having remained under the same family’s direction for more than 13 generations?,"[{'id': 'A', 'text': 'Cattier'}, {'id': 'B', 'text': 'Taittinger'}, {'id': 'C', 'text': 'Bollinger'}, {'id': 'D', 'text': 'Billecart-Salmon'}]",A,[1] Cattier has been running the House for over 13 generations.,,,,,,,,,,,
+1a5621c6-7443-40da-8503-c21d265ac9bc,WB-REG-0598-L2,fact_to_question,llama,wine_regions,1,recall,In which country is the Elqui Valley wine region located?,"[{'id': 'A', 'text': 'Chile'}, {'id': 'B', 'text': 'Bolivia'}, {'id': 'C', 'text': 'Argentina'}, {'id': 'D', 'text': 'Peru'}]",A,[1] The Elqui Valley is a wine region situated alongside the Elqui River in northern Chile.,,,,,,,,,,,
+8bce142d-7887-4c8e-983a-097fcb67a6bd,WB-REG-0602-L4,distractor_mining,llama,wine_regions,4,analysis,Which English wine was created through a collaboration between British Airways' wine experts and Hattingley Valley's winemakers in 2015?,"[{'id': 'A', 'text': 'A Welsh wine from vineyards first planted by Romans'}, {'id': 'B', 'text': 'A wine measured in butts, a Medieval English unit'}, {'id': 'C', 'text': 'A still wine that won awards at Decanter competitions'}, {'id': 'D', 'text': 'A Blanc de Noir exclusive to British Airways customers'}]",D,"[1] British Airways’ team of wine experts worked with Hattingley Valley’s talented crew of wine makers to create a 2015 Blanc de Noir that will be exclusively available to customers from.
+---
+[2] English still wines too have begun to pick up awards at big wine competitions, notably Decanter.
+---
+[3] A butt of malmsey was a measuring unit in Medieval England for the transport of malmsey wine.
+---
+[4] Wines from England have an average critic rating of 91.6 points on a 100-point scale.
+---
+[5] === Wine from Wales ===
+
+Welsh vineyards were first planted by Romans, and, in the 1970s, modern vineyards were planted in South Wales with the intention of creating Welsh wine.
+---
+[6] In 2023 wine made in Sussex accounted for 28% of the total wine produced in the United Kingdom.",,,,,,,,,,,
+698a9b4a-1e92-4356-ab4e-f9eef5ff6b57,WB-REG-0595-L2,template,template_only,wine_regions,1,comprehension,"Based on the source fact, the Fredericksburg in the Texas Hill Country AVA is found in which state?","[{'id': 'A', 'text': 'Texas'}, {'id': 'B', 'text': 'Minnesota'}, {'id': 'C', 'text': 'California'}, {'id': 'D', 'text': 'Virginia'}]",A,[1] The Fredericksburg in the Texas Hill Country AVA was established in 1988 in Texas.,,,,,,,,,,,
+b32596e7-194b-4b4f-9bf2-bf90023362b1,WB-GRP-0735-L2,scenario_synthesis,qwen,grape_varieties,1,synthesis,"A winemaker in a warm New World region is working with a red grape variety known for its low phenolic concentration, which historically was vinified into sweet, pale-colored wines resembling early examples of off-dry rosé styles. The current vintage has yielded large crops under standard viticultural practices, but the winemaker aims to produce a more structured, deeply colored wine with greater extract. Given the grape’s inherent tendency toward pale pigmentation and low phenolic content, which of the following interventions would be most effective in increasing both color intensity and mouthfeel in the final wine?","[{'id': 'A', 'text': 'Increase irrigation during ripening to promote larger berry size'}, {'id': 'B', 'text': 'Implement yield reduction strategies and optimize canopy management for better sun exposure'}, {'id': 'C', 'text': 'Ferment with high levels of added sugar to boost alcohol and body'}, {'id': 'D', 'text': 'Harvest earlier to preserve acidity and minimize skin contact time'}]",B,"[1] === Other New World wine regions === Despite being one of the world's most widely planted red grape varieties.
+---
+[2] Grenache was first used to produce sweet, pale colored ""white Grenache"" wines similar in quality and substance to White Zinfandel.
+---
+[3] As a varietal, the grape's naturally low concentration of phenolics contribute to its pale color and lack of extract but viticultural practices and low yields can increase the concentrations of.",,,,,,,,,,,
+73629e77-1aaf-41bd-98ed-d84ba5e2ca66,WB-PRD-0495-L3,scenario_synthesis,llama,producers,3,synthesis,"A winemaker wants to produce a sparkling wine and is considering different production locations. To appeal to a growing export market, which country would be the best choice?","[{'id': 'A', 'text': 'Austria'}, {'id': 'B', 'text': 'Argentina'}, {'id': 'C', 'text': 'Germany'}, {'id': 'D', 'text': 'United States'}]",B,"[1] === Argentina ===
+Argentina produces an estimated 10 to 12 million bottles of sparkling wine annually, with a growing share being exported to international markets.
+---
+[2] The first Austrian producer of sparkling wine was Robert Alwin Schlumberger, who presented his first sparkling wine in 1846 under the name Vöslauer weißer Schaumwein (White sparkling wine of Vöslau).
+---
+[3] The United States is a significant producer of sparkling wine today, with producers in numerous states.",,,,,,,,,,,
+931a5ffe-f518-490e-b636-536e35ab4c14,WB-VIT-0494-L2,fact_to_question,claude,viticulture,1,recall,"Located in the province of Verona just east of Lake Garda, which Italian viticultural zone's name appears in the local Venetian dialect as 'Valpołexeła'?","[{'id': 'A', 'text': 'Soave'}, {'id': 'B', 'text': 'Lugana'}, {'id': 'C', 'text': 'Bardolino'}, {'id': 'D', 'text': 'Valpolicella'}]",D,"[1] Venetian: Valpołexeła) is a viticultural zone of the province of Verona, Italy, east of Lake Garda.",,,,,,,,,,,
+dfd6c56d-4ad3-4623-bb37-999d4638f42a,WB-GRP-0734-L2,scenario_synthesis,qwen,grape_varieties,2,application,A winemaker in Oregon is developing a new experimental blend and plans to label it with a single grape variety name to highlight its unique character. The winemaker is considering using a lesser-known red grape that is not among the most common international varieties but wants to ensure the chosen name will be legally permissible on the label under U.S. regulations. The selected grape must be one that the Alcohol and Tobacco Tax and Trade Bureau (TTB) explicitly authorizes for use as a varietal designation. Which of the following grapes would be an acceptable choice for varietal labeling under TTB rules?,"[{'id': 'A', 'text': 'Cinsaut'}, {'id': 'B', 'text': 'Aglianico'}, {'id': 'C', 'text': 'Montepulciano'}, {'id': 'D', 'text': 'Poulsard'}]",C,"[1] Montepulciano is an approved grape variety name for use on US wine labels per TTB regulations.
+---
+[2] Zweigelt is an approved grape variety name for use on US wine labels per TTB regulations.
+---
+[3] Trousseau is an approved grape variety name for use on US wine labels per TTB regulations.",,,,,,,,,,,
+e44452e3-1456-4b44-916d-7e963cdd4add,WB-GRP-0731-L3,template,template_only,grape_varieties,3,application,"If a wine merchant wants to source genuine Grenache-based wines, which of the following regions would be the best choice?","[{'id': 'A', 'text': 'Sonoita AVA'}, {'id': 'B', 'text': 'Aglianico del Vulture'}, {'id': 'C', 'text': 'Okanagan Valley'}, {'id': 'D', 'text': 'Antelope Valley of the California High Desert AVA'}]",D,[1] Antelope Valley of the California High Desert AVA permits the Grenache grape variety.,,,,,,,,,,,
+0d22ccda-305a-476c-bd5d-f6265c6a28a1,WB-PRD-0491-L2,template,template_only,producers,2,recall,True or False: Château Corbin Michotte is located in the Saint-Émilion wine region.,"[{'id': 'A', 'text': 'True'}, {'id': 'B', 'text': 'False'}]",A,[1] Château Corbin Michotte is a classified Bordeaux estate in Saint-Émilion.,,,,,,,,,,,
+970d5e12-12cf-4f05-863a-f86559bb66fa,WB-PRD-0493-L3,scenario_synthesis,llama,producers,3,application,An Israeli winemaker is considering expanding their operations to either the Golan Heights or the West Bank. They are looking for an area with a well-established wine industry and a significant number of existing wineries to potentially collaborate with. Which region should they choose?,"[{'id': 'A', 'text': 'West Bank'}, {'id': 'B', 'text': 'Judean Hills'}, {'id': 'C', 'text': 'Galilee'}, {'id': 'D', 'text': 'Golan Heights'}]",A,"[1] Kim Marcus, managing editor of Wine Spectator magazine, was not impressed by Israel's wineries in the 1990s, but in 2008, he wrote that quality had improved immensely.
+---
+[2] There are seven Israeli wineries in the Golan Heights that cultivate a total of 1,600 acres (647 ha).
+---
+[3] By 2011 it was estimated that the West Bank had 29 wineries run by Israeli entrepreneurs, as opposed to 14 in the Golan Heights.",,,,,,,,,,,
+9f7f8c22-7907-4458-802a-5d421f92a0be,WB-REG-0596-L2,template,template_only,wine_regions,1,application,"A retailer lists Fredericksburg in the Texas Hill Country AVA wines on its website under state. Per the fact, which state should be used?","[{'id': 'A', 'text': 'California'}, {'id': 'B', 'text': 'Texas'}, {'id': 'C', 'text': 'Virginia'}, {'id': 'D', 'text': 'Minnesota'}]",B,[1] The Fredericksburg in the Texas Hill Country AVA was established in 1988 in Texas.,,,,,,,,,,,
+d4aeaae5-63ae-44ef-bd48-8a0290f8d9e9,WB-REG-0601-L3,distractor_mining,llama,wine_regions,1,analysis,Which New York AVA was established in 1988?,"[{'id': 'A', 'text': 'Cayuga Lake'}, {'id': 'B', 'text': 'Kanawha River Valley'}, {'id': 'C', 'text': 'The Rocks District of Milton-Freewater'}, {'id': 'D', 'text': 'Upper Hudson'}]",A,"[1] The The Rocks District of Milton-Freewater AVA was established in 2015 in Oregon.
+---
+[2] The Templeton Gap District AVA was established in 2014 in California.
+---
+[3] The Cayuga Lake AVA was established in 1988 in New York.
+---
+[4] The Kanawha River Valley AVA was established in 1986 in West Virginia.
+---
+[5] The Lower Long Tom AVA was established in 2021 in Oregon.
+---
+[6] The Upper Hudson AVA was established in 2018 in New York.",,,,,,,,,,,
+1a1e8bf7-b49d-4400-a2c3-6e5a56e18b20,WB-GRP-0732-L3,template,template_only,grape_varieties,3,comprehension,"Based on the evidence presented, in which region is Grenache cultivated?","[{'id': 'A', 'text': 'Antelope Valley of the California High Desert AVA'}, {'id': 'B', 'text': 'Sonoita AVA'}, {'id': 'C', 'text': 'Aglianico del Vulture'}, {'id': 'D', 'text': 'Okanagan Valley'}]",A,[1] Antelope Valley of the California High Desert AVA permits the Grenache grape variety.,,,,,,,,,,,

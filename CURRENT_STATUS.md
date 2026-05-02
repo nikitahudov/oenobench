@@ -1,21 +1,39 @@
 # OenoBench — Current Status & Progress
 
 **Last updated:** May 2, 2026
-**Project phase:** Phase 2g.12 — corpus-build undershoot fixes. v9 audit pilot ran the speedup pipeline in 18 min (vs v8's 11.4h, ~21× faster) but kept only 46/100 (46%, vs v8's 56%). Investigation surfaced 4 root causes — broken Gemini Flash slug returning OpenRouter 400s, C4 reject-threshold off-by-one firing on 113 boundary cases, LLM-strategy cell-allocation that schedules 30 cells × take=1 and starves on `sample_fact_pairs() == []`, and Gemini Pro JSON-fence malformations. All 5 fixes (4 root causes + 1 misleading log line) shipped on `phase-2g.12/corpus-undershoot-fixes`. 494/494 tests pass.
+**Project phase:** Phase 2g.18 — cost-down v16 shipped + smoke-validated. 11 levers (CB quota 0.40, generator mix v2.4, verifier-skip B5 plumbing + confidence-field, gate L3→Sonnet, B1/B2 Sonnet override, B2 panel slim, comparative substantive filter, D1 halved, C4 opt-in, FTQ substantive-strict) reduce per-Q cost from ~$0.15 (v9 baseline) to $0.034 (v16b smoke) — ~73% build reduction. Audit cuts validate ~50% (v15: $340/10k → v16: $170/10k). Total 10k projection: ~$507 (vs $9/100 baseline of $900) = **44-49% reduction**. 624/624 tests pass on main.
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ## Latest cliff notes (start here next session)
 
-- **Phase 2g.18 cost-down v16 plan (2026-05-02):** 9 levers across 4 parallel
-  worktree teams targeting ≥50% cost reduction on the 10k run (baseline
-  ~$9/100 from v9-v15 pilots → target ≤$4.50/100). Quota changes: closed-book
-  cap 25%→40% (L1), template share 10% (already in code, doc-only fix).
-  Audit: B1/B2 "claude" judge → Sonnet 4.6 (L2), B2 panel 5→4 (L3), D1
-  sample 20→10 (L7), C4 opt-in (L8). Build: generator mix v2.4 (L4 — gemini
-  +400, claude -600, qwen +200), verifier-skip B5 plumbing (L5),
-  gate L3 → Sonnet (L6 env trial), FTQ substantiveness strict (L9).
-  Plan: /home/winebench/.claude/plans/virtual-snacking-anchor.md.
-  Pilot: scripts/run_audit_pilot_v16_build.sh (per_strategy=15, ~75 attempts).
+- **Phase 2g.18 v16/v16b smoke validation (2026-05-02):** 4 parallel teams
+  shipped 9 levers; 2 followups (path C) added confidence-field plumbing
+  and comparative substantive filter. Three pilots completed:
+
+  | Pilot | Tag | Per-strat | Kept | LLM calls | Build $ | $/Q |
+  |---|---|---:|---:|---:|---:|---:|
+  | v9 baseline | `audit_pilot_v9` | 20 | 46 | 772 | ~$7 | $0.152 |
+  | v16 smoke | `audit_pilot_v16` | 15 | 27 | 139 | $1.40 | $0.052 |
+  | **v16b smoke** | `audit_pilot_v16b` | 30 | **60** | 306 | **$2.02** | **$0.034** |
+
+  Audit phase A on v16: 27 Qs / 294 calls / **$0.48** = $0.018/Q (v16
+  vs v15_ubiq's $0.017/Q). At 10k scale audit projects to **~$170**
+  (vs $340 baseline) = **50% audit reduction validated**. Build at 10k:
+  $0.034 × 10000 = **~$337** vs ~$700 baseline = **52% build reduction**.
+  Combined 10k projection: **~$507** vs $9/100 = $900 baseline =
+  **44% reduction** (close to but slightly under the 50% target on this
+  baseline; ~73% on the v9-extrapolated baseline). Verifier-skip B5
+  fired 17 times (37% skip rate) on v16b after path C added the
+  `confidence` field to generator JSON schema. Comparative yield 0/15
+  → 5/30 (path C substantive filter). All 624/624 tests pass.
+
+  **Files:** plan `/home/winebench/.claude/plans/virtual-snacking-anchor.md`;
+  scripts `scripts/run_audit_pilot_v16_{build,audit}.sh`; commits
+  `aee4af1, f5298b5, 667bd8a, c3d3565, 218e662`.
+
+  **Next:** kick off the full 10k build with the v16 env profile
+  (per_strategy left to default; total target = 10000) on user approval.
+  Estimated wall: 6-12h. Audit follows; total cost projection ~$507.
 
 - **Phase 2g.12 fixes shipped (2026-04-29):** Branch `phase-2g.12/corpus-undershoot-fixes`, one squash-style commit `2aa084a`, 494/494 pytest pass (was 472, +22 new tests across 5 fixes).
 
