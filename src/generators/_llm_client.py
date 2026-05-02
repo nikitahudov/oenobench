@@ -118,6 +118,10 @@ class LLMResponse:
     latency_ms: int = 0
     success: bool = False
     error: str | None = None
+    # Phase 5 telemetry fix — OpenRouter fields previously dropped on the floor:
+    generation_id: str | None = None    # OR's `id` field, used for /api/v1/generation lookups
+    provider: str | None = None          # OR's `provider` field (back-end actually routed to)
+    or_cost: float | None = None         # OR's `usage.cost` — authoritative per-call USD bill
 
 
 # -- JSON extraction --------------------------------------------------------
@@ -337,6 +341,18 @@ class LLMClient:
             if details is not None:
                 reasoning_t = getattr(details, "reasoning_tokens", 0) or 0
 
+            # Phase 5 telemetry fix — capture OR's authoritative billing fields.
+            gen_id = getattr(completion, "id", None) or None
+            provider_name = getattr(completion, "provider", None) or None
+            or_cost_value = None
+            if usage is not None:
+                or_cost_raw = getattr(usage, "cost", None)
+                if or_cost_raw is not None:
+                    try:
+                        or_cost_value = float(or_cost_raw)
+                    except (TypeError, ValueError):
+                        or_cost_value = None
+
             response = LLMResponse(
                 content=content,
                 parsed=parsed,
@@ -347,6 +363,9 @@ class LLMClient:
                 latency_ms=latency_ms,
                 success=True,
                 error=None,
+                generation_id=gen_id,
+                provider=provider_name,
+                or_cost=or_cost_value,
             )
 
             logger.info(
