@@ -73,6 +73,12 @@ class GeneratedQuestion(BaseModel):
     correct_answer_text: Optional[str] = None
     explanation: str = Field(..., min_length=10, max_length=2000)
     tags: list[str] = Field(default_factory=list)
+    # Phase 2g.18 lever L5: self-reported answer-key confidence in [0, 1].
+    # Forwarded to verify_question_with_independent_solver via
+    # parse_llm_response(..., generator_confidence=...) so should_skip_verifier
+    # can short-circuit Llama/Qwen verification on high-confidence + gate-passed
+    # questions when OENOBENCH_VERIFIER_SKIP=1.
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 
     @field_validator("tags", mode="before")
     @classmethod

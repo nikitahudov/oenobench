@@ -1536,6 +1536,7 @@ def sample_fact_pairs(
     count: int,
     exclude_ids: set[str] | None = None,
     per_country_cap: float | None = None,
+    require_substantive: bool = False,
 ) -> list[tuple[dict, dict]]:
     """Sample pairs of comparable facts about different entities of the same type.
 
@@ -1626,6 +1627,16 @@ def sample_fact_pairs(
         filtered_rows.append(row)
     rows = filtered_rows
 
+    # Phase 2g.18: substantiveness filter for fact pairs. v16 smoke pilot
+    # showed comparative=0/15 yield because Gemini correctly declined pairs
+    # like "Howell Mountain AVA possesses geographical features, climate,
+    # soil, elevation, physical features, etc." where one fact is filler.
+    # Mirrors the FTQ L9 lever — pre-filter before the LLM round-trip.
+    substantive_filter_on = (
+        os.environ.get(_FACT_SUBSTANTIVE_ENV_VAR, "").strip() == "1"
+        or require_substantive
+    )
+
     # Score all candidates by entity affinity + dimension match
     scored: list[tuple[float, str, dict, str | None, str]] = []
     for row in rows:
@@ -1634,6 +1645,9 @@ def sample_fact_pairs(
             continue
         if not _is_fact_rich(a_text) or not _is_fact_rich(b_text):
             continue
+        if substantive_filter_on:
+            if not _is_fact_substantive(a_text) or not _is_fact_substantive(b_text):
+                continue
         # Stricter minimum for comparative: short facts are too thin
         if len(a_text.split()) < 18 or len(b_text.split()) < 18:
             if not (_WINE_CONTENT_SIGNALS.search(a_text) and _WINE_CONTENT_SIGNALS.search(b_text)):

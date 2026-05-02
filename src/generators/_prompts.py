@@ -82,12 +82,24 @@ _JSON_SCHEMA = """\
   "correct_answer": "A",
   "correct_answer_text": "The text of the correct option",
   "explanation": "Why this answer is correct and others are wrong, citing the fact",
-  "tags": ["relevant", "topic", "tags"]
+  "tags": ["relevant", "topic", "tags"],
+  "confidence": 0.0-1.0
 }"""
 
+# Phase 2g.18 lever L5: ask the generator to self-report confidence in the
+# correctness of the answer key. When the closed-book gate also passes
+# (question is non-trivial) AND confidence ≥ 0.9, the independent-solver
+# verifier (Llama/Qwen) can be skipped via OENOBENCH_VERIFIER_SKIP=1.
+# Calibration matters — instruct the LLM to actually distinguish high-vs-low
+# confidence rather than always emitting 1.0.
 _JSON_SCHEMA_NOTE = (
     'For short_answer questions, set "options" to null. '
-    'For true_false, provide only options A (True) and B (False).'
+    'For true_false, provide only options A (True) and B (False). '
+    'Set "confidence" between 0.0 and 1.0 reflecting how certain you are '
+    'that the source fact supports the keyed answer over every distractor. '
+    'Use ≥0.9 only when the fact unambiguously entails the key; use ≤0.7 '
+    'when the fact only weakly supports the key or any distractor is '
+    'partially true.'
 )
 
 

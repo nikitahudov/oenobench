@@ -441,6 +441,7 @@ def _run_generate_body(
                 domain, batch_size,
                 exclude_ids=used_fact_ids | run_used_ids,
                 per_country_cap=per_country_cap,
+                require_substantive=True,
             )
             if not pairs:
                 logger.warning("No more fact pairs available for domain={}", domain)
