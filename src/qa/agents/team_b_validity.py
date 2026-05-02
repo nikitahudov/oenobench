@@ -21,7 +21,7 @@ from src.qa._judges import JUDGE_PANEL, judge_open_and_closed
 B1_ID = "B1_TriJudgeAnswer"
 B1_VERSION = "v1.0.0"
 B2_ID = "B2_ClosedBookSolvability"
-B2_VERSION = "v3.1.0"  # gold-v3 κ recalibration: unanimous + high-conf FAIL at L≤2; L≥3 WARN-max
+B2_VERSION = "v3.2.0"  # Phase 2g.18 cost-down: 4-judge panel (drop chatgpt); thresholds rescaled 5/5→4/4 and ≥4/5→≥3/4
 
 
 def _coerce_options(q: dict) -> list[dict]:
@@ -181,21 +181,29 @@ def run_team_b(
             "cost_usd": sum(v.cost_usd for v in result.open_book),
         })
 
-        # ─── B2 — closed-book solvability (v3.1.0, gold-v3 κ recalibration) ──
-        # Gold-v3 (n=119) showed v3.0.0 B2 vs human κ = -0.099 on `needs_source`
-        # (humans flag ~7%; B2 flagged ~81%). Root cause: the wider 5-judge
-        # panel (Claude/GPT/Gemini/Llama/Qwen) with a ≥4/5 threshold lets the
-        # three expert judges out-vote the two proxy judges on textbook
-        # trivia. v3.1.0 demands unanimous (5/5) AND mean-confidence ≥ 0.80
-        # among keyed judges before FAIL at L≤2; at L≥3 the closed-book
-        # signal is demoted to informational-only (WARN ceiling) because
+        # ─── B2 — closed-book solvability (v3.2.0, 4-judge panel rescale) ────
+        # Phase 2g.18 cost-down (4-judge panel): unanimous threshold shifts
+        # 5/5 → 4/4; warn shifts ≥4/5 → ≥3/4. Mean-conf threshold (0.80)
+        # unchanged. Drop the "three expert judges out-vote two proxies"
+        # rationale since GPT-5 is no longer in the panel; the surviving
+        # expert (Claude-Sonnet via override + Gemini) is now diluted by
+        # Llama+Qwen 1:1, which strengthens the calibration anchor.
+        #
+        # Gold-v3 (n=119) showed v3.0.0 B2 vs human κ = -0.099 on
+        # `needs_source` (humans flag ~7%; B2 flagged ~81%). v3.1.0 demanded
+        # unanimous (5/5) AND mean-confidence ≥ 0.80 before FAIL at L≤2;
+        # v3.2.0 keeps that recipe but rescales to 4/4. At L≥3 the
+        # closed-book signal stays informational-only (WARN ceiling) because
         # expert-LLM priors dominate on hard recall questions. See
         # docs/GENERATION_IMPROVEMENT_PLAN.md §5b and
         # docs/GOLD_CALIBRATION_ANALYSIS.md §4.
-        #   L ≤ 2:  FAIL iff 5/5 keyed AND mean-conf ≥ 0.80
-        #           WARN if ≥4/5 keyed
+        #   L ≤ 2:  FAIL iff 4/4 keyed AND mean-conf ≥ 0.80
+        #           WARN if ≥3/4 keyed
         #           PASS otherwise
-        #   L ≥ 3:  WARN if 5/5 keyed; PASS otherwise (never FAIL on CB alone)
+        #   L ≥ 3:  WARN if 4/4 keyed; PASS otherwise (never FAIL on CB alone)
+        #
+        # Thresholds reference len(cb_choices) rather than hardcoded 4/5 so
+        # the same logic survives a future panel-size change.
         cb_choices = [v.chosen for v in result.closed_book]
         cb_majority, cb_count = _majority(cb_choices)
         closed_book_correct = bool(cb_majority and cb_majority == claimed_key)
@@ -211,10 +219,13 @@ def run_team_b(
         # Mean confidence among judges who picked the keyed answer (0.0 if none)
         _keyed_confs = [v.confidence for v in result.closed_book if v.chosen == claimed_key]
         cb_confidence_mean = (sum(_keyed_confs) / len(_keyed_confs)) if _keyed_confs else 0.0
+        # Panel-size-relative WARN threshold: ≥(n-1)/n keyed (i.e. 3/4 for the
+        # current 4-judge panel; would be 4/5 if reverted to v3.1.0).
+        warn_threshold = max(1, n_closed - 1) if n_closed else 0
         if diff_int <= 2:
             if n_closed and cb_keyed_count == n_closed and cb_confidence_mean >= 0.80:
                 b2_severity = SEVERITY_FAIL
-            elif closed_book_correct and cb_keyed_count >= 4:
+            elif closed_book_correct and cb_keyed_count >= warn_threshold:
                 b2_severity = SEVERITY_WARN
             else:
                 b2_severity = SEVERITY_PASS

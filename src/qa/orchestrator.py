@@ -296,7 +296,7 @@ def _run_team(team_letter: str, tag: str, seed: int, extras: dict | None = None)
             run_id,
             questions,
             seed=seed,
-            d1_sample=(extras or {}).get("d1_sample", 20),
+            d1_sample=(extras or {}).get("d1_sample", 10),
         )
     else:
         raise click.BadParameter(f"Unknown team: {team_letter}")
@@ -368,7 +368,17 @@ def run_team_c_c4_cmd(tag: str, seed: int) -> None:
 @cli.command("run-team-d")
 @click.option("--tag", default=DEFAULT_TAG)
 @click.option("--seed", default=DEFAULT_SEED, type=int)
-@click.option("--d1-sample", default=20, type=int, help="Questions per (evaluator, author) pair")
+@click.option(
+    "--d1-sample",
+    default=10,
+    type=int,
+    help=(
+        "Questions per (evaluator, author) pair. Phase 2g.18 cost-down: "
+        "default lowered 20 → 10 (5×5×10 = 250 calls vs 500 corpus-wide). "
+        "Population stat retains power for the self-pref delta; bump back "
+        "to 20 if a future audit shows borderline self-pref signal."
+    ),
+)
 def run_team_d_cmd(tag: str, seed: int, d1_sample: int) -> None:
     _setup_logging()
     _run_team("D", tag, seed, extras={"d1_sample": d1_sample})
@@ -378,14 +388,34 @@ def run_team_d_cmd(tag: str, seed: int, d1_sample: int) -> None:
 @click.option("--tag", default=DEFAULT_TAG)
 @click.option("--seed", default=DEFAULT_SEED, type=int)
 @click.option("--teams", default="A,B,C,D", help="Comma-separated team letters")
-@click.option("--d1-sample", default=20, type=int)
-def run_all_cmd(tag: str, seed: int, teams: str, d1_sample: int) -> None:
+@click.option(
+    "--d1-sample",
+    default=10,
+    type=int,
+    help="Phase 2g.18 cost-down: default lowered 20 → 10.",
+)
+@click.option(
+    "--include-c4",
+    is_flag=True,
+    default=False,
+    help=(
+        "Phase 2g.18 cost-down: C4 DifficultyAudit removed from default "
+        "audit (~$10 saving on 10k). Pass this flag to opt back in; "
+        "difficulty calibration is informational, not a Go gate."
+    ),
+)
+def run_all_cmd(tag: str, seed: int, teams: str, d1_sample: int, include_c4: bool) -> None:
     """Run the full audit end-to-end and seal the run."""
     _setup_logging()
     letters = [t.strip().upper() for t in teams.split(",") if t.strip()]
     run_id = None
     for L in letters:
-        extras = {"d1_sample": d1_sample} if L == "D" else None
+        if L == "D":
+            extras = {"d1_sample": d1_sample}
+        elif L == "C":
+            extras = {"include_c4": include_c4}
+        else:
+            extras = None
         run_id = _run_team(L, tag, seed, extras=extras)
     if run_id:
         complete_run(run_id)
