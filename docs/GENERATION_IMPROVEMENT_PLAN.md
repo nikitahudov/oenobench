@@ -29,6 +29,14 @@ v2.1 distributed LLM work evenly across the three "verifiable" LLMs (Claude/Chat
 | Llama | 700 | **600** | 6% | -100 — lowest A3 FactEcho pass (38%); verifier-gated |
 | **TOTAL** | 10,000 | **10,000** | 100% | Max any model = 28% (Gemini), under 35% ceiling |
 
+### Allocation change-log
+
+| Version | Date | Allocation | Rationale |
+|---|---|---|---|
+| v2.1 | 2026-04-19 | claude 2400; chatgpt 2400; gemini 2400; qwen 1100; llama 700 | Initial reweighted allocation per gold-v1/v2 review. |
+| v2.3 | 2026-04-22 | claude 2400; chatgpt 2400; gemini 2800 (+400); qwen 800 (-300); llama 600 (-100) | Post-gold-v3 / audit_pilot_v3: Gemini leads avg pass rate + dominates A3 FactEcho. Verifier-gated tails trimmed. |
+| v2.4 | 2026-05-02 | claude 1800 (-600); chatgpt 2400; gemini 3200 (+400, 32%); qwen 1000 (+200); llama 600 | Phase 2g.18 cost-down: rebalance volume toward cheaper Gemini (audit pass-rate leader) and Qwen, away from Opus. No per-call model downgrade. Gemini stays under 35% per-model cap. |
+
 Rationale:
 - Gold-v3 per-generator 8/8 perfect rate: Llama 78%, Gemini 75%, ChatGPT 67%, Claude 67%, Qwen 50%, template 58%. Avg rubric score: chatgpt/claude 7.58, Gemini 7.50, Qwen 7.33, Llama 7.00, template 5.83.
 - Audit_pilot_v3 pass rate avg across 6 question-level agents: Gemini 70.5%, chatgpt 66.7%, claude 66.7%, llama 64.4%, qwen 63.3%, template 63.1%.

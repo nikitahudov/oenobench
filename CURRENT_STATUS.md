@@ -1,10 +1,21 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** April 29, 2026
+**Last updated:** May 2, 2026
 **Project phase:** Phase 2g.12 — corpus-build undershoot fixes. v9 audit pilot ran the speedup pipeline in 18 min (vs v8's 11.4h, ~21× faster) but kept only 46/100 (46%, vs v8's 56%). Investigation surfaced 4 root causes — broken Gemini Flash slug returning OpenRouter 400s, C4 reject-threshold off-by-one firing on 113 boundary cases, LLM-strategy cell-allocation that schedules 30 cells × take=1 and starves on `sample_fact_pairs() == []`, and Gemini Pro JSON-fence malformations. All 5 fixes (4 root causes + 1 misleading log line) shipped on `phase-2g.12/corpus-undershoot-fixes`. 494/494 tests pass.
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ## Latest cliff notes (start here next session)
+
+- **Phase 2g.18 cost-down v16 plan (2026-05-02):** 9 levers across 4 parallel
+  worktree teams targeting ≥50% cost reduction on the 10k run (baseline
+  ~$9/100 from v9-v15 pilots → target ≤$4.50/100). Quota changes: closed-book
+  cap 25%→40% (L1), template share 10% (already in code, doc-only fix).
+  Audit: B1/B2 "claude" judge → Sonnet 4.6 (L2), B2 panel 5→4 (L3), D1
+  sample 20→10 (L7), C4 opt-in (L8). Build: generator mix v2.4 (L4 — gemini
+  +400, claude -600, qwen +200), verifier-skip B5 plumbing (L5),
+  gate L3 → Sonnet (L6 env trial), FTQ substantiveness strict (L9).
+  Plan: /home/winebench/.claude/plans/virtual-snacking-anchor.md.
+  Pilot: scripts/run_audit_pilot_v16_build.sh (per_strategy=15, ~75 attempts).
 
 - **Phase 2g.12 fixes shipped (2026-04-29):** Branch `phase-2g.12/corpus-undershoot-fixes`, one squash-style commit `2aa084a`, 494/494 pytest pass (was 472, +22 new tests across 5 fixes).
 
@@ -331,13 +342,18 @@ Built 7 shared modules in `src/generators/`:
 | Template-only | N/A (deterministic) | Ready |
 
 ### Generation Strategies
+
+Phase 2g.18 (2026-05-02): user direction is to keep template at 10% (weakest
+strategy per gold-v3 review). The 25% number in earlier docs was stale —
+`STRATEGY_TARGETS` has been at 1000 since v2.3 (2026-04-22).
+
 | Strategy | File | % | Status |
 |----------|------|---|--------|
-| Fact-to-Question | `fact_to_question.py` | 40% (4,000) | **Built** |
-| Template-Based | `template_generator.py` | 25% (2,500) | **Built** — 45 templates |
+| Fact-to-Question | `fact_to_question.py` | 45% (4,500) | **Built** |
+| Template-Based | `template_generator.py` | 10% (1,000) | **Built** — 45 templates |
 | Comparative | `comparative_generator.py` | 15% (1,500) | **Built** — entity affinity scoring, country-level filtering |
-| Scenario Synthesis | `scenario_generator.py` | 10% (1,000) | **Verified** — inference-over-recall prompts, cohesion checks |
-| Distractor Mining | `distractor_miner.py` | 10% (1,000) | **Built** — confusable entity matching, richness filtering |
+| Scenario Synthesis | `scenario_generator.py` | 15% (1,500) | **Verified** — inference-over-recall prompts, cohesion checks |
+| Distractor Mining | `distractor_miner.py` | 15% (1,500) | **Built** — confusable entity matching, richness filtering |
 
 ### Target: 10,000 Questions
 | Domain | Target | Available Facts |
