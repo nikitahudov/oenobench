@@ -94,6 +94,21 @@ def fmt_cost(cost: float | None) -> str:
     return f"${cost:.2f}"
 
 
+def effective_cost(row: dict[str, Any]) -> float | None:
+    """Return the authoritative cost for one answer row.
+
+    Prefers ``or_cost_usd`` (OR's reported cost) when present and non-NULL;
+    falls back to the locally-computed ``cost_usd`` otherwise.
+    """
+    or_cost = row.get("or_cost_usd")
+    if or_cost is not None:
+        return float(or_cost)
+    local = row.get("cost_usd")
+    if local is not None:
+        return float(local)
+    return None
+
+
 def fmt_ms(ms: float | None) -> str:
     """Format latency in ms as integer string; return '—' for None."""
     if ms is None or (isinstance(ms, float) and math.isnan(ms)):
@@ -266,6 +281,8 @@ def _load_answers(conn, run_id: str, corpus_schema: str) -> list[dict[str, Any]]
             a.output_tokens,
             a.reasoning_tokens,
             a.cost_usd,
+            a.or_cost_usd,
+            a.or_provider,
             a.latency_ms,
             a.response_time_ms,
             a.reasoning_config,
@@ -294,7 +311,8 @@ def _section_header(buf: StringIO, run: dict, answers: list[dict], tag: str, cor
     n_configs = len(configs) if configs else "?"
     total_q = len({r["question_id"] for r in answers})
     total_calls = len(answers)
-    total_cost = sum(r["cost_usd"] for r in answers if r.get("cost_usd") is not None)
+    # Use effective cost (prefers OR-authoritative when present) for the header total.
+    total_cost = sum(c for c in (effective_cost(r) for r in answers) if c is not None)
     started = run.get("started_at")
     completed = run.get("completed_at")
     wall = "—"
@@ -312,7 +330,7 @@ def _section_header(buf: StringIO, run: dict, answers: list[dict], tag: str, cor
     buf.write(f"**Wall time:** {wall}  \n")
     buf.write(f"**Total questions:** {total_q}  \n")
     buf.write(f"**Total LLM calls:** {total_calls}  \n")
-    buf.write(f"**Total cost:** {fmt_cost(total_cost if total_cost else None)}  \n")
+    buf.write(f"**Total cost (effective):** {fmt_cost(total_cost if total_cost else None)}  \n")
     buf.write(f"**Config slate:** {n_configs} configs  \n")
     buf.write("\n---\n\n")
 
@@ -381,7 +399,8 @@ def _section_per_config_summary(buf: StringIO, answers: list[dict]) -> None:
         in_tok = sum(r["input_tokens"] for r in rows if r.get("input_tokens") is not None)
         out_tok = sum(r["output_tokens"] for r in rows if r.get("output_tokens") is not None)
         reason_tok = sum(r["reasoning_tokens"] for r in rows if r.get("reasoning_tokens") is not None)
-        cost = sum(r["cost_usd"] for r in rows if r.get("cost_usd") is not None)
+        # Use effective cost (OR-authoritative when available, local otherwise).
+        cost = sum(c for c in (effective_cost(r) for r in rows) if c is not None)
 
         buf.write(
             f"| {slot} | {name} | {family} | {reasoning} "
@@ -394,6 +413,18 @@ def _section_per_config_summary(buf: StringIO, answers: list[dict]) -> None:
         )
 
     buf.write("\n")
+
+    # OR-cost coverage note (shown immediately after the per-config table).
+    or_rows = sum(1 for r in answers if r.get("or_cost_usd") is not None)
+    total_rows = len(answers)
+    if total_rows > 0:
+        pct = 100.0 * or_rows / total_rows
+        buf.write(
+            f"*OR-authoritative cost is available for {pct:.0f}% of rows"
+            f" ({or_rows:,}/{total_rows:,}); remaining use locally-computed cost.*\n\n"
+        )
+    else:
+        buf.write("*No answer rows found for this run.*\n\n")
 
 
 def _section_config_domain(buf: StringIO, answers: list[dict]) -> None:
@@ -699,7 +730,12 @@ def _section_reasoning_deltas(buf: StringIO, answers: list[dict]) -> None:
 
 
 def _section_cost_ledger(buf: StringIO, answers: list[dict]) -> None:
-    """Section 6: Cost & wall ledger."""
+    """Section 6: Cost & wall ledger.
+
+    Shows per-config effective cost (prefers OR-authoritative when available)
+    plus two grand-total lines: local-computed and OR-authoritative, so users
+    can reconcile against the OR billing dashboard at a glance.
+    """
     configs = _get_eval_configs()
 
     by_config: dict[str, list[dict]] = {}
@@ -718,17 +754,27 @@ def _section_cost_ledger(buf: StringIO, answers: list[dict]) -> None:
     config_map = {c.name: c for c in configs} if configs else {}
 
     buf.write("## 6. Cost & Wall Ledger\n\n")
-    buf.write("| Slot | Config | Questions | Cost | Effective wall (est.) |\n")
+    buf.write("| Slot | Config | Questions | Cost (effective) | Effective wall (est.) |\n")
     buf.write("|---:|---|---:|---|---|\n")
 
-    grand_cost = 0.0
+    grand_local = 0.0
+    grand_or = 0.0
+    grand_or_rows = 0
+
     for name in order:
         rows = by_config[name]
         cfg = config_map.get(name)
         slot = cfg.slot if cfg else "—"
         n_q = len(rows)
-        cost = sum(r["cost_usd"] for r in rows if r.get("cost_usd") is not None)
-        grand_cost += cost
+
+        # Effective cost per row: OR-authoritative if available, else local.
+        eff_cost = sum(c for c in (effective_cost(r) for r in rows) if c is not None)
+        local_cost = sum(r["cost_usd"] for r in rows if r.get("cost_usd") is not None)
+        or_cost_sum = sum(r["or_cost_usd"] for r in rows if r.get("or_cost_usd") is not None)
+
+        grand_local += local_cost
+        grand_or += or_cost_sum
+        grand_or_rows += sum(1 for r in rows if r.get("or_cost_usd") is not None)
 
         # Effective wall = max_latency * n_q / concurrency (approximation)
         lat_vals = [
@@ -744,9 +790,11 @@ def _section_cost_ledger(buf: StringIO, answers: list[dict]) -> None:
         else:
             wall_str = "—"
 
-        buf.write(f"| {slot} | {name} | {n_q} | {fmt_cost(cost or None)} | {wall_str} |\n")
+        buf.write(f"| {slot} | {name} | {n_q} | {fmt_cost(eff_cost or None)} | {wall_str} |\n")
 
-    buf.write(f"| | **Grand total** | | **{fmt_cost(grand_cost or None)}** | |\n")
+    buf.write(f"| | **Local cost (computed)** | | **{fmt_cost(grand_local or None)}** | |\n")
+    or_label = f"OR cost (authoritative, {grand_or_rows:,} rows)"
+    buf.write(f"| | **{or_label}** | | **{fmt_cost(grand_or or None)}** | |\n")
     buf.write("\n")
 
 

@@ -164,6 +164,8 @@ def _insert_answer(
     raw_response: str,
     reasoning_config: dict | None,
     dry_run: bool,
+    or_cost_usd: float | None = None,
+    or_provider: str | None = None,
 ) -> None:
     if dry_run:
         return
@@ -179,14 +181,16 @@ def _insert_answer(
                 provider_used, generation_id,
                 input_tokens, output_tokens, reasoning_tokens,
                 cost_usd, latency_ms, response_time_ms,
-                raw_response, reasoning_config
+                raw_response, reasoning_config,
+                or_cost_usd, or_provider
             ) VALUES (
                 %s, %s, %s,
                 %s, %s, %s,
                 %s, %s,
                 %s, %s, %s,
                 %s, %s, %s,
-                %s, %s::jsonb
+                %s, %s::jsonb,
+                %s, %s
             )
             ON CONFLICT (run_id, question_id, model_name,
                          COALESCE(reasoning_config::text, ''))
@@ -199,13 +203,14 @@ def _insert_answer(
                 input_tokens, output_tokens, reasoning_tokens,
                 cost_usd, latency_ms, latency_ms,
                 raw_response, rc_json,
+                or_cost_usd, or_provider,
             ),
         )
     conn.commit()
 
 
 def _finalize_run(run_id: str, dry_run: bool) -> None:
-    """Update evaluation_runs with completion stats."""
+    """Update evaluation_runs with completion stats, including OR authoritative cost."""
     if dry_run:
         logger.info("[dry-run] Would finalize run {}", run_id)
         return
@@ -216,18 +221,20 @@ def _finalize_run(run_id: str, dry_run: bool) -> None:
             """
             UPDATE evaluation_runs
             SET
-                completed_at    = %s,
-                total_questions = sub.total_q,
-                correct_count   = sub.correct_q,
-                accuracy        = CASE WHEN sub.total_q > 0
-                                       THEN sub.correct_q::real / sub.total_q
-                                       ELSE NULL END,
-                total_cost_usd  = sub.total_cost
+                completed_at       = %s,
+                total_questions    = sub.total_q,
+                correct_count      = sub.correct_q,
+                accuracy           = CASE WHEN sub.total_q > 0
+                                          THEN sub.correct_q::real / sub.total_q
+                                          ELSE NULL END,
+                total_cost_usd     = sub.total_cost,
+                total_or_cost_usd  = sub.total_or_cost
             FROM (
                 SELECT
-                    COUNT(*)                         AS total_q,
+                    COUNT(*)                           AS total_q,
                     COUNT(*) FILTER (WHERE is_correct) AS correct_q,
-                    COALESCE(SUM(cost_usd), 0)       AS total_cost
+                    COALESCE(SUM(cost_usd), 0)         AS total_cost,
+                    SUM(or_cost_usd)                   AS total_or_cost
                 FROM evaluation_answers
                 WHERE run_id = %s
             ) sub
@@ -285,6 +292,106 @@ def _reasoning_config_str(config) -> str | None:
 # ─── Per-config evaluation ────────────────────────────────────────────────────
 
 
+def _persist_answer_row(
+    conn,
+    *,
+    run_id: str,
+    question_id: str,
+    config,                 # EvalConfig — used for model_name and reasoning_config
+    result,                 # EvalResult (or any object with .response, .parsed_answer, .raw_text)
+    compute_cost_fn,        # callable(model_id, in_toks, out_toks, reasoning_toks) -> float
+    correct_answer: str | None = None,
+) -> tuple[str | None, bool | None, float]:
+    """Extract telemetry from an EvalResult and write one row to evaluation_answers.
+
+    Returns (parsed_answer, is_correct, cost_usd) so the caller can update
+    per-config stats without re-extracting from the response.
+
+    Extracted from _evaluate_config so tests can exercise the insert path
+    directly without spinning up a ThreadPoolExecutor.
+
+    conn is accepted as a parameter (rather than calling get_pg() internally)
+    so callers can pass a test-scoped connection.  When conn is None, falls
+    back to get_pg() for backwards compatibility with the production path.
+    """
+    model_name = config.model_id
+    rc_dict = _reasoning_config_dict(config)
+
+    response = getattr(result, "response", None)
+    parsed = getattr(result, "parsed_answer", None)
+    raw_text = getattr(result, "raw_text", "") or ""
+
+    # Extract base telemetry fields.
+    input_tokens = 0
+    output_tokens = 0
+    reasoning_toks = 0
+    latency_ms = 0
+    provider_used: str = "unknown"
+    generation_id: str | None = None
+
+    if response is not None:
+        input_tokens = getattr(response, "input_tokens", 0) or 0
+        output_tokens = getattr(response, "output_tokens", 0) or 0
+        reasoning_toks = getattr(response, "reasoning_tokens", 0) or 0
+        latency_ms = getattr(response, "latency_ms", 0) or 0
+        # provider fills both provider_used (legacy column) and or_provider (OR-specific).
+        provider_used = getattr(response, "provider", None) or "unknown"
+        generation_id = getattr(response, "generation_id", None)
+
+    # OR-specific telemetry (Team Alpha fields — gracefully absent until Alpha merges).
+    or_cost_usd: float | None = getattr(response, "or_cost", None) if response is not None else None
+    or_provider: str | None = getattr(response, "provider", None) if response is not None else None
+
+    # Locally-computed cost (always present as fallback).
+    cost = 0.0
+    try:
+        cost = compute_cost_fn(model_name, input_tokens, output_tokens, reasoning_toks)
+    except Exception:
+        pass
+
+    is_correct: bool | None = (parsed == correct_answer) if parsed is not None and correct_answer is not None else None
+
+    effective_conn = conn if conn is not None else get_pg()
+    rc_json = json.dumps(rc_dict) if rc_dict else None
+    with effective_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO evaluation_answers (
+                run_id, question_id, model_name,
+                parsed_answer, model_answer, is_correct,
+                provider_used, generation_id,
+                input_tokens, output_tokens, reasoning_tokens,
+                cost_usd, latency_ms, response_time_ms,
+                raw_response, reasoning_config,
+                or_cost_usd, or_provider
+            ) VALUES (
+                %s, %s, %s,
+                %s, %s, %s,
+                %s, %s,
+                %s, %s, %s,
+                %s, %s, %s,
+                %s, %s::jsonb,
+                %s, %s
+            )
+            ON CONFLICT (run_id, question_id, model_name,
+                         COALESCE(reasoning_config::text, ''))
+            DO NOTHING
+            """,
+            (
+                run_id, question_id, model_name,
+                parsed, parsed, is_correct,
+                provider_used, generation_id,
+                input_tokens, output_tokens, reasoning_toks,
+                cost, latency_ms, latency_ms,
+                raw_text, rc_json,
+                or_cost_usd, or_provider,
+            ),
+        )
+    effective_conn.commit()
+
+    return (parsed, is_correct, cost)
+
+
 def _evaluate_config(
     *,
     config,                          # EvalConfig
@@ -298,7 +405,6 @@ def _evaluate_config(
     from src.generators._llm_client import LLMClient
 
     model_name = config.model_id
-    rc_dict = _reasoning_config_dict(config)
     rc_str = _reasoning_config_str(config)
 
     # Resume: skip already-answered questions.
@@ -373,50 +479,25 @@ def _evaluate_config(
             except Exception as exc:
                 logger.debug("config slot={} q={} retry raised: {}", config.slot, q.id, exc)
 
-        # Extract telemetry.
-        input_tokens = 0
-        output_tokens = 0
-        reasoning_toks = 0
-        latency_ms = 0
-        provider_used = "unknown"
-        generation_id = None
-
-        if response is not None:
-            input_tokens = getattr(response, "input_tokens", 0) or 0
-            output_tokens = getattr(response, "output_tokens", 0) or 0
-            reasoning_toks = getattr(response, "reasoning_tokens", 0) or 0
-            latency_ms = getattr(response, "latency_ms", 0) or 0
-            provider_used = getattr(response, "provider", None) or "unknown"
-            generation_id = getattr(response, "generation_id", None)
-
+        # Persist the answer row and get back telemetry for stats tracking.
         cost = 0.0
-        try:
-            cost = compute_cost_fn(model_name, input_tokens, output_tokens, reasoning_toks)
-        except Exception:
-            pass
-
-        is_correct = (parsed == q.correct_answer) if parsed is not None else None
-
-        try:
-            _insert_answer(
-                run_id=run_id,
-                question_id=q.id,
-                model_name=model_name,
-                parsed_answer=parsed,
-                is_correct=is_correct,
-                provider_used=provider_used,
-                generation_id=generation_id,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                reasoning_tokens=reasoning_toks,
-                cost_usd=cost,
-                latency_ms=latency_ms,
-                raw_response=raw_text,
-                reasoning_config=rc_dict,
-                dry_run=False,
-            )
-        except Exception as exc:
-            logger.warning("config slot={} q={} DB write failed: {}", config.slot, q.id, exc)
+        is_correct: bool | None = None
+        if result is not None:
+            try:
+                parsed, is_correct, cost = _persist_answer_row(
+                    None,  # falls back to get_pg() inside
+                    run_id=run_id,
+                    question_id=q.id,
+                    config=config,
+                    result=result,
+                    compute_cost_fn=compute_cost_fn,
+                    correct_answer=q.correct_answer,
+                )
+            except Exception as exc:
+                logger.warning("config slot={} q={} DB write failed: {}", config.slot, q.id, exc)
+        else:
+            # evaluate_one raised — still record a skipped row if we can.
+            is_correct = None
 
         with stats_lock:
             stats["total"] += 1
