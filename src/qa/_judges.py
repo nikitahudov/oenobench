@@ -32,7 +32,14 @@ JUDGE_PANEL = ("claude", "chatgpt", "gemini")
 # / GPT-5.4 / Gemini 3.1 Pro know far more wine than the typical certification
 # candidate; they over-report leakage by ~5×. Llama and Qwen approximate
 # test-taker-strength world knowledge, so adding them re-calibrates the panel.
-JUDGE_PANEL_B2 = ("claude", "chatgpt", "gemini", "llama", "qwen")
+#
+# Phase 2g.18 cost-down: 5→4. Drop chatgpt (most expensive at $2.5/$12).
+# Keep claude(Sonnet via override) + gemini for premium triangulation,
+# llama + qwen as test-taker calibration anchors. The Llama+Qwen calibration
+# anchor logic (above) requires those judges to stay even though they're cheap;
+# dropping GPT-5 leaves the surviving expert (Claude-Sonnet via override +
+# Gemini) diluted 1:1 by Llama+Qwen, which strengthens the calibration anchor.
+JUDGE_PANEL_B2 = ("claude", "gemini", "llama", "qwen")
 
 
 @dataclass
@@ -78,6 +85,31 @@ def _estimate_cost(model_short: str, input_tokens: int, output_tokens: int) -> f
     return (input_tokens / 1_000_000) * in_cost + (output_tokens / 1_000_000) * out_cost
 
 
+# Phase 2g.18 (2026-05-02) cost-down: resolve "claude" judge slot to
+# Sonnet 4.6 in the B1/B2 panels only. Verifier-claude is already
+# Sonnet via _verify.VERIFIER_MODEL_OVERRIDES (Phase 2g.14). Generator
+# pool and D1 SelfPreference evaluator stay on Opus 4.7 so self-pref
+# calibration history doesn't mix model generations.
+#
+# Mirrors the Phase 2g.14 verifier override pattern; intentionally
+# scoped to _ask_one and NOT applied inside self_pref_answer.
+JUDGE_MODEL_OVERRIDES: dict[str, str] = {
+    "claude": "anthropic/claude-sonnet-4.6",
+}
+
+
+def _resolve_judge_model(short: str) -> str:
+    """Resolve a judge short-name to its OpenRouter slug for B1/B2 only.
+
+    Looks up JUDGE_MODEL_OVERRIDES first, then falls back to GENERATOR_MODELS.
+    Unknown shorts are returned verbatim so a caller passing a full slug
+    is also supported.
+    """
+    if short in JUDGE_MODEL_OVERRIDES:
+        return JUDGE_MODEL_OVERRIDES[short]
+    return GENERATOR_MODELS.get(short, short)
+
+
 def _prompt_hash(prompt: str, system: str, model: str) -> str:
     h = hashlib.sha256()
     h.update(system.encode())
@@ -117,6 +149,35 @@ def _parse_verdict(model_short: str, response, expects_fact_check: bool) -> Judg
     )
 
 
+def _ask_one_with_model(
+    *,
+    model_short: str,
+    resolved_model: str,
+    system: str,
+    prompt: str,
+    expects_fact_check: bool,
+) -> JudgeVerdict:
+    """Call one judge with an explicitly resolved model slug.
+
+    `model_short` is used for the cost ledger and verdict identification;
+    `resolved_model` is the actual OpenRouter slug passed to the LLM client.
+    Splitting these lets B1/B2 route ``claude`` → Sonnet 4.6 (Phase 2g.18)
+    while D1 ``self_pref_answer`` keeps Opus 4.7 via GENERATOR_MODELS.
+    """
+    client = get_client()
+    response = client.generate(
+        prompt=prompt,
+        system=system,
+        model=resolved_model,
+        temperature=0.0,
+        max_tokens=600,
+        json_mode=True,
+    )
+    verdict = _parse_verdict(model_short, response, expects_fact_check)
+    verdict.prompt_hash = _prompt_hash(prompt, system, resolved_model)
+    return verdict
+
+
 def _ask_one(
     *,
     model_short: str,
@@ -124,18 +185,18 @@ def _ask_one(
     prompt: str,
     expects_fact_check: bool,
 ) -> JudgeVerdict:
-    client = get_client()
-    response = client.generate(
-        prompt=prompt,
+    # Phase 2g.18: resolve through JUDGE_MODEL_OVERRIDES so the "claude"
+    # judge slot routes to Sonnet 4.6 instead of Opus 4.7. Pricing for
+    # cost ledger is still keyed by short-name (_estimate_cost), but the
+    # actual model call goes through the resolved slug.
+    resolved_model = _resolve_judge_model(model_short)
+    return _ask_one_with_model(
+        model_short=model_short,
+        resolved_model=resolved_model,
         system=system,
-        model=model_short,
-        temperature=0.0,
-        max_tokens=600,
-        json_mode=True,
+        prompt=prompt,
+        expects_fact_check=expects_fact_check,
     )
-    verdict = _parse_verdict(model_short, response, expects_fact_check)
-    verdict.prompt_hash = _prompt_hash(prompt, system, model_short)
-    return verdict
 
 
 def judge_open_and_closed(
@@ -207,14 +268,24 @@ def self_pref_answer(
     options: list[dict],
     model_short: str,
 ) -> JudgeVerdict:
-    """One model answers one question, no source. Used by D1."""
+    """One model answers one question, no source. Used by D1.
+
+    D1 keeps Opus via GENERATOR_MODELS — see JUDGE_MODEL_OVERRIDES
+    docstring for rationale. Self-preference calibration history is
+    accumulated against Opus 4.7 generations; if D1's evaluator slot
+    silently routed through the B1/B2 Sonnet override, the cross-version
+    self-pref delta would no longer be comparable.
+    """
     options_block = render_options(options)
     prompt = SELF_PREF_TEMPLATE.format(
         question_text=question_text,
         options_block=options_block,
     )
-    return _ask_one(
+    # NOTE: deliberately bypasses `_resolve_judge_model` (and therefore
+    # JUDGE_MODEL_OVERRIDES) so D1 stays on the generator pool model.
+    return _ask_one_with_model(
         model_short=model_short,
+        resolved_model=GENERATOR_MODELS.get(model_short, model_short),
         system=SELF_PREF_SYSTEM,
         prompt=prompt,
         expects_fact_check=False,
