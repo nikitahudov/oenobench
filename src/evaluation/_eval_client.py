@@ -77,11 +77,12 @@ def evaluate_one(
     config: EvalConfig,
     question_text: str,
     options: dict[str, str],
+    override_system: str | None = None,
 ) -> EvalResult:
     extra_body = build_extra_body(config)
     response = client.generate(
         prompt=render_question(question_text, options),
-        system=_SINGLE_LETTER_SYSTEM_PROMPT,
+        system=override_system or _SINGLE_LETTER_SYSTEM_PROMPT,
         model=config.model_id,
         temperature=0.0,
         max_tokens=_MAX_OUTPUT_TOKENS,
