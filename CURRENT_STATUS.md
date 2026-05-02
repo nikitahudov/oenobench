@@ -6,6 +6,21 @@
 
 ## Latest cliff notes (start here next session)
 
+- **Sample preview DB shipped (2026-05-02):** Curated quality-vetted set
+  of **1062 questions** assembled into a new `sample` schema in the
+  `winebench` Postgres DB (alongside `public`). Filters: `status=draft`
+  + has audit findings + no FAIL on A1/A3/B1/C2 + excludes pre-gate
+  pilots v1-v4. cb-tagged INCLUDED (538/1062 = 51%). Sources: 10 pilots
+  (v5-v16, audited only). Mirrored tables: questions, facts, sources,
+  question_facts, question_sources, generation_metadata, audit_runs,
+  audit_findings, plus a `sample.manifest` row recording assembly
+  metadata. Migration script at
+  `config/postgres/003_sample_schema.sql` is idempotent (DROP + recreate).
+  Strategy mix: FTQ 439, scenario 195, template 191, comparative 139,
+  distractor 98. Domain mix: grape_varieties 312, wine_regions 223,
+  viticulture 174, producers 165, winemaking 102, wine_business 86.
+  624/624 tests pass.
+
 - **Phase 2g.18 v16/v16b smoke validation (2026-05-02):** 4 parallel teams
   shipped 9 levers; 2 followups (path C) added confidence-field plumbing
   and comparative substantive filter. Three pilots completed:
