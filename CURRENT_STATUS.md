@@ -1,10 +1,29 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** May 2, 2026
+**Last updated:** May 2, 2026 (eval slate locked)
 **Project phase:** Phase 2g.18 — cost-down v16 shipped + smoke-validated. 11 levers (CB quota 0.40, generator mix v2.4, verifier-skip B5 plumbing + confidence-field, gate L3→Sonnet, B1/B2 Sonnet override, B2 panel slim, comparative substantive filter, D1 halved, C4 opt-in, FTQ substantive-strict) reduce per-Q cost from ~$0.15 (v9 baseline) to $0.034 (v16b smoke) — ~73% build reduction. Audit cuts validate ~50% (v15: $340/10k → v16: $170/10k). Total 10k projection: ~$507 (vs $9/100 baseline of $900) = **44-49% reduction**. 624/624 tests pass on main.
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ## Latest cliff notes (start here next session)
+
+- **Phase 5 evaluation slate locked (2026-05-02):** 16 configurations
+  across 14 unique OpenRouter IDs, covering all 4 SPS generator
+  families (Claude / GPT / Gemini / Llama), six within-family
+  cost pairs, four reasoning configs (`openai/o3`,
+  `deepseek/deepseek-r1`, plus `claude-opus-4.7` and `gemini-2.5-pro`
+  with reasoning param on — neither has a separate `:thinking` SKU on
+  OR). User constraints: **single-letter output (A/B/C/D)** with
+  `max_tokens=5` + system prompt + stop sequences + logit_bias
+  fallback; **fully parallel execution** with ~320 aggregate
+  in-flight requests. Cost projections: **~$541 full / ~$147 stratified**
+  (5k standard + 1k reasoning); standard block dominated by Claude
+  Opus 4.7 (~$20.6); reasoning block dominated by Claude Opus thinking
+  (~$270). Wall-time projection: ~55 min full / 12–15 min stratified.
+  Plan at `docs/EVALUATION_PLAN.md`; pricing verified live on OR via
+  `/api/v1/models` snapshot 2026-05-02. Open decisions: full vs
+  stratified reasoning (user leaning stratified, awaiting Phase 3
+  power calc); whether to add `openai/gpt-5-pro` as a stretch entry
+  (~15× cost of `o3`).
 
 - **Sample preview DB shipped (2026-05-02):** Curated quality-vetted set
   of **1062 questions** assembled into a new `sample` schema in the

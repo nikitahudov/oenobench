@@ -4,6 +4,148 @@ Chronological lab notebook for the NeurIPS 2026 paper methodology sections.
 
 ---
 
+## 2026-05-02 — Phase 5 prep: evaluation model slate locked
+
+### Motivation
+With the v16/v16b cost-down validated and the 1062-Q sample DB
+assembled, the next gate before kicking off the full 10k build is
+locking the Phase 5 evaluation slate so the eval harness can be
+designed against a fixed list of OpenRouter configurations. The slate
+must (a) cover all four generator families to enable the
+Self-Preference Score analysis, (b) include within-family cost pairs
+to support cost-effect findings, (c) include open-weight models for
+reproducibility claims, and (d) include reasoning configurations for a
+thinking-vs-standard comparison.
+
+### Methodology
+1. Drafted a 10-model proposal (3 frontier proprietary + 3 low-cost
+   proprietary + 3 frontier open + 1 mid-tier).
+2. User expanded scope to add (a) three reasoning models (GPT,
+   Gemini, DeepSeek), (b) two small open-weight models (Llama 3.1 8B,
+   Qwen 2.5 7B). Asked whether Anthropic has a reasoning model;
+   confirmed Anthropic exposes extended thinking as a per-request
+   parameter on Claude Opus 4.7 / Sonnet 4.6 — same model ID, no
+   separate SKU. User opted to include Claude Opus 4.7 with extended
+   thinking as a 4th reasoning config for parity across all four
+   generator families.
+3. Verified all candidate IDs against OpenRouter's `/api/v1/models`
+   endpoint (371 models live as of 2026-05-02). Notable findings:
+   DeepSeek V3 is exposed as `deepseek/deepseek-chat` (not
+   `deepseek-v3`); no separate `:thinking` SKU exists for Anthropic
+   or Google — reasoning is per-request via the `reasoning`
+   parameter; OpenAI reasoning options are `openai/o3` ($2/$8/M) or
+   `openai/gpt-5-pro` ($15/$120/M, ~15× cost).
+4. User added two further constraints: every config must answer with
+   exactly one letter (A/B/C/D) and the eval must run all configs in
+   parallel for time and budget efficiency.
+
+### Slate (16 configurations across 14 unique IDs)
+**Standard (12):** `anthropic/claude-opus-4.7`,
+`anthropic/claude-haiku-4.5`, `openai/gpt-5`, `openai/gpt-5-mini`,
+`google/gemini-2.5-pro`, `google/gemini-2.5-flash`,
+`meta-llama/llama-3.3-70b-instruct`,
+`meta-llama/llama-3.1-8b-instruct`, `deepseek/deepseek-chat` (V3),
+`qwen/qwen-2.5-72b-instruct`, `qwen/qwen-2.5-7b-instruct`,
+`mistralai/mistral-large-2411`.
+
+**Reasoning (4):** `openai/o3`, `deepseek/deepseek-r1`, plus
+`claude-opus-4.7` and `gemini-2.5-pro` re-run with the `reasoning`
+parameter enabled (capped at 2000 tokens). Each reasoning run is
+recorded in `evaluation_runs` as a distinct config tuple
+`(model_id, reasoning_config)` so the harness can persist them
+separately even though they share an OR model ID with their standard
+siblings.
+
+### Output and parallelism strategy
+- **Single-letter output enforcement** (cost optimization): system
+  prompt instructs "exactly one letter A/B/C/D, nothing else";
+  `max_tokens=5` hard cap; stop sequences for whitespace/newline/
+  punctuation; OpenAI-compatible providers also receive a `logit_bias`
+  hint biasing the four letter tokens. Post-hoc parse with regex; one
+  retry on parse failure, then `eval_skipped`.
+- **Per-config concurrency:** frontier proprietary 20, low-cost +
+  Mistral 40, open-weight 20, reasoning 10. Aggregate ≈ 320 in-flight
+  OR requests with `limit=400`, `limit_per_host=400`.
+- **Resilience:** exponential backoff on 429/5xx, max 3 retries; per-
+  config quota tripping if 5xx >10% over 100 calls (60s pause, others
+  unaffected); rows persisted to `evaluation_answers` immediately on
+  response so a crashed run resumes by skipping rows already present.
+
+### Quantitative projections
+- **Cost (full eval, 5k Qs × 16 configs):** ~$541 (no headroom),
+  ~$700 (30% headroom). Standard block ~$49 (-71% vs the original
+  400-token-output assumption); reasoning block ~$492 (largely
+  unchanged because thinking tokens dominate).
+- **Cost (stratified — 5k standard + 1k reasoning):** ~$147 / ~$200
+  with headroom.
+- **Wall time (full):** ~55 min, bounded by reasoning block at ~52
+  min wall (4 configs × 5k × ~25 s/call ÷ 10 concurrency-per-config).
+  Standard block runs in ~12 min. Stratified reduces wall to 12–15
+  min.
+- **Per-config standard breakdown (5k Qs each):** Claude Opus 4.7
+  $20.6 → Mistral Large $8.2 → GPT-5 $5.3 → Gemini Pro $5.3 → Haiku
+  4.5 $4.1 → Qwen 72B $1.5 → DeepSeek V3 $1.3 → Gemini Flash $1.3
+  → GPT-5-mini $1.1 → Llama 70B $0.4 → Qwen 7B $0.2 → Llama 8B $0.1.
+- **Per-config reasoning breakdown (5k Qs):** Claude Opus thinking
+  ~$270, Gemini Pro thinking ~$105, o3 ~$89, R1 ~$28.
+
+### Diversity check
+- Proprietary / open: 10 / 6.
+- Frontier / mid / small: 10 / 1 (Mistral) / 5.
+- Reasoning / standard: 4 / 12.
+- SPS generator coverage: Claude ✅ GPT ✅ Gemini ✅ Llama ✅.
+- Within-family cost pairs: Claude (Opus/Haiku), GPT (5/5-mini),
+  Gemini (Pro/Flash), Llama (70B/8B), Qwen (72B/7B), DeepSeek
+  (V3/R1).
+- Provider geography: US (4), CN (2), FR (1).
+
+### Decisions and trade-offs
+- **Stratified vs full reasoning runs:** user leaning stratified;
+  final call deferred pending a power calculation against the
+  calibrated answer-key confidence distribution from Phase 3. The
+  $541 full vs $147 stratified gap is large enough that we want
+  signal-vs-cost data before committing.
+- **`openai/gpt-5-pro` excluded from base slate.** At $15/$120/M it
+  would add ~$1,500 to the eval at 5k for likely small accuracy gain
+  over `o3`. Reserved as a stretch entry if the slate needs a premium
+  reasoning anchor.
+- **Why include Mistral Large 2411?** EU provider with strong French
+  wine corpus exposure (likely overrepresented in pretraining via
+  French-language web data); useful as a non-US, non-China, non-open
+  data point for the diversity story even though it's mid-tier.
+- **Why include both Llama 3.3 70B and Llama 3.1 8B (not Llama 4)?**
+  Llama 3.x is what was used as the generator family in Phase 2, so
+  SPS analysis aligns. Llama 4 Maverick is available on OR but adding
+  it would create a generator-vs-evaluator mismatch on the SPS axis.
+
+### Files
+- New: `docs/EVALUATION_PLAN.md` — full slate, pricing snapshot, cost
+  projections, output/parallelism strategy, persistence schema.
+- Memory: `~/.claude/projects/-home-winebench-oenobench/memory/project_eval_slate.md`
+  + index entry in `MEMORY.md`.
+- `CURRENT_STATUS.md` — added cliff-notes entry at the top.
+
+### Issues encountered
+- Initial WebFetch attempt against OpenRouter's HTML page returned
+  inconsistent pricing; switched to the JSON API endpoint
+  (`/api/v1/models`) for authoritative numbers.
+- Anthropic and Google do not expose `:thinking` SKUs on OpenRouter,
+  unlike DeepSeek (R1) and OpenAI (o3) which are standalone. Solved
+  by treating reasoning as an eval-config dimension separate from
+  model ID, recorded as `(model_id, reasoning_config)` tuples in
+  `evaluation_runs.config_json`.
+
+### Next
+1. User decision on full vs stratified reasoning runs (driven by
+   Phase 3 power analysis once available).
+2. Implement eval harness against the locked slate. Persist
+   `(provider_used, generation_id)` per response for paper
+   reproducibility.
+3. Confirm OpenRouter `reasoning` parameter schema for each provider
+   at harness implementation time.
+
+---
+
 ## 2026-05-02 — Phase 2g.17: cross-strategy ubiquitous-grape ambiguity guard
 
 ### Motivation
