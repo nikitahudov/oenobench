@@ -139,18 +139,36 @@ LLM_STRATEGIES = {"fact_to_question", "comparative", "scenario_synthesis", "dist
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 
-def _count_by_method() -> dict[str, int]:
-    """Return {generation_method: count} across all questions."""
+def _count_by_method(tag: str | None = None) -> dict[str, int]:
+    """Return {generation_method: count}.
+
+    When ``tag`` is provided, the count is scoped to questions that carry
+    that tag (i.e. only the current release-tagged build). When omitted,
+    counts span all questions in the table — used by the legacy 10k
+    full-corpus run where there is no per-build tag.
+    """
     conn = get_pg()
     cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT gm.generation_method, count(*) AS cnt
-        FROM questions q
-        JOIN generation_metadata gm ON gm.question_id = q.id
-        GROUP BY gm.generation_method
-        """
-    )
+    if tag:
+        cur.execute(
+            """
+            SELECT gm.generation_method, count(*) AS cnt
+            FROM questions q
+            JOIN generation_metadata gm ON gm.question_id = q.id
+            WHERE %s = ANY(q.tags)
+            GROUP BY gm.generation_method
+            """,
+            (tag,),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT gm.generation_method, count(*) AS cnt
+            FROM questions q
+            JOIN generation_metadata gm ON gm.question_id = q.id
+            GROUP BY gm.generation_method
+            """
+        )
     return {row["generation_method"]: row["cnt"] for row in cur.fetchall()}
 
 
@@ -504,8 +522,8 @@ def generate_all(target, tag, seed, resume, dry_run, max_workers, strategy_worke
     )
 
     try:
-        existing_by_method = _count_by_method() if resume else {}
-        existing_dgc = get_domain_generator_counts() if resume else {}
+        existing_by_method = _count_by_method(tag=tag) if resume else {}
+        existing_dgc = get_domain_generator_counts(tag=tag) if resume else {}
 
         total_existing = sum(existing_by_method.values()) if resume else 0
         if resume:
@@ -564,8 +582,8 @@ def generate_all(target, tag, seed, resume, dry_run, max_workers, strategy_worke
         for pass_idx in range(1, max_passes + 1):
             # Re-resolve existing counts so each pass dispatches against
             # the latest DB state (not stale numbers from before pass 1).
-            existing_by_method = _count_by_method()
-            existing_dgc = get_domain_generator_counts()
+            existing_by_method = _count_by_method(tag=tag)
+            existing_dgc = get_domain_generator_counts(tag=tag)
             current_total = sum(existing_by_method.get(s, 0) for s in scaled_targets)
             remaining = sum(
                 max(0, scaled_targets[s] - existing_by_method.get(s, 0))
@@ -604,7 +622,7 @@ def generate_all(target, tag, seed, resume, dry_run, max_workers, strategy_worke
 
             # Progress check — stop if two passes in a row produced 0 keeps
             # (sampler ceiling reached; further passes are wasted).
-            new_total = sum(_count_by_method().get(s, 0) for s in scaled_targets)
+            new_total = sum(_count_by_method(tag=tag).get(s, 0) for s in scaled_targets)
             produced = new_total - current_total
             click.echo(
                 f"=== Pass {pass_idx} produced {produced:,} questions "

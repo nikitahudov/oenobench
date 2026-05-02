@@ -552,18 +552,36 @@ def get_used_fact_ids() -> set[str]:
     return {str(row["fact_id"]) for row in cur.fetchall()}
 
 
-def get_domain_generator_counts() -> dict:
-    """Return {(domain, generator, method): count} for quota tracking."""
+def get_domain_generator_counts(tag: str | None = None) -> dict:
+    """Return {(domain, generator, method): count} for quota tracking.
+
+    When ``tag`` is provided, the count is scoped to questions that carry
+    that tag — required for tagged builds (e.g. release_v1) where the
+    orchestrator must size its remaining-budget calculations against the
+    in-progress build, not the full DB which includes prior audit pilots.
+    """
     conn = get_pg()
     cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT q.domain, gm.generator, gm.generation_method, count(*) AS cnt
-        FROM questions q
-        JOIN generation_metadata gm ON gm.question_id = q.id
-        GROUP BY q.domain, gm.generator, gm.generation_method
-        """
-    )
+    if tag:
+        cur.execute(
+            """
+            SELECT q.domain, gm.generator, gm.generation_method, count(*) AS cnt
+            FROM questions q
+            JOIN generation_metadata gm ON gm.question_id = q.id
+            WHERE %s = ANY(q.tags)
+            GROUP BY q.domain, gm.generator, gm.generation_method
+            """,
+            (tag,),
+        )
+    else:
+        cur.execute(
+            """
+            SELECT q.domain, gm.generator, gm.generation_method, count(*) AS cnt
+            FROM questions q
+            JOIN generation_metadata gm ON gm.question_id = q.id
+            GROUP BY q.domain, gm.generator, gm.generation_method
+            """
+        )
     return {
         (row["domain"], row["generator"], row["generation_method"]): row["cnt"]
         for row in cur.fetchall()
