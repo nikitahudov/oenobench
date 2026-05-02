@@ -36,7 +36,7 @@ from src.generators._prompts import (
     prompt_hash,
 )
 from src.generators._question_db import get_used_fact_ids, insert_question_gated
-from src.generators._schemas import parse_llm_response
+from src.generators._schemas import parse_llm_response, pre_screen_for_verifier_skip
 from src.qa._attempted_facts import (
     get_attempted_fact_ids,
     register_attempted_fact_ids,
@@ -202,6 +202,16 @@ def _generate_one(
             )
             return None
 
+        # Phase 2g.18 lever L5: run the closed-book gate BEFORE
+        # parse_llm_response so should_skip_verifier() can fire on
+        # confident gate-passed Llama/Qwen questions when
+        # OENOBENCH_VERIFIER_SKIP=1.
+        pre_gate_passed, gen_confidence = pre_screen_for_verifier_skip(
+            response.content,
+            question_type="multiple_choice",
+            labelled_difficulty=labelled_difficulty,
+        )
+
         parsed = parse_llm_response(
             response.content,
             "multiple_choice",
@@ -210,6 +220,8 @@ def _generate_one(
             verify_difficulty_with_c4=True,
             labelled_difficulty=labelled_difficulty,
             generator=generator,
+            pre_gate_passed=pre_gate_passed,
+            generator_confidence=gen_confidence,
         )
         if parsed is not None:
             return {
