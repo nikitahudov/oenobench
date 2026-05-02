@@ -76,6 +76,18 @@ CLOSED_BOOK_QUOTA = int(CLOSED_BOOK_QUOTA_FRACTION * OVERALL_TARGET)
 # radical overhaul (see §6). The template inventory has a separate diversity
 # problem (one T/F pattern at 28% share, 27 of 38 registered templates never
 # fire) addressed by §13 not by rebalancing strategies.
+#
+# v2.4 allocation (Phase 2g.18 cost-down, 2026-05-02). Volume-rebalance
+# instead of per-call model downgrade (Opus stays Opus where it runs).
+# Claude(Opus) drops 2400 → 1800 (-25%, the most expensive per-call model);
+# Gemini bumps 2800 → 3200 (still 32% of corpus, under the 35% per-model
+# corpus cap, and Gemini is the audit pass-rate leader so spending more on
+# it is also a quality gain); Qwen bumps 800 → 1000 (calibration anchor for
+# the B2 ScenarioCoherence audit, which needs the volume to converge).
+# ChatGPT and Llama unchanged. Total stays at 9000 across the 5 LLM
+# strategies (template still provides the remaining 1000 deterministically).
+# Estimated 10k-run savings: $300-400 from the Opus volume cut. Combines
+# with the L1 cb-quota relax (0.25 → 0.40) for the full cost-down package.
 STRATEGY_TARGETS = {
     "fact_to_question": 4500,
     "template": 1000,
@@ -88,10 +100,10 @@ STRATEGY_TARGETS = {
 # strategy contributes the remaining 1,000 deterministically). No model may
 # exceed 35% of the corpus; current max is Gemini at 31%.
 GENERATOR_TARGETS = {
-    "claude": 2400,
+    "claude": 1800,
     "chatgpt": 2400,
-    "gemini": 2800,
-    "qwen": 800,
+    "gemini": 3200,
+    "qwen": 1000,
     "llama": 600,
 }
 

@@ -419,7 +419,10 @@ def test_insert_question_gated_reserves_when_quota_full(monkeypatch):
     from src.generators import _question_db
 
     _patch_call(monkeypatch, selected="A", confidence=0.9)
-    monkeypatch.setattr(_question_db, "count_closed_book_solvable", lambda: 2500)
+    # Phase 2g.18: cap at full 10k corpus is now ceil(10000 * 0.40) = 4000
+    # (was 2500 under the prior 0.25 fraction). Mock returns the cap to
+    # exercise the cb_reserve path.
+    monkeypatch.setattr(_question_db, "count_closed_book_solvable", lambda: 4000)
 
     captured: dict = {}
 
@@ -1316,16 +1319,19 @@ def test_gate_version_bumped():
     assert _closed_book_gate.GATE_VERSION.startswith("2.4")
 
 
-# ─── Phase 2g.15 CB quota fraction revert ────────────────────────────────────
+# ─── Phase 2g.18 CB quota relax (L1 cost-down lever) ─────────────────────────
 
 
-def test_default_cb_quota_is_quarter(monkeypatch):
-    """2g.15: default CLOSED_BOOK_QUOTA_FRACTION is 0.25 when OENOBENCH_CB_QUOTA
-    is unset. Reverts the 2g.14 cost-cut that tightened it to 0.20."""
+def test_default_cb_quota_is_forty_percent(monkeypatch):
+    """2g.18: default CLOSED_BOOK_QUOTA_FRACTION is 0.40 when OENOBENCH_CB_QUOTA
+    is unset. Phase 2g.18 cost-down L1 lever — relaxed from the prior 0.25
+    default because gold review of v9-v15 didn't flag the cb-tagged subset
+    as a corpus-quality risk; relabeling more flagged questions saves the
+    regeneration spend on the 10k run."""
     monkeypatch.delenv("OENOBENCH_CB_QUOTA", raising=False)
     importlib.reload(_closed_book_gate)
     try:
-        assert _closed_book_gate.CLOSED_BOOK_QUOTA_FRACTION == pytest.approx(0.25)
+        assert _closed_book_gate.CLOSED_BOOK_QUOTA_FRACTION == pytest.approx(0.40)
     finally:
         importlib.reload(_closed_book_gate)
 

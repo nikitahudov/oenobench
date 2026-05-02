@@ -176,8 +176,9 @@ def test_insert_question_gated_pre_screened_quota_full(monkeypatch):
             AssertionError("must not call screen_question with pre_screened set")
         ),
     )
-    # Quota is at the 25%-of-default-corpus cap (10000 × 0.25 = 2500).
-    monkeypatch.setattr(_question_db, "count_closed_book_solvable", lambda: 2500)
+    # Quota is at the 40%-of-default-corpus cap (10000 × 0.40 = 4000).
+    # Phase 2g.18 cost-down L1 raised the fraction from 0.25 → 0.40.
+    monkeypatch.setattr(_question_db, "count_closed_book_solvable", lambda: 4000)
 
     captured: dict = {}
 
