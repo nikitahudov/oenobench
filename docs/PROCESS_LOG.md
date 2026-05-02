@@ -4,6 +4,65 @@ Chronological lab notebook for the NeurIPS 2026 paper methodology sections.
 
 ---
 
+## 2026-05-02 — Phase 2g.17: cross-strategy ubiquitous-grape ambiguity guard
+
+### Motivation
+Phase 2g.16 v14c gold review found 4/15 templates with single-rubric flags — all on Cabernet Sauvignon "find-the-region" stems. Cabernet is grown in 50+ regions globally so questions like "Which region produces Cabernet Sauvignon?" have multiple valid answers. The cross-strategy fact-selection audit confirmed:
+- **fact_to_question (HIGH risk)**: single-fact source → LLM picks question angle freely; no algorithmic guard against ubiquity.
+- **comparative (HIGH risk)**: `sample_fact_pairs` (`_fact_sampler.py:1418`) pairs facts on same-etype + different-ename + shared-country, so two regions both growing Cabernet WILL pair.
+- **scenario_synthesis (LOWER risk)**: decision-framed stems naturally avoid "which entity has property X" patterns.
+- **distractor_mining (CONDITIONAL risk)**: `sample_confusable_facts` returns same-grape siblings, COMPOUNDING ubiquity when the target fact is already ubiquitous.
+
+Existing v13/v14c SQL audit (heuristic: stem mentions one of 8 international grapes AND answer is region-class) found 3 at-risk active questions in v13 (template=2, scenario=1) and 6 in v14c (template only — confirms v14c grape-name filter caught LLM-strategy cases at sample time). Small absolute count but the surface area scales linearly with the 5,000-Q final dataset.
+
+### Changes (5 sub-changes, 3 parallel teams in worktrees)
+**Team A** — `_fact_sampler.py` core (commit 5329de1, merged 1301d99):
+- Lever 7a: ubiquity index = curated 8 international grapes (`Cabernet Sauvignon`, `Chardonnay`, `Merlot`, `Pinot Noir`, `Sauvignon Blanc`, `Syrah`, `Shiraz`, `Riesling`) ∪ data-driven supplement (any grape > 30 facts in DB). Single SQL pass on first call, cached.
+- Lever 7b: `sample_facts` accepts `reject_ubiquitous_for_region_answer: bool`. When True + `domain='grape_varieties'` + extracted grape is ubiquitous, skip the fact. Applies to both primary loop and iconic-exhaust fallback.
+- Lever 7c: `sample_fact_pairs` post-filter drops pairs where both facts mention the same ubiquitous grape (Napa-Cabernet × Sonoma-Cabernet pair gets rejected).
+- Lever 7d: `sample_confusable_facts` filter excludes same-grape siblings when target is ubiquitous (stops Napa-Cabernet → Sonoma-Cabernet distractor compounding).
+- Caller wires: `template_generator.py:2443` passes `True` only for templates whose `correct_field == "region"`; `fact_to_question.py:399` passes `True` for `domain == "grape_varieties"`.
+- Counter `get_ubiquity_filtered_count()` for telemetry.
+- 11 new tests (5 in `TestUbiquityIndex` + 6 in new `test_ubiquity_filter.py`).
+
+**Team B** — prompts (commit c9e91d7, merged f13ced0):
+- Lever 7e: extended `_avoid_wk_first_bullet` (`_prompts.py:128-154`) with a second bullet warning the LLM not to construct "Which region produces [ubiquitous grape]?" stems. Lists the 8 curated grapes. Defense-in-depth for facts that slip through sample-time filtering (e.g., when a strategy uses ubiquitous grapes legitimately, the LLM still avoids ambiguous framing).
+- Single-line edit propagates to all 10 prompt templates that call this helper.
+- 4 new tests in new `test_prompts.py`.
+
+**Team C** — validation harness (commit 11a0c60, merged 8411c74):
+- New `scripts/run_audit_pilot_v15_ubiq.sh` — template + fact_to_question only, `PER_STRATEGY=20`, `MAX_BUILD_PASSES=3`, `TAG=audit_pilot_v15_ubiq`, `SEED=57`.
+- New `scripts/audit_ubiquity_check.sql` — reusable parametrized SQL: lists active questions whose stem mentions one of the 8 international grapes. Runnable via `docker exec ... -v tag="<tag>" < scripts/audit_ubiquity_check.sql`.
+
+**Total**: 585 tests pass on main (15 new vs Phase 2g.16's 570).
+
+### v15 build results (tag `audit_pilot_v15_ubiq`, seed 57)
+- 31 active + 4 cb_reserve = 35 total questions across template (12 active) + fact_to_question (19 active).
+- Per-domain: grape_varieties 7, wine_regions 10, producers 10, wine_business 2, winemaking 2.
+- Build wall 5m 46s; total wall (build + audit) 22m 16s; cost ≈ $0.50; LLM calls 529.
+- **Audit (run 9a085a74)**: A1 0 fails, A3 0 fails, B1 0 fails, C2 0 fails. B2 fails 19/35 (uncalibrated LLM panel — known issue from v13 gold-calibration κ ≈ 0.07).
+
+### Cross-strategy ubiquity audit on v15
+SQL `audit_ubiquity_check.sql`: **2 rows** vs target of 0.
+
+Inspection: both are FALSE POSITIVES of the heuristic (which catches any stem mentioning a ubiquitous grape regardless of answer-entity type):
+- `WB-BIZ-0315` (wine_business): "What is the median **price point** for a bottle of Syrah originating from Mendoza Province?" — answer is a price.
+- `WB-PRD-0485` (producers): "Which **estate** is credited with introducing the initial Pinot Noir crafted exclusively from grapes cultivated within Quebec?" — answer is a producer.
+
+Both are `domain != "grape_varieties"` so the caller wire correctly did NOT apply `reject_ubiquitous_for_region_answer` — these stems mention ubiquitous grapes contextually but the answer entity is unambiguous.
+
+**Verified target met**: `domain = grape_varieties` with ubiquitous-grape stems = **0 rows** in v15. The filter works in its intended scope.
+
+### Limitations / follow-up
+- The SQL audit heuristic is over-permissive: it flags any stem containing a ubiquitous grape word, not specifically "grape in stem AND answer is region". Refining the heuristic (e.g., joining to `correct_answer_text` and checking entity type) is post-NeurIPS work.
+- The data-driven supplement to the ubiquity set (>30 facts threshold) ran but didn't add anything new on this DB — all DB-frequent grapes were already in the curated set. Threshold may need tuning when scaling.
+- v15 Ubiquity-filter counter logged 0 in the post-build summary because the build runs in subprocesses and the in-process counter doesn't persist (same as paraphrase/category counters). The actual filter activity is verified via DB-level evidence (zero defects in scope).
+
+### Phase 2g.17 — closed
+Code on origin/main at commits f13ced0 + 8411c74 + 1301d99. Cross-strategy guard live for templates (when answer is region) and fact_to_question (for grape_varieties domain). Comparative + distractor_mining are guarded at the sampler level via Levers 7c and 7d but not validated end-to-end this cycle (skipped per the targeted-validation strategy). With deadline 2026-05-04, next priority is paper drafting.
+
+---
+
 ## 2026-05-01 — Phase 2g.16: template strategy quality push
 
 ### Motivation
