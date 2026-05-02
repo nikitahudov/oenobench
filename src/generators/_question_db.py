@@ -67,6 +67,13 @@ CORPUS_BUILD_SINCE_ENV_VAR = "OENOBENCH_CORPUS_BUILD_SINCE"
 # all their gate-flagged questions dropped instead of relabeled.
 STRATEGY_TARGET_ENV_VAR = "OENOBENCH_STRATEGY_TARGET"
 
+# Phase 2j (release_v1): a build-wide tag appended to every inserted question.
+# Set by the orchestrator's `--tag` flag so the full-generation run can be
+# identified and queried like an audit pilot tag. Read inside `insert_question`
+# so the tag lands on rows regardless of which strategy module produced them
+# (avoiding signature changes across all 5 `run_generate()` callables).
+BUILD_TAG_ENV_VAR = "OENOBENCH_BUILD_TAG"
+
 
 def set_corpus_target(size: int | None) -> None:
     """Override the corpus size used to compute the closed-book quota cap.
@@ -403,6 +410,16 @@ def insert_question(
         pass
     cur = conn.cursor()
     q_uuid = str(uuid.uuid4())
+
+    # Phase 2j (release_v1): append the build-wide tag from
+    # `OENOBENCH_BUILD_TAG` so every row produced by this run is discoverable
+    # by tag (parity with audit pilots). Mutates question_data in place.
+    build_tag = os.environ.get(BUILD_TAG_ENV_VAR)
+    if build_tag:
+        existing_tags = list(question_data.get("tags") or [])
+        if build_tag not in existing_tags:
+            existing_tags.append(build_tag)
+            question_data["tags"] = existing_tags
 
     try:
         conn.autocommit = False

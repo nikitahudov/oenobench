@@ -15,10 +15,12 @@ Usage:
 
 import concurrent.futures as cf
 import importlib
+import math
 import os
+import random
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import click
@@ -28,9 +30,14 @@ from src.generators._dedup import batch_embed_and_store, run_dedup_pass
 from src.generators._fact_sampler import DOMAIN_TARGETS, get_domain_stats
 from src.generators._llm_client import GENERATOR_MODELS
 from src.generators._question_db import (
+    BUILD_TAG_ENV_VAR,
+    CORPUS_BUILD_SINCE_ENV_VAR,
+    CORPUS_TARGET_ENV_VAR,
+    STRATEGY_TARGET_ENV_VAR,
     get_domain_generator_counts,
     get_question_count,
     get_used_fact_ids,
+    set_corpus_target,
 )
 from src.utils.db import get_pg
 
@@ -366,9 +373,69 @@ def status(target):
 # ─── generate-all ─────────────────────────────────────────────────────────────
 
 
+def _scale_strategy_targets(target: int) -> dict[str, int]:
+    """Scale `STRATEGY_TARGETS` proportionally to ``target``.
+
+    Default `target == OVERALL_TARGET` is the identity. For sub-targets
+    (e.g. 6500 for release_v1), each strategy is scaled by `target / OVERALL_TARGET`
+    and rounded; rounding drift is absorbed by the largest strategy
+    (`fact_to_question`) so the totals match exactly.
+    """
+    if target == OVERALL_TARGET:
+        return dict(STRATEGY_TARGETS)
+    if target <= 0:
+        raise click.BadParameter("--target must be positive")
+    ratio = target / OVERALL_TARGET
+    scaled: dict[str, int] = {
+        s: max(1, int(round(STRATEGY_TARGETS[s] * ratio)))
+        for s in STRATEGY_TARGETS
+    }
+    drift = target - sum(scaled.values())
+    if drift != 0:
+        # Absorb rounding drift on the largest strategy so the sum matches target.
+        biggest = max(scaled, key=scaled.get)
+        scaled[biggest] = max(1, scaled[biggest] + drift)
+    return scaled
+
+
+def _resolve_build_started_at(tag: str | None, resume: bool) -> datetime:
+    """Return the build-window start timestamp (UTC).
+
+    Mirrors `src.qa._corpus._resolve_build_started_at` so the closed-book
+    quota count is scoped to questions created during this build only.
+
+    Resume + tag given + tagged rows exist in DB → use MIN(created_at) of
+    those rows so a restart picks up the same window.
+    Otherwise → NOW().
+    """
+    if resume and tag:
+        try:
+            conn = get_pg()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT MIN(created_at) AS started "
+                "FROM questions WHERE %s = ANY(tags)",
+                (tag,),
+            )
+            row = cur.fetchone()
+            if row and row.get("started"):
+                started = row["started"]
+                if started.tzinfo is None:
+                    started = started.replace(tzinfo=timezone.utc)
+                return started
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "orchestrator: could not resolve resume start from tag {!r}: "
+                "{}; falling back to NOW()", tag, e,
+            )
+    return datetime.now(timezone.utc)
+
+
 @cli.command("generate-all")
-@click.option("--target", type=int, default=OVERALL_TARGET, help="Total questions to generate")
-@click.option("--resume", is_flag=True, help="Resume from current DB state")
+@click.option("--target", type=int, default=OVERALL_TARGET, help="Total questions to generate (scales STRATEGY_TARGETS proportionally)")
+@click.option("--tag", type=str, default=None, help="Build-wide tag appended to every inserted question (e.g. release_v1)")
+@click.option("--seed", type=int, default=None, help="Random seed for sampler reproducibility")
+@click.option("--resume", is_flag=True, help="Resume from current DB state (re-uses tag's build window if --tag is set)")
 @click.option("--dry-run", is_flag=True, help="Preview without DB writes")
 @click.option(
     "--max-workers",
@@ -392,82 +459,140 @@ def status(target):
         "env var."
     ),
 )
-def generate_all(target, resume, dry_run, max_workers, strategy_workers):
+def generate_all(target, tag, seed, resume, dry_run, max_workers, strategy_workers):
     """Run full generation pipeline across all strategies/models/domains."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger.add(LOG_DIR / f"orchestrator_{timestamp}.log", rotation="50 MB")
 
-    existing_by_method = _count_by_method() if resume else {}
-    existing_dgc = get_domain_generator_counts() if resume else {}
+    if seed is not None:
+        random.seed(seed)
+        logger.info("orchestrator: random seeded with {}", seed)
 
-    total_existing = sum(existing_by_method.values()) if resume else 0
-    if resume:
-        click.echo(f"Resuming from {total_existing:,} existing questions")
-    else:
-        click.echo("Starting fresh generation run")
+    scaled_targets = _scale_strategy_targets(target)
+    if scaled_targets != STRATEGY_TARGETS:
+        click.echo(
+            f"Scaling STRATEGY_TARGETS from {OVERALL_TARGET:,} → {target:,}: "
+            + ", ".join(f"{s}={scaled_targets[s]:,}" for s in STRATEGY_ORDER)
+        )
 
-    workers = _resolve_max_workers(max_workers)
-    s_workers = _resolve_strategy_workers(strategy_workers)
-    click.echo(
-        f"Target: {target:,} questions | dry_run={dry_run} | "
-        f"max_workers={workers} | strategy_workers={s_workers}\n"
+    # Phase 2j: scope the closed-book quota cap to the actual run target,
+    # propagate the build tag + build-window start to child threads via env
+    # vars (so `insert_question_gated` resolves the same scoped cap and
+    # `insert_question` appends the build tag to every row).
+    build_started = _resolve_build_started_at(tag, resume)
+    set_corpus_target(target)
+    prev_env = {
+        BUILD_TAG_ENV_VAR: os.environ.get(BUILD_TAG_ENV_VAR),
+        CORPUS_TARGET_ENV_VAR: os.environ.get(CORPUS_TARGET_ENV_VAR),
+        CORPUS_BUILD_SINCE_ENV_VAR: os.environ.get(CORPUS_BUILD_SINCE_ENV_VAR),
+        STRATEGY_TARGET_ENV_VAR: os.environ.get(STRATEGY_TARGET_ENV_VAR),
+    }
+    if tag:
+        os.environ[BUILD_TAG_ENV_VAR] = tag
+    os.environ[CORPUS_TARGET_ENV_VAR] = str(target)
+    os.environ[CORPUS_BUILD_SINCE_ENV_VAR] = build_started.isoformat()
+    # Use the smallest scaled per-strategy target as the per-strategy cb floor
+    # so no single strategy can monopolise the corpus cap. With
+    # release_v1 (target=6500, cb_quota=0.50) this gives template a 325-slot
+    # cap and the larger strategies inherit the same floor — total potential
+    # cb-tagged ≤ 5 × 325 = 1625 (well under the 3250 corpus cap).
+    min_strat = min(scaled_targets.values())
+    os.environ[STRATEGY_TARGET_ENV_VAR] = str(min_strat)
+    logger.info(
+        "orchestrator: tag={} target={} build_since={} per_strategy_cb_floor={}",
+        tag, target, build_started.isoformat(), min_strat,
     )
 
-    def _run_one_strategy(strategy: str) -> None:
-        strategy_target = STRATEGY_TARGETS[strategy]
-        existing_for_strategy = existing_by_method.get(strategy, 0)
-        remaining = max(0, strategy_target - existing_for_strategy)
+    try:
+        existing_by_method = _count_by_method() if resume else {}
+        existing_dgc = get_domain_generator_counts() if resume else {}
 
-        if remaining == 0:
-            click.echo(
-                f"[{strategy}] Target reached ({existing_for_strategy:,}/"
-                f"{strategy_target:,}), skipping"
-            )
-            return
-
-        click.echo(
-            f"[{strategy}] Generating {remaining:,} questions "
-            f"({existing_for_strategy:,}/{strategy_target:,} exist)"
-        )
-        module = STRATEGY_MODULES[strategy]
-
-        if strategy not in LLM_STRATEGIES:
-            _dispatch_template(module, remaining, dry_run, max_workers=workers)
+        total_existing = sum(existing_by_method.values()) if resume else 0
+        if resume:
+            click.echo(f"Resuming from {total_existing:,} existing questions")
         else:
-            _dispatch_llm_strategy(
-                strategy, module, remaining, existing_dgc, dry_run,
-                max_workers=workers,
-            )
+            click.echo("Starting fresh generation run")
 
-    if s_workers <= 1:
-        for strategy in STRATEGY_ORDER:
-            _run_one_strategy(strategy)
-    else:
-        logger.info(
-            "orchestrator: dispatching {} strategies concurrently (strategy_workers={})",
-            len(STRATEGY_ORDER), s_workers,
+        workers = _resolve_max_workers(max_workers)
+        s_workers = _resolve_strategy_workers(strategy_workers)
+        click.echo(
+            f"Target: {target:,} questions | tag={tag or '<none>'} | "
+            f"dry_run={dry_run} | max_workers={workers} | strategy_workers={s_workers}\n"
         )
-        with cf.ThreadPoolExecutor(max_workers=s_workers) as ex:
-            futures = {ex.submit(_run_one_strategy, s): s for s in STRATEGY_ORDER}
-            for fut in cf.as_completed(futures):
-                strategy = futures[fut]
-                try:
-                    fut.result()
-                except Exception as e:  # noqa: BLE001
-                    logger.error(
-                        "orchestrator: top-level strategy {} raised: {}",
-                        strategy, e,
-                    )
 
-    click.echo("\nGeneration pipeline complete.")
+        def _run_one_strategy(strategy: str) -> None:
+            strategy_target = scaled_targets[strategy]
+            existing_for_strategy = existing_by_method.get(strategy, 0)
+            remaining = max(0, strategy_target - existing_for_strategy)
+
+            if remaining == 0:
+                click.echo(
+                    f"[{strategy}] Target reached ({existing_for_strategy:,}/"
+                    f"{strategy_target:,}), skipping"
+                )
+                return
+
+            click.echo(
+                f"[{strategy}] Generating {remaining:,} questions "
+                f"({existing_for_strategy:,}/{strategy_target:,} exist)"
+            )
+            module = STRATEGY_MODULES[strategy]
+
+            if strategy not in LLM_STRATEGIES:
+                _dispatch_template(
+                    module, remaining, dry_run,
+                    max_workers=workers, total_target=target,
+                )
+            else:
+                _dispatch_llm_strategy(
+                    strategy, module, remaining, existing_dgc, dry_run,
+                    max_workers=workers, total_target=target,
+                )
+
+        if s_workers <= 1:
+            for strategy in STRATEGY_ORDER:
+                _run_one_strategy(strategy)
+        else:
+            logger.info(
+                "orchestrator: dispatching {} strategies concurrently (strategy_workers={})",
+                len(STRATEGY_ORDER), s_workers,
+            )
+            with cf.ThreadPoolExecutor(max_workers=s_workers) as ex:
+                futures = {ex.submit(_run_one_strategy, s): s for s in STRATEGY_ORDER}
+                for fut in cf.as_completed(futures):
+                    strategy = futures[fut]
+                    try:
+                        fut.result()
+                    except Exception as e:  # noqa: BLE001
+                        logger.error(
+                            "orchestrator: top-level strategy {} raised: {}",
+                            strategy, e,
+                        )
+
+        click.echo("\nGeneration pipeline complete.")
+    finally:
+        set_corpus_target(None)
+        for k, v in prev_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
-def _dispatch_template(module: str, count: int, dry_run: bool, max_workers: int = 1):
+def _dispatch_template(
+    module: str, count: int, dry_run: bool,
+    max_workers: int = 1, total_target: int = OVERALL_TARGET,
+):
     """Run template generator for the given count across all domains.
 
     Phase 2g.10 (Team Delta A2 + A3): dispatches in-process via
     ``_run_strategy`` and optionally parallelises over domains via a
     ThreadPoolExecutor when ``max_workers > 1``.
+
+    ``total_target`` is accepted for signature parity with
+    ``_dispatch_llm_strategy``. Domain proportions are derived from
+    ``DOMAIN_TARGETS / OVERALL_TARGET`` (which sums to 1.0 by construction)
+    so the project-plan ratios hold regardless of corpus size.
     """
     cells: list[tuple[str, int]] = []
     for domain in sorted(DOMAIN_TARGETS.keys()):
@@ -500,6 +625,7 @@ def _dispatch_llm_strategy(
     existing_dgc: dict,
     dry_run: bool,
     max_workers: int = 1,
+    total_target: int = OVERALL_TARGET,
 ):
     """Dispatch an LLM strategy across generators and domains.
 
