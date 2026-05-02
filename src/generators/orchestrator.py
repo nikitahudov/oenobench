@@ -538,106 +538,98 @@ def generate_all(target, tag, seed, resume, dry_run, max_workers, strategy_worke
             f"dry_run={dry_run} | max_workers={workers} | strategy_workers={s_workers}\n"
         )
 
-        def _run_one_strategy(strategy: str) -> None:
-            strategy_target = scaled_targets[strategy]
-            existing_for_strategy = existing_by_method.get(strategy, 0)
-            remaining = max(0, strategy_target - existing_for_strategy)
-
-            if remaining == 0:
-                click.echo(
-                    f"[{strategy}] Target reached ({existing_for_strategy:,}/"
-                    f"{strategy_target:,}), skipping"
-                )
-                return
-
-            click.echo(
-                f"[{strategy}] Generating {remaining:,} questions "
-                f"({existing_for_strategy:,}/{strategy_target:,} exist)"
-            )
-            module = STRATEGY_MODULES[strategy]
-
-            if strategy not in LLM_STRATEGIES:
-                _dispatch_template(
-                    module, remaining, dry_run,
-                    max_workers=workers, total_target=target,
-                )
-            else:
-                _dispatch_llm_strategy(
-                    strategy, module, remaining, existing_dgc, dry_run,
-                    max_workers=workers, total_target=target,
-                )
-
-        # Phase 2j: multi-pass loop. The release_v1 build at 6,500 has 4
-        # of 5 strategies that cap out per-cell at ~0-3 keeps each (LLM
-        # quality refusals, sampler pair/cluster exhaustion, substantive
-        # filters), so a single dispatch pass tops out around 600-1200
-        # questions. Multi-pass re-resolves remaining counts and re-runs
-        # under-budget strategies until the corpus target is reached, no
-        # progress is made for two passes in a row, or the cap is hit.
+        # Phase 2j: per-strategy multi-pass.
+        #
+        # The first multi-pass implementation (commit c5a4369) wrapped the
+        # entire strategy-dispatch in an outer pass loop, which serialised
+        # all 5 strategies on a single pass barrier. In practice, FTQ
+        # (target 2,925) ran for >2h on pass 1 while the other 4 strategies
+        # had completed their pass-1 cells in 20 min and sat idle. The
+        # per-strategy refactor here lets each strategy thread run its
+        # own multi-pass loop independently — when template/comparative/
+        # scenario complete pass 1 in 5-15 min, they immediately retry
+        # with fresh fact samples instead of waiting for FTQ.
         max_passes = max(1, int(os.environ.get(
             "OENOBENCH_MAX_GENERATE_PASSES", "5",
         )))
-        zero_streak = 0
-        last_total = sum(existing_by_method.values()) if resume else 0
-        for pass_idx in range(1, max_passes + 1):
-            # Re-resolve existing counts so each pass dispatches against
-            # the latest DB state (not stale numbers from before pass 1).
-            existing_by_method = _count_by_method(tag=tag)
-            existing_dgc = get_domain_generator_counts(tag=tag)
-            current_total = sum(existing_by_method.get(s, 0) for s in scaled_targets)
-            remaining = sum(
-                max(0, scaled_targets[s] - existing_by_method.get(s, 0))
-                for s in scaled_targets
-            )
-            if remaining == 0:
-                click.echo(
-                    f"\n=== All targets met at {current_total:,} — stopping. ==="
-                )
-                break
-            click.echo(
-                f"\n=== Pass {pass_idx}/{max_passes} | "
-                f"current={current_total:,}/{target:,} | remaining={remaining:,} ==="
-            )
 
-            if s_workers <= 1:
-                for strategy in STRATEGY_ORDER:
-                    _run_one_strategy(strategy)
-            else:
-                logger.info(
-                    "orchestrator: pass {} dispatching {} strategies concurrently "
-                    "(strategy_workers={})",
-                    pass_idx, len(STRATEGY_ORDER), s_workers,
-                )
-                with cf.ThreadPoolExecutor(max_workers=s_workers) as ex:
-                    futures = {ex.submit(_run_one_strategy, s): s for s in STRATEGY_ORDER}
-                    for fut in cf.as_completed(futures):
-                        strategy = futures[fut]
-                        try:
-                            fut.result()
-                        except Exception as e:  # noqa: BLE001
-                            logger.error(
-                                "orchestrator: top-level strategy {} raised: {}",
-                                strategy, e,
-                            )
-
-            # Progress check — stop if two passes in a row produced 0 keeps
-            # (sampler ceiling reached; further passes are wasted).
-            new_total = sum(_count_by_method(tag=tag).get(s, 0) for s in scaled_targets)
-            produced = new_total - current_total
-            click.echo(
-                f"=== Pass {pass_idx} produced {produced:,} questions "
-                f"(total {new_total:,}/{target:,}) ==="
-            )
-            if produced == 0:
-                zero_streak += 1
-                if zero_streak >= 2:
+        def _run_one_strategy(strategy: str) -> None:
+            strategy_target = scaled_targets[strategy]
+            module = STRATEGY_MODULES[strategy]
+            zero_streak = 0
+            for pass_idx in range(1, max_passes + 1):
+                # Re-resolve THIS strategy's existing count + per-cell
+                # generator counts so each pass dispatches against the
+                # current DB state.
+                existing_for_strategy = _count_by_method(tag=tag).get(strategy, 0)
+                existing_dgc_local = get_domain_generator_counts(tag=tag)
+                remaining = max(0, strategy_target - existing_for_strategy)
+                if remaining == 0:
                     click.echo(
-                        f"=== {zero_streak} passes with 0 progress — stopping. ==="
+                        f"[{strategy}] Target reached "
+                        f"({existing_for_strategy:,}/{strategy_target:,}) "
+                        f"after pass {pass_idx - 1}/{max_passes}"
                     )
-                    break
-            else:
-                zero_streak = 0
-            last_total = new_total
+                    return
+
+                click.echo(
+                    f"[{strategy}] pass {pass_idx}/{max_passes} | "
+                    f"{existing_for_strategy:,}/{strategy_target:,} "
+                    f"(remaining {remaining:,})"
+                )
+                pre_count = existing_for_strategy
+
+                if strategy not in LLM_STRATEGIES:
+                    _dispatch_template(
+                        module, remaining, dry_run,
+                        max_workers=workers, total_target=target,
+                    )
+                else:
+                    _dispatch_llm_strategy(
+                        strategy, module, remaining, existing_dgc_local,
+                        dry_run, max_workers=workers, total_target=target,
+                    )
+
+                post_count = _count_by_method(tag=tag).get(strategy, 0)
+                produced = post_count - pre_count
+                click.echo(
+                    f"[{strategy}] pass {pass_idx} produced {produced:,} "
+                    f"(now {post_count:,}/{strategy_target:,})"
+                )
+                if produced == 0:
+                    zero_streak += 1
+                    if zero_streak >= 2:
+                        click.echo(
+                            f"[{strategy}] {zero_streak} zero-progress passes — stopping"
+                        )
+                        return
+                else:
+                    zero_streak = 0
+            click.echo(
+                f"[{strategy}] hit max_passes={max_passes} cap "
+                f"at {_count_by_method(tag=tag).get(strategy, 0):,}/{strategy_target:,}"
+            )
+
+        if s_workers <= 1:
+            for strategy in STRATEGY_ORDER:
+                _run_one_strategy(strategy)
+        else:
+            logger.info(
+                "orchestrator: dispatching {} strategies concurrently "
+                "(strategy_workers={}, max_passes={})",
+                len(STRATEGY_ORDER), s_workers, max_passes,
+            )
+            with cf.ThreadPoolExecutor(max_workers=s_workers) as ex:
+                futures = {ex.submit(_run_one_strategy, s): s for s in STRATEGY_ORDER}
+                for fut in cf.as_completed(futures):
+                    strategy = futures[fut]
+                    try:
+                        fut.result()
+                    except Exception as e:  # noqa: BLE001
+                        logger.error(
+                            "orchestrator: top-level strategy {} raised: {}",
+                            strategy, e,
+                        )
 
         click.echo("\nGeneration pipeline complete.")
     finally:
