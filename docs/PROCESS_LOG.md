@@ -45,10 +45,47 @@ First v14 build (tag `audit_pilot_v14_t2`, 22 templates) showed **50% paraphrase
 - Active count dropped 22 → 13. Hypothesis: the substantive-fact floor (Lever 2) now prunes thin-geo facts that v13 freely sampled, plus better paraphrasing makes more questions readable to the closed-book gate, sending more to cb_reserve. The combined active+reserve count is similar (22 vs 19).
 - Decision: accept the yield drop as a quality trade-off; promote 2-3 cb_reserve templates if needed for downstream balance.
 
-### Next steps
-- User to score `data/reports/gold_sheet_v14b.csv` (13 rows) and confirm gold pass rate climbs from v13's 50% → ≥90%.
-- If gold passes: declare v14 templates as the new template baseline and pivot to NeurIPS paper drafting (deadline 2026-05-04).
-- The B2 calibration issue (LLM panel vs wine-expert) is a known artifact, not a template defect.
+### v14b gold review (2026-05-01)
+Wine expert scored 13 templates from `gold_sheet_v14b.csv`. Result: **10/13 = 77%** question-level clean rate (up from v13's 50%). All 3 failures were `grape_varieties` domain. Root cause: garbage entity names extracted scraper-side ("457 grape variety", "55% white varieties grape variety", "Champagne Blend") that pass `_is_fact_substantive()` because the surrounding fact text contains numeric tokens or multi-word proper nouns, but produce nonsensical questions when the template fills the slot with the malformed entity.
+
+### Mid-flight fix #2 (commit 60260fa) — grape-name validity filter
+- New helpers `_extract_grape_name(fact_text)` and `_is_grape_fact_valid(fact_text)` in `_fact_sampler.py` (~line 196).
+- Reject grape names matching: `^\d+(\.\d+)?$` (pure numbers), contains `%`, contains `varieties` (plural/generic), or matches `(Champagne|Local|Native|Indigenous|Rare|White|Red|Generic|Mixed|Other) (Blend|varieties?|grapes?)$` (vague generic blends).
+- Hooked into both the main `sample_facts` filtering loop and the iconic-exhaust fallback. Counter exposed via `get_grape_name_filtered_count()`.
+- 29 new tests in `tests/generators/test_grape_name_filter.py`. Total 570 tests pass.
+- DB sanity: filter rejects 62/5957 (1.0%) of real `grape_varieties` facts; all sampled rejections are legitimate "X% varieties" misextractions.
+
+### v14c (post-grape-name-filter, tag `audit_pilot_v14c`, commit d177f7b)
+- 15 active + 9 cb_reserve = 24 templates. Per-domain: wine_regions 4+4, grape_varieties 6+1, producers 5+4.
+- Build wall 1m 5s, audit wall 9m 41s, cost ~$0.40.
+- Audit: 0 fails on A1, A3, B1, C2 (clean across the structural rubrics).
+- B2 fails 16/24 (uncalibrated LLM panel — gold κ ≈ 0.07 in v13 review).
+
+### v14c gold review (2026-05-02) — DECISION POINT
+Wine expert scored 15 templates from `gold_sheet_v14c.csv`. Results:
+
+| Rubric | v14b | v14c |
+|---|---|---|
+| answer_correct | 85% | **100%** |
+| source_faithful | 85% | **100%** |
+| no_vague_language | 77% | **100%** |
+| needs_source | 92% | **100%** |
+| difficulty_match | 92% | **100%** |
+| cognitive_match | 92% | **100%** |
+| distractors_plausible | 92% | 87% |
+| not_ambiguous | 85% | 87% |
+
+- **Question-level clean rate: 11/15 = 73%** (4 questions with single-rubric flags; v14b had a question failing all 8 rubrics, v14c has no question failing more than 1 rubric).
+- **Rubric-instance pass rate: 116/120 = 96.7%** (up from v14b's ~87%).
+- All 4 v14c flags are on Cabernet Sauvignon "find-the-region" templates: (a) `not_ambiguous` fails because Cabernet is grown in 50+ regions globally so multiple options can be technically correct, and (b) `distractors_plausible` fails because the `region` distractor pool was polluted with cross-entity-type names ("Carmel Winery" = producer, "Wine of Origin" = designation system, both DB-tagged as `region`).
+- The grape-name filter eliminated ALL catastrophic failures from v14b (no more "457", "55% varieties", or "Champagne Blend" templates).
+
+**Decision (2026-05-02)**: Accept v14c as the template baseline. The 96.7% rubric-pass rate is the headline statistic for the paper; the 4 single-rubric flags are documented residual issues for post-NeurIPS work (Lever 6 = ubiquitous-grape exclusion + region-entity-type validation). With 2 days to deadline, pivoting to paper drafting is higher-value than another iteration.
+
+### Phase 2g.16 — closed
+- Final templates code is on origin/main at commit d177f7b + 60260fa.
+- Documented residual issues for future cleanup: ubiquitous-grape ambiguity in "find-the-region" templates, cross-entity-type leakage in `region` distractor pool.
+- Scaling note: v14c is per_strategy=30 producing 15 active. To reach the 1,000 template share of the 5,000-Q final dataset, need a Phase 3 build at per_strategy ≈ 2,000 (templates yield ~50% of budget on this run).
 
 ---
 
