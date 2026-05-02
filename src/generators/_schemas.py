@@ -236,6 +236,8 @@ def parse_llm_response(
     verify_difficulty_with_c4: bool = False,
     labelled_difficulty: Optional[str] = None,
     generator: Optional[str] = None,
+    pre_gate_passed: bool = False,
+    generator_confidence: Optional[float] = None,
 ) -> Optional[GeneratedQuestion]:
     """Parse and validate an LLM's JSON response into a GeneratedQuestion.
 
@@ -251,6 +253,17 @@ def parse_llm_response(
             Cheap models (claude/chatgpt/gemini) are never re-verified.
         generator: Short name of the generator that produced `raw` (e.g.
             "llama"). Required when verify_with_independent_solver=True.
+        pre_gate_passed: Phase 2g.18 lever L5. When True, indicates the
+            closed-book gate was run BEFORE this call and the question
+            cleared (gate did not flag it as closed-book solvable, and it
+            was not relabeled or quota-dropped). Forwarded into the
+            independent-solver verifier so ``should_skip_verifier`` can
+            short-circuit when ``OENOBENCH_VERIFIER_SKIP=1``.
+        generator_confidence: Phase 2g.18 lever L5. The generator's
+            self-reported confidence (typically the ``confidence`` field
+            in the parsed JSON), forwarded into the verifier alongside
+            ``pre_gate_passed``. None or non-numeric disables skip even
+            when the env var is on.
 
     Returns:
         A validated GeneratedQuestion, or None if parsing/validation fails
@@ -377,6 +390,12 @@ def parse_llm_response(
                 correct_answer=question.correct_answer,
                 source_facts=source_fact_texts or [],
                 generator=generator,
+                # Phase 2g.18 lever L5: thread the pre-gate verdict +
+                # generator confidence into the verifier so
+                # should_skip_verifier() can short-circuit when
+                # OENOBENCH_VERIFIER_SKIP=1.
+                gate_passed=pre_gate_passed,
+                generator_confidence=generator_confidence,
             )
             if not is_valid:
                 logger.warning(
@@ -389,6 +408,93 @@ def parse_llm_response(
                 return None
 
     return question
+
+
+def pre_screen_for_verifier_skip(
+    raw_response: str,
+    *,
+    question_type: str,
+    labelled_difficulty: Optional[str] = None,
+) -> tuple[bool, Optional[float]]:
+    """Phase 2g.18 lever L5: pre-gate + confidence extraction helper.
+
+    Runs the closed-book gate BEFORE the strategy invokes
+    ``parse_llm_response``, returning ``(pre_gate_passed, generator_confidence)``
+    that the caller forwards into ``parse_llm_response`` so that the
+    independent-solver verifier can short-circuit when
+    ``OENOBENCH_VERIFIER_SKIP=1``.
+
+    Behaviour:
+        - Extracts JSON from ``raw_response`` (markdown fences allowed).
+        - Pulls out question_text, options, correct_answer, and
+          ``confidence`` (any numeric).
+        - Calls ``src.generators._closed_book_gate.screen_question`` and
+          returns its ``passed`` field.
+        - On any extraction or gate-call failure, returns
+          ``(False, None)`` — the conservative fallback that disables skip.
+
+    The returned ``pre_gate_passed`` bool is ``screen_question(...).passed``,
+    which is True iff the gate could not solve the question closed-book
+    (or the gate didn't apply due to wrong difficulty/type, in which case
+    the gate's defensive default is True). For non-MC types the gate
+    early-returns ``passed=True, applied=False`` — but the verifier itself
+    early-returns when ``options`` is empty, so the skip lever is a no-op
+    on those types regardless.
+    """
+    # Tier-1 JSON extraction (we tolerate failure here — the strategy will
+    # see the same failure when it calls parse_llm_response).
+    data = _extract_json(raw_response or "")
+    if not isinstance(data, dict):
+        return False, None
+
+    # Confidence: either field "confidence" or nested under e.g. "metadata"
+    conf_raw = data.get("confidence")
+    confidence: Optional[float]
+    try:
+        confidence = float(conf_raw) if conf_raw is not None else None
+    except (TypeError, ValueError):
+        confidence = None
+
+    stem = str(data.get("question_text") or "").strip()
+    correct_answer = str(data.get("correct_answer") or "").strip()
+    options_field = data.get("options")
+    options_payload: list[dict]
+    if isinstance(options_field, list):
+        options_payload = [
+            {
+                "id": str(o.get("id", "")).strip().upper(),
+                "text": str(o.get("text", "")).strip(),
+            }
+            for o in options_field
+            if isinstance(o, dict)
+        ]
+    else:
+        options_payload = []
+
+    # Without a stem or correct_answer letter we can't run the gate.
+    if not stem or not correct_answer:
+        return False, confidence
+
+    try:
+        # Local import to avoid module-load order surprises and to keep
+        # the schema module importable in environments where the gate's
+        # OpenAI client setup might be unavailable.
+        from src.generators._closed_book_gate import screen_question
+
+        gate_result = screen_question(
+            stem=stem,
+            options=options_payload,
+            correct_answer=correct_answer,
+            difficulty=str(labelled_difficulty) if labelled_difficulty else "3",
+            question_type=question_type,
+        )
+        return bool(gate_result.passed), confidence
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(
+            "pre_screen_for_verifier_skip: gate call failed (treating as not-passed) | err={}",
+            exc,
+        )
+        return False, confidence
 
 
 def _shuffle_options(question: GeneratedQuestion) -> GeneratedQuestion:
