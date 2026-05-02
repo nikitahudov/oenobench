@@ -16,11 +16,19 @@ from __future__ import annotations
 
 import pytest
 
+from unittest.mock import MagicMock, patch
+
 from src.generators._fact_sampler import (
+    _UBIQUITOUS_INTERNATIONAL_GRAPES,
+    _build_ubiquitous_grape_set,
     _extract_grape_name,
     _is_grape_fact_valid,
+    _normalise_grape_name,
     get_grape_name_filtered_count,
+    get_ubiquity_filtered_count,
+    is_ubiquitous_grape_name,
     reset_grape_name_filtered_count,
+    reset_ubiquity_filtered_count,
 )
 
 
@@ -140,3 +148,62 @@ def test_counter_resettable() -> None:
     assert get_grape_name_filtered_count() == 0
     reset_grape_name_filtered_count()
     assert get_grape_name_filtered_count() == 0
+
+
+# ─── Phase 2g.17 — ubiquitous-grape index ────────────────────────────────────
+
+
+class TestUbiquityIndex:
+    """Tests for the Phase 2g.17 ubiquitous-grape ambiguity guard."""
+
+    def test_curated_international_grapes_are_ubiquitous(self) -> None:
+        """All 8 curated international varieties must return True."""
+        for grape in [
+            "Cabernet Sauvignon",
+            "Chardonnay",
+            "Merlot",
+            "Pinot Noir",
+            "Sauvignon Blanc",
+            "Syrah",
+            "Shiraz",
+            "Riesling",
+        ]:
+            assert is_ubiquitous_grape_name(grape) is True, f"{grape!r} should be ubiquitous"
+
+    def test_obscure_grape_is_not_ubiquitous(self) -> None:
+        """Obscure or regionally-specific varieties must return False."""
+        for grape in ["Vermentino", "Picpoul", "Furmint"]:
+            assert is_ubiquitous_grape_name(grape) is False, f"{grape!r} should not be ubiquitous"
+
+    def test_normalisation_handles_case_and_accents(self) -> None:
+        """Case- and whitespace-insensitive matching must work."""
+        assert is_ubiquitous_grape_name("CABERNET SAUVIGNON") is True
+        assert is_ubiquitous_grape_name("cabernet sauvignon") is True
+        assert is_ubiquitous_grape_name("  cabernet  sauvignon  ") is True
+
+    def test_get_ubiquitous_grape_names_returns_at_least_curated(self) -> None:
+        """The ubiquity set must always include the full curated baseline."""
+        from src.generators._fact_sampler import _get_ubiquitous_grape_names
+        result = _get_ubiquitous_grape_names()
+        for grape in _UBIQUITOUS_INTERNATIONAL_GRAPES:
+            assert grape in result, f"Curated grape {grape!r} missing from ubiquity set"
+
+    def test_data_driven_supplement(self) -> None:
+        """A grape appearing > threshold times in the DB must be added to the set."""
+        # Build 31 rows all mentioning Carmenère via the "permits" pattern.
+        carmenere_fact = "Chile wine permits the Carmenère grape variety."
+        mock_rows = [{"fact_text": carmenere_fact}] * 31
+
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall.return_value = mock_rows
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        with patch("src.generators._fact_sampler.get_pg", return_value=mock_conn):
+            result = _build_ubiquitous_grape_set()
+
+        normalised = _normalise_grape_name("Carmenère")
+        assert normalised in result, "Data-driven Carmenère should be in ubiquity set"
+        # Curated set must still be present.
+        for grape in _UBIQUITOUS_INTERNATIONAL_GRAPES:
+            assert grape in result

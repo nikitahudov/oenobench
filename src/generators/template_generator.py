@@ -2440,10 +2440,17 @@ def _run_generate_body(
         # γ-2 — high-weight fact-specific templates first
         templates_for_domain = _weighted_template_order(templates_for_domain)
 
+        # Phase 2g.17: reject ubiquitous grapes when any template for this domain
+        # has correct_field == "region" (those templates produce "find-the-region"
+        # questions where ubiquitous grapes like Cabernet Sauvignon are ambiguous).
+        _has_region_answer_tpl = any(
+            t.get("correct_field") == "region" for t in templates_for_domain
+        )
         facts = sample_facts(
             dom, count=target * 10, exclude_ids=used_facts, strategy="template",
             per_country_cap=per_country_cap,
             require_substantive=True,  # Phase 2g.16 Lever 2: force substantive filter for templates
+            reject_ubiquitous_for_region_answer=_has_region_answer_tpl,  # Phase 2g.17
         )
         if not facts:
             logger.warning(f"No facts available for domain={dom}")
