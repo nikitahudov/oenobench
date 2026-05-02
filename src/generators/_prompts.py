@@ -131,12 +131,25 @@ def _avoid_wk_first_bullet(fact_phrase: str) -> str:
     The opening bullet was identical across all 10 templates except for
     the trailing fact-phrase ("source fact" / "source facts" / "target
     fact"). Factored here so the iconic-entities list lives in one place.
+
+    2g.17: A second bullet was appended as prompt-level defense-in-depth
+    against "which region grows [ubiquitous grape]?" stems that slip
+    through sample-time filters (Team A, _fact_sampler.py).
     """
-    return (
+    bullet_one = (
         "- DO NOT phrase questions as recall on globally-famous entities "
         f"({_ICONIC_ENTITIES_LIST}). A well-read taster should not be "
         f"able to answer without the {fact_phrase}."
     )
+    bullet_two = (
+        "- DO NOT phrase questions as \"Which region produces [grape]?\" when the\n"
+        "  grape is one of the globally-ubiquitous international varieties\n"
+        "  (Cabernet Sauvignon, Chardonnay, Merlot, Pinot Noir, Sauvignon Blanc,\n"
+        "  Syrah, Shiraz, Riesling). Lead instead with a regulatory or technical detail\n"
+        "  (minimum aging, yield cap, soil type, blend %) that is unique\n"
+        "  to that region."
+    )
+    return bullet_one + "\n" + bullet_two
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
