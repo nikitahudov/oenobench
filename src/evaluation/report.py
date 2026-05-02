@@ -246,11 +246,13 @@ def _load_answers(conn, run_id: str, corpus_schema: str) -> list[dict[str, Any]]
     """
     genmeta_join = ""
     genmeta_select = "NULL::text AS generator"
+    strategy_select = "NULL::text AS strategy"
     if corpus_schema == "sample":
         genmeta_join = (
-            "LEFT JOIN sample.generation_metadata gm ON gm.question_id = q.id"
+            f"LEFT JOIN {corpus_schema}.generation_metadata gm ON gm.question_id = q.id"
         )
         genmeta_select = "gm.generator::text AS generator"
+        strategy_select = "gm.generation_method::text AS strategy"
 
     sql = f"""
         SELECT
@@ -269,7 +271,7 @@ def _load_answers(conn, run_id: str, corpus_schema: str) -> list[dict[str, Any]]
             a.reasoning_config,
             a.provider_used,
             q.domain::text AS domain,
-            q.generation_method AS strategy,
+            {strategy_select},
             {genmeta_select}
         FROM evaluation_answers a
         JOIN {corpus_schema}.questions q ON q.id = a.question_id

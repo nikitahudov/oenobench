@@ -57,24 +57,24 @@ EVAL_CONFIGS: list[EvalConfig] = [
                family="google", is_generator_family=True),
     # 7. Llama 3.3 70B (frontier open, SPS generator)
     EvalConfig(7, "llama-3.3-70b", "meta-llama/llama-3.3-70b-instruct",
-               provider_order=["Together"], concurrency=20,
+               provider_order=["DeepInfra", "Novita"], concurrency=20,
                family="meta", is_generator_family=True),
     # 8. Llama 3.1 8B (small open)
     EvalConfig(8, "llama-3.1-8b", "meta-llama/llama-3.1-8b-instruct",
-               provider_order=["Together"], concurrency=40,
+               provider_order=["DeepInfra", "Novita"], concurrency=40,
                family="meta", is_generator_family=True),
     # 9. DeepSeek V3
     EvalConfig(9, "deepseek-v3", "deepseek/deepseek-chat",
-               provider_order=["DeepSeek"], concurrency=20,
+               provider_order=["DeepInfra", "Novita"], concurrency=20,
                logit_bias_supported=True,
                family="deepseek"),
     # 10. Qwen 2.5 72B
     EvalConfig(10, "qwen-2.5-72b", "qwen/qwen-2.5-72b-instruct",
-               provider_order=["Alibaba"], concurrency=20,
+               provider_order=["DeepInfra", "Novita"], concurrency=20,
                family="qwen"),
     # 11. Qwen 2.5 7B
     EvalConfig(11, "qwen-2.5-7b", "qwen/qwen-2.5-7b-instruct",
-               provider_order=["Alibaba"], concurrency=40,
+               provider_order=["Together", "AtlasCloud"], concurrency=40,
                family="qwen"),
     # 12. Mistral Large 2411
     EvalConfig(12, "mistral-large-2411", "mistralai/mistral-large-2411",
@@ -94,7 +94,7 @@ EVAL_CONFIGS: list[EvalConfig] = [
                family="google", is_generator_family=True),
     # 15. DeepSeek R1
     EvalConfig(15, "deepseek-r1", "deepseek/deepseek-r1",
-               provider_order=["DeepSeek"],
+               provider_order=["Novita", "Azure"],
                reasoning_mode="explicit_budget", reasoning_budget=512,
                concurrency=30, logit_bias_supported=True,
                family="deepseek"),

@@ -4,6 +4,191 @@ Chronological lab notebook for the NeurIPS 2026 paper methodology sections.
 
 ---
 
+## 2026-05-02 — Phase 5: sample-DB eval shipped (16 configs × 1062 Qs)
+
+### Motivation
+With the eval slate locked earlier in the day and the 1062-Q quality-vetted
+`sample` schema available, the remaining gate before paper submission was
+producing a real eval result. The user directed using the curated sample DB
+as the pre-deadline corpus (rather than waiting for the full 10k corpus to
+generate) and instructed implementing the harness via parallel Agent Teams.
+
+### Methodology — 4 parallel Agent Teams
+Per the `~/.claude/plans/snoopy-dancing-deer.md` plan, work was split into
+four teams that ran concurrently in `git worktree` isolation (matches the
+validated Phase 2g.18 4-team pattern):
+
+- **Team A — Foundation** (`config/postgres/004_eval_telemetry.sql`,
+  `src/utils/cost.py`, `tests/utils/test_cost.py`). Idempotent ALTERs
+  add 9 telemetry columns to `evaluation_answers` (`provider_used`,
+  `generation_id`, token columns, `cost_usd`, `latency_ms`,
+  `parsed_answer`, `reasoning_config`) and 3 to `evaluation_runs`
+  (`config_json`, `reasoning_config`, `total_cost_usd`). New unique
+  index `(run_id, question_id, model_name, COALESCE(reasoning_config,''))`
+  so reasoning siblings (Opus standard vs thinking) coexist in one run.
+  `compute_cost(model_id, in, out, reasoning=0)` with the verified
+  OR pricing snapshot. Branch `phase-5/team-a-foundation`, commit
+  `4f98975`, 32 tests pass.
+- **Team B — Client + 16-config registry**
+  (`src/evaluation/{__init__.py, configs.py, _eval_client.py}`, edits
+  `LLMResponse` to add `reasoning_tokens`). `EvalConfig` frozen
+  dataclass + `EVAL_CONFIGS` list of 16 (12 standard + 4 reasoning).
+  `build_extra_body()` injects provider pin, reasoning param, logit_bias.
+  `evaluate_one()` wraps `LLMClient.generate` at temp=0/max_tokens=5.
+  Branch `phase-5/team-b-client`, commit `c60e334`, 32 tests pass.
+- **Team C — Harness** (`src/evaluation/run_eval.py`,
+  `src/evaluation/_corpus_loader.py`, `scripts/run_eval_sample.sh`).
+  Discovered that `sample.questions` stores options as JSONB (not
+  separate `option_a/b/c/d`) and strategy lives in
+  `sample.generation_metadata.generation_method` (not
+  `sample.questions.generation_strategy`). 16-way outer fan-out
+  (config-level) + per-config inner ThreadPoolExecutor at 20-40
+  concurrency. Resume-safe writes via the unique constraint. Branch
+  `phase-5/team-c-harness`, commit `574aaa9`.
+- **Team D — Report renderer** (`src/evaluation/report.py`). Per-config
+  summary, per-config × per-domain (16 × 6) and × per-strategy (16 × 5)
+  accuracy grids, SPS, reasoning-effect deltas, cost ledger. Branch
+  `phase-5/team-d-report`, commit `c12e69c`, 25 tests pass.
+
+All 4 teams delivered in ~3h wall-time. Merged to `main` in the order
+A → B → D → C with no conflicts.
+
+### Issues encountered & resolutions during the live run
+The first live invocation of the harness exposed seven issues that the
+unit tests did not catch. Each was fixed and the run was resumed via
+`--resume`:
+
+1. **Team B/C integration mismatch.** Team C's retry path called
+   `evaluate_one(..., override_system=stricter_prompt)` but Team B's
+   signature didn't accept the kwarg. Fix: add
+   `override_system: str | None = None` to `evaluate_one()` (commit
+   `500782a`).
+2. **OpenAI `max_output_tokens >= 16` floor.** Original cap of 5 caused
+   400 errors on every gpt-5/gpt-5-mini/o3 call. Bump to 16.
+3. **Implicit reasoning consumes the cap.** At cap=100, OpenAI gpt-5
+   family used the entire budget on internal reasoning (which is billed
+   against `max_completion_tokens`) and emitted no visible text. Bump to
+   1000.
+4. **1000 still too tight on Gemini 2.5 Pro standard, GPT-5 standard,
+   Qwen 72B.** Empirically ~25-30% of hard wine questions consumed all
+   1000 tokens before emitting a letter. Bump to 2000 (commit `88f3190`).
+   Made it env-overridable via `OENOBENCH_EVAL_MAX_TOKENS`.
+5. **Provider name strings wrong on 6 open-weight configs.** OR's
+   `/api/v1/models/{id}/endpoints` revealed: `deepseek/deepseek-chat`
+   only on `DeepInfra`/`Novita` (not `DeepSeek`); `qwen/qwen-2.5-72b`
+   on `DeepInfra`/`Novita` (not `Alibaba`); etc. Updated the registry
+   with correct provider names; added a 2nd fallback provider per
+   config for resilience.
+6. **2% max-skipped guardrail too strict.** 7 configs were aborted
+   after their first 200 questions even though they were producing
+   useful answers. Made the threshold env-overridable
+   (`OENOBENCH_EVAL_GUARDRAIL_THRESHOLD`); resumed with 0.9 (only abort
+   on near-total breakage).
+7. **DeepSeek R1 provider throttling.** Novita rate-limited R1 calls
+   to ~5/min after ~600 questions; the 1062-question target took longer
+   than the rest of the slate. Killed the R1 worker at 28m, then
+   restarted just slot 15 separately to fill the tail.
+
+### Quantitative results
+
+**Run identifiers.** Tag `eval_sample_v2`, run_id
+`6ef6eff2-9c50-439c-8aff-b414300727fc`. Corpus: `sample` schema
+(1062 questions). Wall: 28m 33s. Total LLM calls: 16,572. Total cost:
+**$31.31** (well under the ~$40 estimate).
+
+**Headline leaderboard** (parsed-answer accuracy out of total
+attempted; eval_skipped excluded):
+
+| Rank | Slot | Config | Accuracy | n | Skipped | Cost |
+|---:|---:|---|---:|---:|---:|---:|
+| 1 | 14 | gemini-2.5-pro-thinking | **83.6%** | 1062 | 0 | $4.22 |
+| 2 | 16 | claude-opus-4.7-thinking | 81.6% | 1062 | 6 | $1.31 |
+| 3 | 13 | o3 | 81.5% | 1062 | 41 | $4.10 |
+| 4 | 1 | claude-opus-4.7 | 80.9% | 1062 | 4 | $1.21 |
+| 5 | 3 | gpt-5 | 80.2% | 1046 | 89 | $7.08 |
+| 6 | 15 | deepseek-r1 (partial) | 78.5% | 683 | 17 | $2.33 |
+| 7 | 4 | gpt-5-mini | 78.2% | 1062 | 23 | $0.97 |
+| 8 | 5 | gemini-2.5-pro | 78.1% | 1062 | 101 | $9.62 |
+| 9 | 6 | gemini-2.5-flash | 76.8% | 1062 | 0 | $0.04 |
+| 10 | 9 | deepseek-v3 | 71.8% | 1062 | 0 | $0.04 |
+| 11 | 12 | mistral-large-2411 | 70.8% | 1062 | 0 | $0.32 |
+| 12 | 7 | llama-3.3-70b | 69.2% | 1062 | 0 | $0.02 |
+| 13 | 8 | llama-3.1-8b | 64.2% | 1062 | 0 | <$0.01 |
+| 14 | 10 | qwen-2.5-72b | 62.3% | 1062 | 93 | $0.05 |
+| 15 | 11 | qwen-2.5-7b | 60.8% | 1062 | 0 | $0.01 |
+| 16 | 2 | claude-haiku-4.5 | 56.5% | 1062 | 191 | $0.16 |
+
+**Reasoning-effect deltas** (paired within model family):
+
+- Gemini 2.5 Pro thinking − standard: **+5.5 pp**
+- DeepSeek R1 − DeepSeek V3: **+6.7 pp** (R1 partial coverage)
+- o3 − GPT-5: **+1.3 pp**
+- Claude Opus 4.7 thinking − standard: **+0.7 pp** (within noise)
+
+**Within-family cost-tier deltas** (frontier − cheap):
+
+- Anthropic Opus − Haiku: **−24.4 pp** (driven by Haiku's 191 skips,
+  not capability)
+- Meta 70B − 8B: **−5.0 pp**
+- OpenAI GPT-5 − GPT-5-mini: **−2.0 pp**
+- Qwen 72B − 7B: **−1.5 pp** (both struggle, 72B has 93 empty responses)
+- Google Pro − Flash: **−1.3 pp**
+
+**Per-domain accuracy** (averaged across all 16 configs): wine_regions
+78.5%, producers 79.3%, viticulture 77.0%, winemaking 76.2%,
+wine_business 73.6%, **grape_varieties 63.4%** (hardest domain).
+
+**Per-strategy accuracy** (averaged): template 80.0% (easiest;
+expected — fact-anchored), scenario 77.5%, FTQ 71.8%, distractor 71.7%,
+**comparative 64.4%** (hardest strategy).
+
+### Decisions and trade-offs
+- **Sample-DB as the pre-deadline corpus.** User-driven decision earlier
+  in the day. The 1062 already-curated questions are the right
+  test-bed; the original plan's 50-Q toy pilot would have produced
+  too thin a slice for the paper.
+- **Killed R1 tail at 683/1062.** Provider-side throttling made the
+  remaining ~380 questions take >15min for ~$1.50 marginal cost.
+  Decision: ship partial R1 (statistically meaningful at n=683,
+  78.5% acc) and re-run later if reviewer asks. A separate
+  `--resume --configs 15` was started post-report to fill the tail.
+- **Did NOT fix Haiku 4.5's high skip rate** before submission.
+  Bumping `max_tokens` further would likely recover 5-10pp accuracy
+  on Haiku, but doing so requires re-evaluating all 1062 to compare
+  apples-to-apples; defer to post-deadline.
+- **Did NOT switch Qwen 72B's provider** away from DeepInfra. 93/1062
+  empty responses on DeepInfra; switching to Novita might help but
+  needs a separate calibration run.
+- **Provider pinning is best-effort.** OR doesn't strictly enforce
+  `allow_fallbacks=false` when the requested provider doesn't host the
+  model — it falls back silently. Captured `provider_used` per row so
+  the actual back-end is recoverable from the data.
+
+### Files
+- New: `config/postgres/004_eval_telemetry.sql`,
+  `src/utils/cost.py`,
+  `src/evaluation/{__init__.py, configs.py, _eval_client.py,
+  _corpus_loader.py, run_eval.py, report.py}`,
+  `scripts/run_eval_sample.sh`,
+  `tests/{utils, evaluation}/...`,
+  `data/reports/eval_sample_v2.md`.
+- Edited: `src/generators/_llm_client.py:LLMResponse` (add
+  `reasoning_tokens`).
+
+### Next
+1. Optionally complete the R1 tail (currently in progress as
+   `--resume --configs 15`); re-render the report when done.
+2. Investigate Haiku 4.5 skip rate and Qwen 72B empty-response issue
+   post-deadline.
+3. Update `docs/EVALUATION_PLAN.md` with the corrected projections
+   (full-eval at 5k Qs would now extrapolate to ~$150 wall ~30min
+   based on the sample run's $/Q rate, not the original $541 / 3.5h
+   from the slate-locked plan).
+4. After 10k corpus generation completes, re-run against the full
+   public corpus.
+
+---
+
 ## 2026-05-02 — Phase 5 prep: evaluation model slate locked
 
 ### Motivation

@@ -190,7 +190,7 @@ def test_evaluate_one_mocked():
     call_kwargs = mock_client.generate.call_args.kwargs
     assert call_kwargs["model"] == config.model_id
     assert call_kwargs["temperature"] == 0.0
-    assert call_kwargs["max_tokens"] == 5
+    assert call_kwargs["max_tokens"] == 2000
     assert call_kwargs["json_mode"] is False
 
     extra_body = call_kwargs["extra_body"]

@@ -6,20 +6,21 @@ Wraps the existing src/generators/_llm_client.py:LLMClient.
 """
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 
 from src.evaluation.configs import EvalConfig
 from src.generators._llm_client import LLMClient, LLMResponse
 
-# Cap the visible output. OpenAI's gpt-5/gpt-5-mini ALWAYS use implicit
-# internal reasoning (even when our `reasoning` extra_body is unset), and
-# those reasoning tokens are billed against `max_completion_tokens`. With a
-# tight cap (16-100) the model uses the entire budget for reasoning and emits
-# no visible text. 1000 gives enough headroom for implicit reasoning + the
-# single visible letter. Models still emit short output (~1-3 visible tokens
-# after the letter); we are only billed for what is actually generated.
-_MAX_OUTPUT_TOKENS = 1000
+# Cap the visible output. OpenAI gpt-5/o3, Google Gemini 2.5 Pro, and some
+# DeepInfra-hosted Qwen variants ALWAYS use implicit internal reasoning even
+# when our `reasoning` extra_body is unset; those tokens are billed against
+# `max_completion_tokens`. Empirically, ~25-30% of our hard wine questions
+# consumed all 1000 of the previous cap before emitting any visible letter.
+# 2000 is the practical floor across providers; cost is still bounded since
+# we only pay for actually-generated tokens.
+_MAX_OUTPUT_TOKENS = int(os.environ.get("OENOBENCH_EVAL_MAX_TOKENS", "2000"))
 
 _SINGLE_LETTER_SYSTEM_PROMPT = (
     "You are taking a multiple-choice exam. "

@@ -44,8 +44,11 @@ _DEFAULT_CONFIG_WORKERS = 16
 
 # Max-skipped guardrail: if parse failures exceed this fraction in the first
 # GUARDRAIL_MIN_QUESTIONS questions of a config, abort that config.
-_GUARDRAIL_THRESHOLD = 0.02   # 2%
-_GUARDRAIL_MIN_QUESTIONS = 200
+# Override via OENOBENCH_EVAL_GUARDRAIL_THRESHOLD (e.g. 0.5 to allow up to 50%
+# parse-fail rate before aborting; useful when models legitimately produce
+# higher parse-fail rates that aren't a sign of total breakage).
+_GUARDRAIL_THRESHOLD = float(os.environ.get("OENOBENCH_EVAL_GUARDRAIL_THRESHOLD", "0.02"))
+_GUARDRAIL_MIN_QUESTIONS = int(os.environ.get("OENOBENCH_EVAL_GUARDRAIL_MIN_Q", "200"))
 
 # Stricter retry system prompt when first parse attempt returns None.
 _RETRY_SYSTEM_PROMPT = (

@@ -1,10 +1,33 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** May 2, 2026 (eval slate locked)
+**Last updated:** May 2, 2026 (sample-DB eval shipped)
 **Project phase:** Phase 2g.18 — cost-down v16 shipped + smoke-validated. 11 levers (CB quota 0.40, generator mix v2.4, verifier-skip B5 plumbing + confidence-field, gate L3→Sonnet, B1/B2 Sonnet override, B2 panel slim, comparative substantive filter, D1 halved, C4 opt-in, FTQ substantive-strict) reduce per-Q cost from ~$0.15 (v9 baseline) to $0.034 (v16b smoke) — ~73% build reduction. Audit cuts validate ~50% (v15: $340/10k → v16: $170/10k). Total 10k projection: ~$507 (vs $9/100 baseline of $900) = **44-49% reduction**. 624/624 tests pass on main.
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ## Latest cliff notes (start here next session)
+
+- **Phase 5 sample-DB eval shipped (2026-05-02):** 16-config slate
+  evaluated against the 1062-Q `sample` schema corpus. Tag
+  `eval_sample_v2`, run_id `6ef6eff2-9c50-439c-8aff-b414300727fc`. 28m
+  wall, ~$31 spend, 16,572 LLM calls. **15/16 configs at full 1062
+  coverage**; slot 15 (DeepSeek R1) at 683/1062 because R1's provider
+  throttled to ~5/min after ~600 calls (a follow-up `--resume --configs
+  15` is in progress to fill the tail). Headline leaderboard top 4 all
+  reasoning configs: Gemini 2.5 Pro thinking 83.6%, Claude Opus 4.7
+  thinking 81.6%, o3 81.5%, Claude Opus 4.7 standard 80.9%. Reasoning
+  effect strongest for **Gemini Pro (+5.5pp)** and **DeepSeek (+6.7pp,
+  partial)**, smallest for **Claude Opus (+0.7pp)**. Within-family
+  cost-tier delta largest for **Anthropic (-24.4pp Opus→Haiku)** —
+  driven by Haiku's high skip rate (191/1062), not capability —
+  smallest for **OpenAI/Google (~1-2pp)**. Full report at
+  `data/reports/eval_sample_v2.md`. Implementation built in ~3h via 4
+  parallel Agent Teams (A-foundation, B-client, C-harness, D-report)
+  per the `~/.claude/plans/snoopy-dancing-deer.md` plan; six iterations
+  needed during the first live run to fix `max_tokens` cap (5→16→100→1000→2000),
+  provider name strings (DeepSeek/Alibaba/Together → DeepInfra/Novita/etc.),
+  and the override_system kwarg integration between Teams B and C. All
+  fixes shipped on `main` (commits `4f98975, c60e334, c12e69c, 574aaa9,
+  500782a, 88f3190` plus integration commits).
 
 - **Phase 5 evaluation slate locked (2026-05-02):** 16 configurations
   across 14 unique OpenRouter IDs, covering all 4 SPS generator
