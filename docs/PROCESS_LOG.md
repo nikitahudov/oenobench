@@ -1736,3 +1736,68 @@ User approved the plan via `ExitPlanMode` rejection with directive "Yes, please 
 
 Re-run `scripts/run_audit_pilot_v9_build.sh` with `per_strategy=40` (matching v8) on a new tag (e.g., `audit_pilot_v10`) to validate the fixes against the v8 baseline. Pass criterion: kept ≥ 130 / 200 (well above v8's 111). If kept ≥ 130, proceed to gold review and audit phase 2. If < 130, re-investigate before committing to the full 10k run.
 
+---
+
+## 2026-05-02 — Phase 2g.18: Cost-down v16 plan + parallel team execution
+
+**What was done:** Designed and shipped a 9-lever cost-reduction package for
+the 10k full corpus build. Goal: ≥50% reduction from the v9-v15 baseline
+of ~$9/100 questions. Plan documented at
+`/home/winebench/.claude/plans/virtual-snacking-anchor.md`.
+
+**Sources & inputs:**
+- v9 build cost baseline: 18 min wall, 772 LLM calls / 46 kept on
+  per_strategy=20 (Phase 2g.11 audit pilot).
+- v15_ubiq audit cost baseline: 35 Qs / 380 calls / $0.61
+  (`docs/QUALITY_AUDIT_REPORT.md:9-10`).
+- Per-Q LLM call inventory: ~16.8 calls/kept-Q (build) + ~10.9 calls/Q
+  (audit, v15_ubiq).
+- User direction: closed-book quota 25% → 40%; template share → 10%
+  (already in code at 1000/10000 since v2.3).
+
+**Methodology:** Mapped cost drivers across build phase (generation, gate,
+verifier, paraphrase, dedup) and audit phase (B1, B2, D1, C4, Team A/C2/D3).
+Identified 9 ROI-ranked levers. Spawned 4 parallel worktree teams to land
+code, scripts, and doc changes simultaneously.
+
+**Quality controls:** No per-call generator model downgrade (preserves
+Opus 4.7 for fact_to_question); JUDGE_MODEL_OVERRIDES is scoped to
+B1/B2 only — D1 SelfPreference evaluator stays on Opus 4.7 to keep
+self-pref calibration history comparable. B2 v3.1.0 → v3.2.0 thresholds
+recalibrated for the 4-judge panel. Tier-aware gate L3 swap is env-var
+trial first; default flip deferred to Phase 2g.19.
+
+**Quantitative projections:**
+
+| Lever | Est. saving on 10k |
+|---|---:|
+| L1 CB quota 25→40% | $200-300 |
+| L2 B1/B2 Opus → Sonnet | $80-100 |
+| L3 B2 panel 5→4 | $30-50 |
+| L4 generator mix v2.4 | $300-400 |
+| L5 verifier-skip activation | $40-80 |
+| L6 gate L3 → Sonnet | $40-60 |
+| L7 D1 sample 20→10 | ~$5 |
+| L8 C4 opt-in | ~$10 |
+| L9 FTQ substantive-strict | $30-50 |
+| **Total** | **$735-1,055** |
+
+**Decisions & trade-offs:**
+- Generator volume rebalance instead of per-call downgrade — preserves
+  reasoning depth on FTQ (the highest-volume strategy) at the cost of
+  shifting Gemini share to 32% (still under the 35% per-model cap).
+- Audit panel slim drops chatgpt (most expensive premium); kept claude-Sonnet
+  + Gemini for triangulation; Llama+Qwen as test-taker calibration anchors.
+- Sample-based audit on 10k considered, deferred — A4 TemplateFingerprint
+  loses statistical power on a 1500-Q sample.
+
+**Issues encountered & resolutions:**
+- Discovered `STRATEGY_TARGETS["template"] = 1000` is already 10% but
+  `CURRENT_STATUS.md` showed 25%. Doc-only update.
+- B5 verifier-skip lever was dormant in Phase 2g.11 (verifier ran before
+  gate). Team C plumbing reorders the call chain so the lever fires.
+
+**Human review notes:** Pilot validation plan at §"Validation pilot (v16
+smoke)" of the plan file requires per-Q cost ≤ $0.045 and audit-gate
+stability before kicking off the 10k full run.
+
