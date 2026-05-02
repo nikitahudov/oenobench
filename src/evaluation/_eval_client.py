@@ -12,8 +12,14 @@ from dataclasses import dataclass
 from src.evaluation.configs import EvalConfig
 from src.generators._llm_client import LLMClient, LLMResponse
 
-# Cap the visible output to ~5 tokens (single letter + minimal envelope).
-_MAX_OUTPUT_TOKENS = 5
+# Cap the visible output. OpenAI's gpt-5/gpt-5-mini ALWAYS use implicit
+# internal reasoning (even when our `reasoning` extra_body is unset), and
+# those reasoning tokens are billed against `max_completion_tokens`. With a
+# tight cap (16-100) the model uses the entire budget for reasoning and emits
+# no visible text. 1000 gives enough headroom for implicit reasoning + the
+# single visible letter. Models still emit short output (~1-3 visible tokens
+# after the letter); we are only billed for what is actually generated.
+_MAX_OUTPUT_TOKENS = 1000
 
 _SINGLE_LETTER_SYSTEM_PROMPT = (
     "You are taking a multiple-choice exam. "
