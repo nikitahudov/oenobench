@@ -549,25 +549,77 @@ def generate_all(target, tag, seed, resume, dry_run, max_workers, strategy_worke
                     max_workers=workers, total_target=target,
                 )
 
-        if s_workers <= 1:
-            for strategy in STRATEGY_ORDER:
-                _run_one_strategy(strategy)
-        else:
-            logger.info(
-                "orchestrator: dispatching {} strategies concurrently (strategy_workers={})",
-                len(STRATEGY_ORDER), s_workers,
+        # Phase 2j: multi-pass loop. The release_v1 build at 6,500 has 4
+        # of 5 strategies that cap out per-cell at ~0-3 keeps each (LLM
+        # quality refusals, sampler pair/cluster exhaustion, substantive
+        # filters), so a single dispatch pass tops out around 600-1200
+        # questions. Multi-pass re-resolves remaining counts and re-runs
+        # under-budget strategies until the corpus target is reached, no
+        # progress is made for two passes in a row, or the cap is hit.
+        max_passes = max(1, int(os.environ.get(
+            "OENOBENCH_MAX_GENERATE_PASSES", "5",
+        )))
+        zero_streak = 0
+        last_total = sum(existing_by_method.values()) if resume else 0
+        for pass_idx in range(1, max_passes + 1):
+            # Re-resolve existing counts so each pass dispatches against
+            # the latest DB state (not stale numbers from before pass 1).
+            existing_by_method = _count_by_method()
+            existing_dgc = get_domain_generator_counts()
+            current_total = sum(existing_by_method.get(s, 0) for s in scaled_targets)
+            remaining = sum(
+                max(0, scaled_targets[s] - existing_by_method.get(s, 0))
+                for s in scaled_targets
             )
-            with cf.ThreadPoolExecutor(max_workers=s_workers) as ex:
-                futures = {ex.submit(_run_one_strategy, s): s for s in STRATEGY_ORDER}
-                for fut in cf.as_completed(futures):
-                    strategy = futures[fut]
-                    try:
-                        fut.result()
-                    except Exception as e:  # noqa: BLE001
-                        logger.error(
-                            "orchestrator: top-level strategy {} raised: {}",
-                            strategy, e,
-                        )
+            if remaining == 0:
+                click.echo(
+                    f"\n=== All targets met at {current_total:,} — stopping. ==="
+                )
+                break
+            click.echo(
+                f"\n=== Pass {pass_idx}/{max_passes} | "
+                f"current={current_total:,}/{target:,} | remaining={remaining:,} ==="
+            )
+
+            if s_workers <= 1:
+                for strategy in STRATEGY_ORDER:
+                    _run_one_strategy(strategy)
+            else:
+                logger.info(
+                    "orchestrator: pass {} dispatching {} strategies concurrently "
+                    "(strategy_workers={})",
+                    pass_idx, len(STRATEGY_ORDER), s_workers,
+                )
+                with cf.ThreadPoolExecutor(max_workers=s_workers) as ex:
+                    futures = {ex.submit(_run_one_strategy, s): s for s in STRATEGY_ORDER}
+                    for fut in cf.as_completed(futures):
+                        strategy = futures[fut]
+                        try:
+                            fut.result()
+                        except Exception as e:  # noqa: BLE001
+                            logger.error(
+                                "orchestrator: top-level strategy {} raised: {}",
+                                strategy, e,
+                            )
+
+            # Progress check — stop if two passes in a row produced 0 keeps
+            # (sampler ceiling reached; further passes are wasted).
+            new_total = sum(_count_by_method().get(s, 0) for s in scaled_targets)
+            produced = new_total - current_total
+            click.echo(
+                f"=== Pass {pass_idx} produced {produced:,} questions "
+                f"(total {new_total:,}/{target:,}) ==="
+            )
+            if produced == 0:
+                zero_streak += 1
+                if zero_streak >= 2:
+                    click.echo(
+                        f"=== {zero_streak} passes with 0 progress — stopping. ==="
+                    )
+                    break
+            else:
+                zero_streak = 0
+            last_total = new_total
 
         click.echo("\nGeneration pipeline complete.")
     finally:

@@ -32,6 +32,11 @@ export OENOBENCH_MAX_WORKERS=8              # A3 — cell-level concurrency
 export OENOBENCH_STRATEGY_WORKERS=3         # A4 — strategy-level concurrency
 export OENOBENCH_VERIFIER_SKIP=1            # B5 — skip verifier when gate passes
 export OENOBENCH_MAX_BUILD_PASSES=3
+# Phase 2j: top-level multi-pass for the generators orchestrator. The first
+# release_v1 launch capped out at 620/6500 because single-pass dispatch
+# returned each strategy after one cell-list iteration; with 4 of 5 strategies
+# yielding ~0-3 keeps per cell, multi-pass is needed to reach corpus target.
+export OENOBENCH_MAX_GENERATE_PASSES=8
 
 # ─── Phase 2j release_v1 levers ────────────────────────────────────────────────
 
