@@ -401,6 +401,7 @@ def _run_generate_body(
             exclude_ids=used_fact_ids | run_used_ids,
             strategy="fact_to_question",
             per_country_cap=per_country_cap,
+            reject_ubiquitous_for_region_answer=(domain == "grape_varieties"),  # Phase 2g.17
         )
         if not facts:
             logger.warning("No more facts available for domain={}", domain)

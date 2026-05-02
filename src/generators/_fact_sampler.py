@@ -265,6 +265,103 @@ def _is_grape_fact_valid(fact_text: str) -> bool:
     return not any(p.search(name) for p in _GRAPE_NAME_INVALID_PATTERNS)
 
 
+# ─── Phase 2g.17 — ubiquitous-grape ambiguity guard ──────────────────────────
+#
+# Wine-expert v14c gold review found 4/15 templates with ambiguity flags on
+# Cabernet Sauvignon "find-the-region" stems. Cabernet is grown in 50+ regions
+# worldwide; "Which region produces Cabernet Sauvignon?" has many valid
+# answers, making the question ambiguous. Cross-strategy audit confirmed
+# fact_to_question + comparative are equally exposed. This guard rejects
+# ubiquitous-grape facts when the calling strategy needs a unique-answer region.
+
+_UBIQUITOUS_INTERNATIONAL_GRAPES = frozenset({
+    "cabernet sauvignon",
+    "chardonnay",
+    "merlot",
+    "pinot noir",
+    "sauvignon blanc",
+    "syrah",
+    "shiraz",
+    "riesling",
+})
+
+_UBIQUITY_DATA_DRIVEN_THRESHOLD = 30  # any grape appearing in > N facts is "de-facto" ubiquitous
+
+_UBIQUITOUS_GRAPE_NAMES_CACHE: set[str] | None = None
+
+_UBIQUITY_FILTERED_COUNT = 0
+
+
+def _normalise_grape_name(name: str) -> str:
+    """Lowercase + strip + collapse whitespace + drop common diacritics."""
+    import unicodedata
+    s = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    return " ".join(s.lower().split())
+
+
+def _build_ubiquitous_grape_set() -> set[str]:
+    """Build the merged ubiquity set: curated international grapes + any
+    grape appearing in > _UBIQUITY_DATA_DRIVEN_THRESHOLD facts in the DB.
+    Runs ONE SQL query the first time it's called per process; cached after.
+    """
+    merged: set[str] = set(_UBIQUITOUS_INTERNATIONAL_GRAPES)
+    try:
+        conn = get_pg()
+        cur = conn.cursor()
+        # Use _extract_grape_name on every fact_text — pure-Python regex,
+        # one DB pass, then group in Python.
+        cur.execute(
+            "SELECT fact_text FROM facts WHERE domain = 'grape_varieties' "
+            "AND fact_text IS NOT NULL"
+        )
+        from collections import Counter
+        counts: Counter[str] = Counter()
+        for row in cur.fetchall():
+            name = _extract_grape_name(row["fact_text"])
+            if name:
+                counts[_normalise_grape_name(name)] += 1
+        added = {g for g, c in counts.items() if c > _UBIQUITY_DATA_DRIVEN_THRESHOLD}
+        for g in sorted(added - _UBIQUITOUS_INTERNATIONAL_GRAPES):
+            logger.info("ubiquity index: adding data-driven grape '{}' (count={})", g, counts[g])
+        merged |= added
+    except Exception as e:  # pragma: no cover — defensive
+        logger.warning("ubiquity index: DB query failed, falling back to curated set: {}", e)
+    return merged
+
+
+def _get_ubiquitous_grape_names() -> set[str]:
+    global _UBIQUITOUS_GRAPE_NAMES_CACHE
+    if _UBIQUITOUS_GRAPE_NAMES_CACHE is None:
+        _UBIQUITOUS_GRAPE_NAMES_CACHE = _build_ubiquitous_grape_set()
+    return _UBIQUITOUS_GRAPE_NAMES_CACHE
+
+
+def is_ubiquitous_grape_name(name: str) -> bool:
+    """Public predicate: is this grape variety globally ubiquitous (Cabernet,
+    Chardonnay, etc.) — and therefore unsuitable as the question variable in
+    'find-the-region' templates?"""
+    if not name:
+        return False
+    return _normalise_grape_name(name) in _get_ubiquitous_grape_names()
+
+
+def get_ubiquity_filtered_count() -> int:
+    return _UBIQUITY_FILTERED_COUNT
+
+
+def reset_ubiquity_filtered_count() -> None:
+    global _UBIQUITY_FILTERED_COUNT
+    _UBIQUITY_FILTERED_COUNT = 0
+
+
+def _fact_has_ubiquitous_grape(fact_text: str) -> bool:
+    """Convenience: True if the fact's extracted grape name is in the ubiquity set."""
+    name = _extract_grape_name(fact_text)
+    if name is None:
+        return False
+    return is_ubiquitous_grape_name(name)
+
+
 def _should_apply_iconic_filter(strategy: str | None) -> bool:
     """Lever B2: apply the iconic-only filter for every strategy that
     passes a non-None value to ``sample_facts``. Multi-fact strategies
@@ -1041,6 +1138,7 @@ def sample_facts(
     strategy: str | None = None,
     per_country_cap: float | None = None,
     require_substantive: bool = False,
+    reject_ubiquitous_for_region_answer: bool = False,
 ) -> list[dict]:
     """Sample facts from PostgreSQL for question generation.
 
@@ -1072,6 +1170,13 @@ def sample_facts(
             that must exclude thin-geo facts (e.g. template generation). The
             env var still overrides to ON for all strategies when set; this
             kwarg only allows a caller to force ON without the env var.
+        reject_ubiquitous_for_region_answer: Phase 2g.17. When True AND
+            domain == "grape_varieties", facts whose extracted grape name is
+            in the ubiquity set (Cabernet Sauvignon, Chardonnay, etc.) are
+            rejected. Use for "find-the-region" template stems and
+            fact_to_question calls where the grape is the question variable
+            and region is the expected answer — ubiquitous grapes produce
+            ambiguous questions with many valid answers.
     """
     conn = get_pg()
     cur = conn.cursor()
@@ -1153,6 +1258,13 @@ def sample_facts(
             global _GRAPE_NAME_FILTERED_COUNT
             _GRAPE_NAME_FILTERED_COUNT += 1
             continue
+        # Phase 2g.17: ubiquitous-grape ambiguity guard — rejects facts about
+        # globally ubiquitous varieties (Cabernet, Chardonnay, etc.) when the
+        # calling strategy needs a unique-answer region question.
+        if reject_ubiquitous_for_region_answer and domain == "grape_varieties" and _fact_has_ubiquitous_grape(r["fact_text"]):
+            global _UBIQUITY_FILTERED_COUNT
+            _UBIQUITY_FILTERED_COUNT += 1
+            continue
         if wine_category is not None:
             cat = _classify_wine_category(r["fact_text"])
             if cat != wine_category:
@@ -1187,6 +1299,10 @@ def sample_facts(
                 continue
             # Phase 2g.16: grape-name validity filter also applies on fallback.
             if domain == "grape_varieties" and not _is_grape_fact_valid(fact_dict["fact_text"]):
+                continue
+            # Phase 2g.17: ubiquitous-grape guard also applies on fallback.
+            if reject_ubiquitous_for_region_answer and domain == "grape_varieties" and _fact_has_ubiquitous_grape(fact_dict["fact_text"]):
+                _UBIQUITY_FILTERED_COUNT += 1
                 continue
             if wine_category is not None:
                 cat = _classify_wine_category(fact_dict["fact_text"])
@@ -1490,6 +1606,25 @@ def sample_fact_pairs(
     )
 
     rows = cur.fetchall()
+
+    # Phase 2g.17: post-filter rows where BOTH facts contain the SAME ubiquitous
+    # grape — e.g. "Napa + Cabernet" vs "Bordeaux + Cabernet". Such pairs produce
+    # ambiguous comparative questions ("Which region makes better Cabernet?").
+    # Pairs where the two grapes differ, or neither is ubiquitous, are kept.
+    global _UBIQUITY_FILTERED_COUNT
+    filtered_rows = []
+    for row in rows:
+        a_text, b_text = row["a_text"], row["b_text"]
+        if _fact_has_ubiquitous_grape(a_text) and _fact_has_ubiquitous_grape(b_text):
+            name_a = _extract_grape_name(a_text)
+            name_b = _extract_grape_name(b_text)
+            if (name_a is not None and name_b is not None
+                    and _normalise_grape_name(name_a) == _normalise_grape_name(name_b)):
+                _UBIQUITY_FILTERED_COUNT += 1
+                logger.debug("dropped same-ubiquitous-grape pair | grape={}", _normalise_grape_name(name_a))
+                continue
+        filtered_rows.append(row)
+    rows = filtered_rows
 
     # Score all candidates by entity affinity + dimension match
     scored: list[tuple[float, str, dict, str | None, str]] = []
@@ -2280,6 +2415,24 @@ def sample_confusable_facts(
             r["_dimension"] = r_dim
             r["_confusability_context"] = "; ".join(ctx_parts)
             candidates.append((score, r))
+
+    # Phase 2g.17: ubiquitous-grape sibling filter — when the TARGET fact has a
+    # ubiquitous grape (e.g. Cabernet), drop any candidate that ALSO has the
+    # SAME ubiquitous grape. Keeping same-ubiquitous-grape siblings would make
+    # "which region produces Cabernet?" a correct answer for multiple distractors.
+    target_text = target_fact["fact_text"]
+    if _fact_has_ubiquitous_grape(target_text):
+        target_grape = _normalise_grape_name(_extract_grape_name(target_text) or "")
+        before_count = len(candidates)
+        candidates = [
+            (score, c) for score, c in candidates
+            if not (_fact_has_ubiquitous_grape(c["fact_text"])
+                    and _normalise_grape_name(_extract_grape_name(c["fact_text"]) or "") == target_grape)
+        ]
+        dropped = before_count - len(candidates)
+        if dropped:
+            global _UBIQUITY_FILTERED_COUNT
+            _UBIQUITY_FILTERED_COUNT += dropped
 
     # Sort by score descending — dimension-matched distractors first
     candidates.sort(key=lambda x: x[0], reverse=True)
