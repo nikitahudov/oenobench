@@ -114,6 +114,7 @@ class LLMResponse:
     model: str = ""
     input_tokens: int = 0
     output_tokens: int = 0
+    reasoning_tokens: int = 0
     latency_ms: int = 0
     success: bool = False
     error: str | None = None
@@ -324,17 +325,25 @@ class LLMClient:
             latency_ms = int((time.time() - t0) * 1000)
 
             content = completion.choices[0].message.content or ""
-            usage = completion.usage
+            usage = getattr(completion, "usage", None)
             returned_model = completion.model or model_id
 
             parsed = _try_parse_json(content) if json_mode else None
+
+            input_t = getattr(usage, "prompt_tokens", 0) or 0
+            output_t = getattr(usage, "completion_tokens", 0) or 0
+            reasoning_t = 0
+            details = getattr(usage, "completion_tokens_details", None)
+            if details is not None:
+                reasoning_t = getattr(details, "reasoning_tokens", 0) or 0
 
             response = LLMResponse(
                 content=content,
                 parsed=parsed,
                 model=returned_model,
-                input_tokens=usage.prompt_tokens if usage else 0,
-                output_tokens=usage.completion_tokens if usage else 0,
+                input_tokens=input_t,
+                output_tokens=output_t,
+                reasoning_tokens=reasoning_t,
                 latency_ms=latency_ms,
                 success=True,
                 error=None,
