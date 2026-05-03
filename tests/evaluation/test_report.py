@@ -303,6 +303,163 @@ class TestQwenFamilyMapping:
         assert by_slot(11).family == "qwen"
 
 
+# ---------------------------------------------------------------------------
+# test_section_cb_split_renders / test_section_difficulty_renders
+# ---------------------------------------------------------------------------
+
+
+class TestSectionCBSplit:
+    def _make_answers(self) -> list[dict]:
+        """Two configs (slot 1 = claude-opus-4.7, slot 2 = claude-haiku-4.5).
+
+        For each config:
+          - 4 CB-fail rows (tagged closed_book_solvable): 3 correct, 1 incorrect.
+          - 4 CB-pass rows (tags=[]): 1 correct, 3 incorrect.
+        """
+        rows: list[dict] = []
+        for cfg_name in ("claude-opus-4.7", "claude-haiku-4.5"):
+            for i in range(4):
+                rows.append({
+                    "model_name": cfg_name,
+                    "is_correct": i < 3,
+                    "tags": ["closed_book_solvable"],
+                    "difficulty": "1",
+                })
+            for i in range(4):
+                rows.append({
+                    "model_name": cfg_name,
+                    "is_correct": i < 1,
+                    "tags": [],
+                    "difficulty": "1",
+                })
+        return rows
+
+    def test_section_cb_split_renders(self):
+        from io import StringIO
+        from src.evaluation.report import _section_cb_split
+
+        buf = StringIO()
+        answers = self._make_answers()
+        _section_cb_split(buf, answers)
+        out = buf.getvalue()
+
+        # Header present
+        assert "## 7. Closed-Book vs Contextual Accuracy" in out
+        # Both config rows present
+        assert "claude-opus-4.7" in out
+        assert "claude-haiku-4.5" in out
+        # CB-fail / CB-pass N counts (4 each, per config)
+        # The body of each config row should contain "| 4 | 75.0% | 4 | 25.0%"
+        assert "| 4 | 75.0% | 4 | 25.0%" in out
+        # δ should be +50.0% for each row when both buckets non-empty
+        assert "+50.0%" in out
+        # CI cell should be present (look for [+ pattern, not "—")
+        assert "[+" in out or "[-" in out
+        # Footer row labelled "all configs"
+        assert "all configs" in out
+
+    def test_section_cb_split_handles_none_tags(self):
+        """Rows with tags=None should be treated as CB-pass (not CB-fail)."""
+        from io import StringIO
+        from src.evaluation.report import _section_cb_split
+
+        rows = [
+            {"model_name": "claude-opus-4.7", "is_correct": True, "tags": None},
+            {"model_name": "claude-opus-4.7", "is_correct": False, "tags": None},
+            {"model_name": "claude-opus-4.7", "is_correct": True,
+             "tags": ["closed_book_solvable"]},
+        ]
+        buf = StringIO()
+        _section_cb_split(buf, rows)
+        out = buf.getvalue()
+        # CB-fail n=1, CB-pass n=2
+        assert "| 1 | 100.0% | 2 | 50.0%" in out
+
+    def test_section_cb_split_empty_buckets_em_dash(self):
+        """When one bucket is empty, δ and CI should be em-dash."""
+        from io import StringIO
+        from src.evaluation.report import _section_cb_split
+
+        rows = [
+            {"model_name": "claude-opus-4.7", "is_correct": True,
+             "tags": ["closed_book_solvable"]},
+            {"model_name": "claude-opus-4.7", "is_correct": False,
+             "tags": ["closed_book_solvable"]},
+        ]
+        buf = StringIO()
+        _section_cb_split(buf, rows)
+        out = buf.getvalue()
+        # No CB-pass rows -> δ should be em-dash for that row
+        # Row should look like "| 2 | 50.0% | 0 | — | — | — |"
+        assert "| 0 | — |" in out
+
+
+class TestSectionDifficulty:
+    def _make_answers(self) -> list[dict]:
+        """Two configs × 4 difficulty levels × 5 questions per level.
+
+        Accuracy decreases with difficulty: 4/5, 3/5, 2/5, 1/5.
+        """
+        rows: list[dict] = []
+        accuracy_by_difficulty = {"1": 4, "2": 3, "3": 2, "4": 1}
+        for cfg_name in ("claude-opus-4.7", "gpt-5"):
+            for diff, n_correct in accuracy_by_difficulty.items():
+                for i in range(5):
+                    rows.append({
+                        "model_name": cfg_name,
+                        "is_correct": i < n_correct,
+                        "tags": [],
+                        "difficulty": diff,
+                    })
+        return rows
+
+    def test_section_difficulty_renders(self):
+        from io import StringIO
+        from src.evaluation.report import _section_difficulty
+
+        buf = StringIO()
+        answers = self._make_answers()
+        _section_difficulty(buf, answers)
+        out = buf.getvalue()
+
+        # Header present
+        assert "## 8. Per-Config × Per-Difficulty Accuracy" in out
+        # All 4 difficulty header labels present
+        assert "1 (easy)" in out
+        assert "4 (hardest)" in out
+        # Both config rows present
+        assert "claude-opus-4.7" in out
+        assert "gpt-5" in out
+        # "all" footer row present
+        assert "**all**" in out
+        # Cells contain percentages
+        assert "%" in out
+        # Specific accuracy cell: 4/5 = 80.0%, 3/5 = 60.0%, 2/5 = 40.0%, 1/5 = 20.0%
+        assert "80.0%" in out
+        assert "60.0%" in out
+        assert "40.0%" in out
+        assert "20.0%" in out
+
+    def test_section_difficulty_row_count(self):
+        """Each config produces one row + the 'all' footer."""
+        from io import StringIO
+        from src.evaluation.report import _section_difficulty
+
+        buf = StringIO()
+        answers = self._make_answers()
+        _section_difficulty(buf, answers)
+        out = buf.getvalue()
+
+        # Count data rows (lines that start with "| " and aren't header / separator).
+        # Header row + separator + 2 config rows + 1 "all" row = 5 table lines.
+        table_lines = [
+            line for line in out.splitlines()
+            if line.startswith("| ") and "---" not in line
+        ]
+        # 1 header + 2 config rows + 1 "all" footer = 4
+        assert len(table_lines) == 4
+
+
 @pytest.mark.integration
 @pytest.mark.skipif(
     os.environ.get("OENOBENCH_EVAL_TESTS_DB") != "1",
@@ -421,6 +578,8 @@ class TestRenderBasic:
             assert "## 4. Self-Preference Score" in report_md
             assert "## 5. Reasoning-Effect Deltas" in report_md
             assert "## 6. Cost & Wall Ledger" in report_md
+            assert "## 7. Closed-Book vs Contextual Accuracy" in report_md
+            assert "## 8. Per-Config × Per-Difficulty Accuracy" in report_md
 
             # Assert fixture configs appear
             for cfg_name in self.FIXTURE_CONFIGS:
