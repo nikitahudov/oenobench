@@ -21,7 +21,7 @@ Schema (one row per question):
     generator                  str   {claude, chatgpt, gemini, llama, qwen, template_only}
     generation_method          str   {fact_to_question, comparative, scenario_synthesis, distractor_mining, template}
     source_facts               list[struct]   [{fact_id, fact_text, source_name, source_url}]
-    audit_verdict              str   {audit_clean, audit_warn_only, audit_calibration_warning, audit_fail_review}
+    audit_verdict              str   {audit_clean, audit_minor_findings, audit_calibration_finding, audit_fail_review}
 
 The Parquet schema is fixed (no per-row schema variance) for clean
 auto-detection by HF datasets viewer.
@@ -50,8 +50,8 @@ from src.utils.db import get_pg
 AUDIT_TAG_PRIORITY = (
     "audit_fail_critical",       # would only appear if reclassification slipped
     "audit_fail_review",
-    "audit_calibration_warning",
-    "audit_warn_only",
+    "audit_calibration_finding",
+    "audit_minor_findings",
     "audit_clean",
     "audit_no_signal",
 )

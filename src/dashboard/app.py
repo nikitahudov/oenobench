@@ -488,8 +488,8 @@ def api_questions():
     try:
         for label in (
             "audit_clean",
-            "audit_warn_only",
-            "audit_calibration_warning",
+            "audit_minor_findings",
+            "audit_calibration_finding",
             "audit_fail_review",
             "audit_fail_critical",
         ):

@@ -248,8 +248,8 @@ function updateQuestions(data) {
         if (el) el.textContent = formatNumber(buckets[key] || 0);
     };
     setBucket("audit-clean", "audit_clean");
-    setBucket("audit-warn-only", "audit_warn_only");
-    setBucket("audit-calibration-warning", "audit_calibration_warning");
+    setBucket("audit-minor-findings", "audit_minor_findings");
+    setBucket("audit-calibration-finding", "audit_calibration_finding");
     setBucket("audit-fail-review", "audit_fail_review");
     setBucket("audit-fail-critical", "audit_fail_critical");
 }

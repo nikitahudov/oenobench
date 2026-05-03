@@ -104,7 +104,7 @@
       "description": "OenoBench release_v1.2 corpus — 3,329 multiple-choice questions in Parquet format (zstd compression).",
       "contentUrl": "data/test.parquet",
       "encodingFormat": "application/x-parquet",
-      "sha256": "c7e53dd2dff10a4b4a439f6238c9d15cdb79bc628eb24421128f838b38a4ab63"
+      "sha256": "e523df0ae78f841d37069f71ccc2b47588eeb0e328f6bbe7ad24f9b6bf146092"
     }
   ],
 
@@ -249,7 +249,7 @@
           "@type": "cr:Field",
           "@id": "questions/audit_verdict",
           "name": "audit_verdict",
-          "description": "Audit-tag rollup. One of: audit_clean (no FAIL/WARN), audit_warn_only, audit_calibration_warning (B2 closed-book or C4 difficulty calibration signal — informational only).",
+          "description": "Audit-tag rollup. One of: audit_clean (no FAIL/WARN), audit_minor_findings, audit_calibration_finding (B2 closed-book or C4 difficulty calibration signal — informational only).",
           "dataType": "sc:Text",
           "source": {"fileObject": {"@id": "test-parquet"}, "extract": {"column": "audit_verdict"}}
         }

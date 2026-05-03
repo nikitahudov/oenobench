@@ -1,7 +1,7 @@
 """Phase 2j — build a 50-question smart review CSV for human spot-check.
 
 Composition (default):
-  * 25 stratified random Qs from `audit_clean` ∪ `audit_warn_only`
+  * 25 stratified random Qs from `audit_clean` ∪ `audit_minor_findings`
     (round-robin by generation_method × difficulty)
   * 20 critical-FAIL Qs from `audit_fail_critical`, capped per agent across
     {B1, B2, A3, C2}, round-robin if a stratum is empty
@@ -46,7 +46,7 @@ B2_AGENT = "B2_ClosedBookSolvability"
 ACTION_FOR_TAG = {
     "audit_fail_critical": "drop_critical",
     "audit_fail_review": "manual_review",
-    "audit_warn_only": "warn_only",
+    "audit_minor_findings": "warn_only",
     "audit_clean": "clean",
     "audit_no_signal": "no_signal",
 }
@@ -323,7 +323,7 @@ def main(tag, out, size, n_stratified, n_critical, n_borderline, per_agent_cap, 
 
     # Pool 1 — clean / warn-only
     pool_clean = [q for q in questions.values()
-                  if q.get("audit_tag") in ("audit_clean", "audit_warn_only")]
+                  if q.get("audit_tag") in ("audit_clean", "audit_minor_findings")]
     # Pool 2 — fail_critical
     pool_critical = [q for q in questions.values()
                      if q.get("audit_tag") == "audit_fail_critical"]

@@ -147,7 +147,7 @@ df = pd.read_parquet("hf://datasets/nikitahudov/oenobench-v1/data/test.parquet")
 | `generator` | string | `claude`, `chatgpt`, `gemini`, `llama`, `qwen`, `template_only` |
 | `generation_method` | string | `fact_to_question`, `comparative`, `scenario_synthesis`, `distractor_mining`, `template` |
 | `source_facts` | list\<struct\> | list of `{fact_id, fact_text, source_name, source_url}` — the externally-verified facts the question is grounded in |
-| `audit_verdict` | string | one of `audit_clean`, `audit_warn_only`, `audit_calibration_warning` (see "Audit" below) |
+| `audit_verdict` | string | one of `audit_clean`, `audit_minor_findings`, `audit_calibration_finding` (see "Audit" below) |
 
 ---
 
@@ -230,8 +230,8 @@ Each question was evaluated by a multi-agent audit framework (run_id
 | Verdict | Count | Meaning |
 |---|---:|---|
 | `audit_clean` | 68 | No FAIL, no WARN |
-| `audit_warn_only` | 1,063 | One or more WARNs, no FAILs |
-| `audit_calibration_warning` | 2,198 | B2 closed-book or C4 difficulty calibration signal — *not* a question-quality fail |
+| `audit_minor_findings` | 1,063 | One or more WARNs, no FAILs |
+| `audit_calibration_finding` | 2,198 | B2 closed-book or C4 difficulty calibration signal — *not* a question-quality fail |
 | `audit_fail_review` | 0 | (questions in this bucket were dropped before v1.2) |
 | `audit_fail_critical` | 0 | (dropped) |
 

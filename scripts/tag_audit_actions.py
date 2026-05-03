@@ -5,7 +5,7 @@ Reads the most recent `audit_runs` row for `--tag release_v1.1`, classifies
 every question into one of:
 
   audit_clean         no FAIL, no WARN, ≥1 PASS
-  audit_warn_only     no FAIL, ≥1 WARN
+  audit_minor_findings     no FAIL, ≥1 WARN
   audit_fail_review   only A1 FAIL (vague phrasing — light defect)
   audit_fail_critical ≥1 FAIL on B1 / B2-at-L1L2 / A3 / C2 (drop candidates)
   audit_no_signal     only ERROR rows / no findings (rate-limit casualty)
@@ -52,11 +52,11 @@ from src.utils.db import get_pg
 # policy keeps these questions; B2 is documented in the datasheet and C4 is
 # resolved by relabelling the question's difficulty column to C4's
 # rated_difficulty. So we route B2 / C4 fails into a NEW
-# `audit_calibration_warning` bucket, not `audit_fail_critical`.
+# `audit_calibration_finding` bucket, not `audit_fail_critical`.
 AUDIT_TAGS = (
     "audit_clean",
-    "audit_warn_only",
-    "audit_calibration_warning",
+    "audit_minor_findings",
+    "audit_calibration_finding",
     "audit_fail_review",
     "audit_fail_critical",
     "audit_no_signal",
@@ -156,7 +156,7 @@ def _classify(findings_for_q: list[dict], difficulty: str) -> str:
 
     # B2 / C4 calibration signals (kept; informational only)
     if fail_agents & CALIBRATION_AGENTS:
-        return "audit_calibration_warning"
+        return "audit_calibration_finding"
 
     # Some other (rare) fail we didn't explicitly bucket → review
     if fail_count > 0:
@@ -164,7 +164,7 @@ def _classify(findings_for_q: list[dict], difficulty: str) -> str:
 
     # No FAILs but at least one WARN
     if warn_count > 0:
-        return "audit_warn_only"
+        return "audit_minor_findings"
 
     # Pure clean — no FAIL, no WARN, ≥1 PASS
     return "audit_clean"
@@ -297,8 +297,8 @@ def _render_report(
     total = sum(tag_counts.values()) or 1
     short_action = {
         "audit_clean": "Keep",
-        "audit_warn_only": "Keep; flag in datasheet",
-        "audit_calibration_warning": "Keep; B2/C4 calibration signal disclosed in datasheet (C4 mislabel resolved by relabel)",
+        "audit_minor_findings": "Keep; flag in datasheet",
+        "audit_calibration_finding": "Keep; B2/C4 calibration signal disclosed in datasheet (C4 mislabel resolved by relabel)",
         "audit_fail_review": "Manual review (A1 vague-phrasing)",
         "audit_fail_critical": "Drop candidate (B1/A3/C2/B3 critical FAIL)",
         "audit_no_signal": "Re-run subset (audit signal incomplete)",
