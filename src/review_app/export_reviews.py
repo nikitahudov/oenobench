@@ -22,6 +22,9 @@ from loguru import logger
 from src.utils.db import get_pg
 
 
+# Export emits both the v2 rubric set (8 cols, written by the v2 review form)
+# and the legacy v1 cols (still on `human_reviews`, populated only on
+# pre-v2 reviews) so downstream κ analysis can choose either schema.
 RUBRIC_COLUMNS = (
     "answer_correct",
     "distractors_plausible",
@@ -29,9 +32,11 @@ RUBRIC_COLUMNS = (
     "source_faithful",
     "needs_source",
     "no_vague_language",
+    "labels_correct",
+    "verbatim_copy",
+    # Legacy v1 columns (kept for historical review rows).
     "difficulty_match",
     "cognitive_match",
-    "verbatim_copy",
     "wine_category_leak",
 )
 
