@@ -1,10 +1,56 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** May 3, 2026 (release_v1 final after scenario + comparative type-aware re-runs; **2,261 draft + 389 cb_reserve = 2,650**)
-**Project phase:** Phase 2j — release_v1 build complete after two targeted re-runs. Final corpus: **2,261 draft + 389 cb_reserve = 2,650 release_v1 questions** (35% draft / 41% with cb_reserve of the 6,500 ask). Two strategies were re-run after the initial build with type-aware redesigns: **scenario_synthesis 91 → 150** (+59, type-aware persona prompts) and **comparative 114 → 170** (+56, loose-pair sampler + type-aware comparison_type + softened cross-country skip). Per-strategy: FTQ 1,292 (sampler exhausted), distractor 389, template 260, comparative 170, scenario 150. Per-domain: wine_regions 783, grape_varieties 546, producers 360, viticulture 300, wine_business 181, winemaking **91 (still severe under-representation — fact-pool bound)**. Cost: ~$160 cumulative OpenRouter spend across all release_v1 work. 771/771 tests pass on main.
+**Last updated:** May 3, 2026 (release_v1.1 corpus assembled — **3,670 questions** after dedup; cb_reserve promoted + sample DB merged)
+**Project phase:** Phase 2j — release_v1.1 corpus assembled. Final NeurIPS submission corpus: **3,670 questions** (all draft, post-dedup). Composition: 2,616 from release_v1 + 1,054 from sample-DB v2 (curated quality-vetted set). 389 cb_reserve rows promoted to draft. 42 near-duplicate pairs (sim≥0.92) removed during dedup pass. Per-strategy: FTQ 2,098, distractor 486, template 433, scenario 345, comparative 308. Per-domain: wine_regions 1,206, grape_varieties 935, producers 539, viticulture 525, wine_business 272, winemaking 193. Cost: ~$160 cumulative OpenRouter spend across all release_v1 work. 771/771 tests pass on main.
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ## Latest cliff notes (start here next session)
+
+- **Phase 2j release_v1.1 assembly (2026-05-03):** Combined three sources
+  into the unified NeurIPS submission corpus tagged `release_v1.1`:
+
+  1. **release_v1 cb_reserve promoted**: all 389 cb_reserve rows flipped to
+     `draft` status via `promote-from-reserve --tag release_v1 --count 1000`.
+  2. **release_v1 → release_v1.1 retagged**: all 2,650 release_v1 rows
+     (now all draft) tagged with `release_v1.1`.
+  3. **sample DB merged**: 1,062 sample.questions (curated quality-vetted
+     set from Phase 5 work) tagged with `release_v1.1` in public.questions.
+     Sample IDs are 100% subset of public.questions UUIDs — no row
+     duplication, just additional tagging.
+  4. **Embeddings**: 1,002 missing embeddings computed via `embed` command
+     (1,425 total stored across DB, picked up some non-tagged stragglers).
+  5. **Dedup pass** (cosine threshold 0.92, scoped to `release_v1.1` tag):
+     - 56 duplicate pairs found pre-dedup
+     - Sim distribution: 19 at ≥0.98 (near-identical), 13 at 0.95-0.98, 24 at 0.92-0.95
+     - Top duplicates: exact-text repeats from FTQ (e.g. "Per the fact, the
+       California wine region is situated in which country?" appearing 3×)
+     - Resolution: untagged the higher-UUID side of each pair, preferring
+       to keep sample-DB rows (quality-vetted) when one side was a sample row.
+     - 42 questions untagged from release_v1.1 (34 release_v1 + 8 sample);
+       0 pairs remaining above threshold after one pass (no transitive cycles).
+
+  **release_v1.1 final state:**
+
+  | Strategy | Total | from sample-DB | from release_v1 |
+  |---|---:|---:|---:|
+  | fact_to_question | 2,098 | 439 | 1,659 |
+  | distractor_mining | 486 | 98 | 388 |
+  | template | 433 | 183 | 250 |
+  | scenario_synthesis | 345 | 195 | 150 |
+  | comparative | 308 | 139 | 169 |
+  | **TOTAL** | **3,670** | **1,054** | **2,616** |
+
+  Per-domain: wine_regions 1,206, grape_varieties 935, producers 539,
+  viticulture 525, wine_business 272, winemaking **193** (up from 91 in
+  release_v1 — the sample DB contributed 102 winemaking questions).
+
+  Per-difficulty: L1=1,379, L2=1,699, L3=265, L4=327.
+
+  **All 3,670 questions are status=draft, tagged `release_v1.1`** in
+  `public.questions`. The original `release_v1`, `audit_pilot_*`, and
+  per-strategy tags are preserved on each row for provenance.
+
+
 
 - **Phase 2j release_v1 — type-aware re-runs shipped (2026-05-03):** After
   the original build hit 2,146/6,500 with 91 scenario + 114 comparative
