@@ -539,11 +539,24 @@ SCENARIO_TEMPLATE = (
 ) + """\
 - DO ground the scenario in OBSERVABLE ATTRIBUTES from the facts (aging \
 months, soil type, yield limit, phenolic threshold, clone name, altitude, \
-varietal %, regulatory minimum, blend percentage) and ask the test-taker \
-to infer the entity or decision.
-- If every provided fact is just an iconic entity reference with no \
-fact-specific technical/regulatory/attribute depth, output instead: \
-{{"skip": true, "reason": "Iconic entities without fact-specific technical depth"}}
+varietal %, regulatory minimum, blend percentage, regional/producer/style \
+associations) and ask the test-taker to infer the entity or decision.
+- ICONIC-SKIP RULE (TYPE-CONDITIONAL):
+  * For winemaking and viticulture scenarios: if every provided fact is just \
+an iconic entity reference with no fact-specific technical/regulatory/numeric \
+depth, output: \
+{{"skip": true, "reason": "Iconic entities without fact-specific technical depth"}}. \
+These framings test technical decision-making, so an answer that pivots only \
+on name recognition is world-knowledge-solvable.
+  * For tasting, business, and service scenarios: iconic entities (famous \
+producers, classic regions, well-known styles) are LEGITIMATE subject matter \
+— sommeliers identify renowned wines, retail staff recommend famous regions, \
+buyers evaluate prestige labels. Skip ONLY if the source facts contain no \
+usable information at all (e.g., the fact text is a fragment, a bare name \
+with no predicate, or otherwise has zero retrievable detail to anchor a \
+question on). A fact like "Domaine de la Romanée-Conti is a Burgundy producer \
+of Pinot Noir" IS usable for service/tasting/business scenarios even though \
+it is iconic.
 
 FACTS:
 {facts}
@@ -564,12 +577,61 @@ For example, a fact about white wine residual sugar and a fact about red wine \
 volatile acidity do NOT belong in the same scenario unless the situation \
 specifically involves comparing both wines.
 
-SCENARIO TYPE GUIDANCE:
-- winemaking: A winemaker facing a decision about technique, timing, or materials
-- tasting: A sommelier or taster identifying, describing, or selecting wines
-- business: A wine business professional making purchasing, pricing, or market decisions
-- service: A restaurant or retail professional advising a customer
-- viticulture: A grower deciding on planting, canopy, or harvest decisions
+SCENARIO TYPE GUIDANCE — match the persona, decision context, and anchor style \
+to the scenario_type above. Only the block matching {scenario_type} applies; \
+the others are shown for calibration.
+
+- winemaking:
+  * Persona: a winemaker or cellar master.
+  * Context: a technical decision about technique, timing, vessel, or \
+materials (fermentation temperature, MLF, pressing regime, élevage choice, \
+fining/filtration, blending percentages).
+  * Anchor examples: "given a 24-month barrel-aging minimum and 13% min ABV \
+under DOCG X, which élevage program qualifies?"; "with phenolic ripeness \
+reached at 14.2% potential alcohol, which press fraction should be excluded?"
+
+- viticulture:
+  * Persona: a grower, vineyard manager, or viticulturist.
+  * Context: a vineyard-floor decision about planting, training, canopy, \
+irrigation, pest pressure, or harvest timing.
+  * Anchor examples: "given 1,800 m elevation and a 60 hl/ha yield cap under \
+the appellation rules cited, which canopy approach satisfies both ripening \
+and yield?"; "with the named clone's documented bud-break date and frost \
+risk window, which training system fits?"
+
+- tasting:
+  * Persona: a sommelier, taster, or wine educator running a blind or guided \
+tasting.
+  * Context: identifying, describing, pairing, or selecting wines from \
+sensory and provenance cues. Iconic producers, classic regions, and signature \
+styles ARE the legitimate subject matter here.
+  * Anchor examples: "the flight shows a wine with the regional signature \
+described in the facts (e.g., Mosel slate-driven Riesling at the cited \
+Prädikat level) — which bottle is it?"; "given the producer's house style \
+detail from the source fact, which glass in the lineup matches?"
+
+- business:
+  * Persona: a wine buyer, distributor, importer, brand manager, or market \
+analyst.
+  * Context: a purchasing, pricing, allocation, or market-positioning \
+decision. Famous regions and prestige producers ARE the legitimate subject \
+matter — buying decisions routinely turn on classification tier, allocation \
+mechanics, or producer reputation.
+  * Anchor examples: "given the cited classification level and the producer's \
+allocation policy from the source fact, which channel placement maximizes \
+sell-through?"; "with the appellation's named sub-tier and its production \
+volume from the facts, which price band is defensible?"
+
+- service:
+  * Persona: a restaurant sommelier, retail wine advisor, or hospitality \
+professional advising a guest or customer.
+  * Context: recommending or pairing a wine for a specific guest preference, \
+dish, or occasion. Iconic regions and well-known producers are EXACTLY what \
+service staff steer customers toward — recognizing them is the job.
+  * Anchor examples: "a guest asks for the producer's signature style \
+described in the facts to pair with the named dish — which bottle on the \
+list fits?"; "for a customer requesting the regional style detailed in the \
+source fact, which by-the-glass option matches?"
 
 QUESTION DESIGN — INFERENCE OVER RECALL (HARD RULES):
 1. Never build a scenario around "which famous Y is this?" — pure recall on \
@@ -625,7 +687,14 @@ pays allows varietal labels"; "Roman influence on early German viticulture"; \
 DOC use traditional method"; common grape synonym recognition. If your \
 draft answer is one of these, REWRITE with a fact-specific anchor (move a \
 textbook detail from the stem into a distractor; pin the answer on a \
-specific sub-tier number or named entity from the source fact) or skip.
+specific sub-tier number or named entity from the source fact) or skip. \
+These cliche bans apply most strictly to winemaking and viticulture \
+scenarios; for tasting, business, and service the test is the appropriate \
+USE of regional/producer/style associations, so cliche framing is acceptable \
+provided the answer still pivots on a specific source-fact detail (a named \
+producer, classification tier, allocation mechanic, regional signature, or \
+service-relevant attribute drawn from the facts) rather than on textbook \
+recall alone.
 
 5. FRONTIER-LLM SELF-CHECK — Before emitting, pretend a frontier LLM is \
 answering with the source facts hidden. Frontier LLMs know virtually all \

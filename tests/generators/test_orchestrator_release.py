@@ -17,13 +17,18 @@ import os
 from unittest.mock import patch
 
 import pytest
+from click.testing import CliRunner
 
-from src.generators import _question_db
+from src.generators import _question_db, orchestrator
+from src.generators._fact_sampler import DOMAIN_TARGETS
 from src.generators._question_db import BUILD_TAG_ENV_VAR
 from src.generators.orchestrator import (
+    DOMAIN_TO_SCENARIO_TYPES,
+    GENERATOR_TARGETS,
     OVERALL_TARGET,
     STRATEGY_ORDER,
     STRATEGY_TARGETS,
+    _dispatch_llm_strategy,
     _scale_strategy_targets,
 )
 
@@ -210,3 +215,165 @@ def test_insert_question_no_tag_env_leaves_tags_unchanged(monkeypatch):
 
     assert "tags" in captured
     assert captured["tags"] == ["only_tag"]
+
+
+# ─── Phase 2j — DOMAIN_TO_SCENARIO_TYPES + cell explosion ───────────────────
+
+
+def test_domain_to_scenario_types_covers_all_domain_targets():
+    """Every domain in DOMAIN_TARGETS must have at least one scenario type
+    so _dispatch_llm_strategy("scenario_synthesis") never falls through to
+    the defensive None fallback under normal operation.
+    """
+    assert set(DOMAIN_TO_SCENARIO_TYPES.keys()) == set(DOMAIN_TARGETS.keys()), (
+        f"Mismatch: DOMAIN_TO_SCENARIO_TYPES keys {set(DOMAIN_TO_SCENARIO_TYPES.keys())} "
+        f"vs DOMAIN_TARGETS keys {set(DOMAIN_TARGETS.keys())}"
+    )
+    for domain, types in DOMAIN_TO_SCENARIO_TYPES.items():
+        assert isinstance(types, list) and types, (
+            f"Domain {domain!r} has empty scenario-type list"
+        )
+
+
+def test_dispatch_llm_strategy_explodes_scenario_cells_across_types(monkeypatch):
+    """For scenario_synthesis, each (domain, generator) cell must explode
+    into len(DOMAIN_TO_SCENARIO_TYPES[domain]) sub-cells, one per type.
+
+    Verified by recording every _run_strategy call (via monkeypatch) and
+    asserting the (domain → set_of_scenario_types) shape matches the map.
+    """
+    calls: list[dict] = []
+
+    def fake_run_strategy(module, **kwargs):
+        calls.append({"module": module, **kwargs})
+        return True
+
+    monkeypatch.setattr(orchestrator, "_run_strategy", fake_run_strategy)
+
+    # Ample remaining count so per_generator >> 0 in every domain.
+    _dispatch_llm_strategy(
+        strategy="scenario_synthesis",
+        module="scenario_generator",
+        total_remaining=10_000,
+        existing_dgc={},
+        dry_run=True,
+        max_workers=1,
+    )
+
+    assert calls, "no cells were dispatched"
+    # Every dispatched call must carry a scenario_type for the scenario strategy.
+    for c in calls:
+        assert c["scenario_type"] is not None, (
+            f"scenario_synthesis cell missing scenario_type: {c}"
+        )
+
+    # Per-generator: each domain should appear with exactly the set of types
+    # named in DOMAIN_TO_SCENARIO_TYPES[domain].
+    n_generators = len(GENERATOR_TARGETS)
+    per_generator_per_domain: dict[tuple[str, str], set[str]] = {}
+    for c in calls:
+        key = (c["generator"], c["domain"])
+        per_generator_per_domain.setdefault(key, set()).add(c["scenario_type"])
+
+    expected_total_cells = 0
+    for generator in GENERATOR_TARGETS:
+        for domain, types in DOMAIN_TO_SCENARIO_TYPES.items():
+            observed = per_generator_per_domain.get((generator, domain))
+            assert observed == set(types), (
+                f"({generator}, {domain}) types mismatch: observed={observed}, "
+                f"expected={set(types)}"
+            )
+            expected_total_cells += len(types)
+
+    assert len(calls) == expected_total_cells, (
+        f"cell count mismatch: dispatched={len(calls)}, "
+        f"expected={expected_total_cells} "
+        f"(= n_generators({n_generators}) × sum(len(types))="
+        f"{sum(len(t) for t in DOMAIN_TO_SCENARIO_TYPES.values())})"
+    )
+
+
+def test_dispatch_llm_strategy_non_scenario_keeps_legacy_shape(monkeypatch):
+    """Non-scenario strategies (e.g. fact_to_question) must NOT receive a
+    scenario_type and must NOT explode into per-type sub-cells.
+    """
+    calls: list[dict] = []
+
+    def fake_run_strategy(module, **kwargs):
+        calls.append({"module": module, **kwargs})
+        return True
+
+    monkeypatch.setattr(orchestrator, "_run_strategy", fake_run_strategy)
+
+    _dispatch_llm_strategy(
+        strategy="fact_to_question",
+        module="fact_to_question",
+        total_remaining=5_000,
+        existing_dgc={},
+        dry_run=True,
+        max_workers=1,
+    )
+
+    assert calls
+    # No cell carries a scenario_type for non-scenario strategies.
+    assert all(c["scenario_type"] is None for c in calls), (
+        "non-scenario strategy must not receive scenario_type"
+    )
+    # Cell count = n_generators × n_domains (one per (g, d), no per-type explosion).
+    assert len(calls) == len(GENERATOR_TARGETS) * len(DOMAIN_TARGETS), (
+        f"unexpected cell count for non-scenario: {len(calls)}"
+    )
+
+
+# ─── Phase 2j — --strategies filter ─────────────────────────────────────────
+
+
+def test_generate_all_strategies_filter_runs_only_requested(monkeypatch):
+    """`--strategies scenario_synthesis,template` runs ONLY those two."""
+    invoked: list[str] = []
+
+    # Replace the per-strategy dispatchers with no-op recorders so we can
+    # observe which strategies the orchestrator actually iterates.
+    def fake_dispatch_llm(strategy, module, total_remaining, existing_dgc,
+                         dry_run, max_workers=1, total_target=OVERALL_TARGET):
+        invoked.append(strategy)
+
+    def fake_dispatch_template(module, count, dry_run,
+                              max_workers=1, total_target=OVERALL_TARGET):
+        invoked.append("template")
+
+    monkeypatch.setattr(orchestrator, "_dispatch_llm_strategy", fake_dispatch_llm)
+    monkeypatch.setattr(orchestrator, "_dispatch_template", fake_dispatch_template)
+
+    # Stub DB-touching helpers so the click command runs in-memory.
+    monkeypatch.setattr(orchestrator, "_count_by_method", lambda tag=None: {})
+    monkeypatch.setattr(orchestrator, "get_domain_generator_counts", lambda tag=None: {})
+    monkeypatch.setattr(orchestrator, "_resolve_build_started_at",
+                        lambda tag, resume: __import__("datetime").datetime.now(__import__("datetime").timezone.utc))
+    monkeypatch.setattr(orchestrator, "set_corpus_target", lambda *_a, **_kw: None)
+
+    # Limit max_passes to 1 so each strategy is dispatched exactly once.
+    monkeypatch.setenv("OENOBENCH_MAX_GENERATE_PASSES", "1")
+
+    runner = CliRunner()
+    result = runner.invoke(
+        orchestrator.generate_all,
+        ["--strategies", "scenario_synthesis,template", "--dry-run"],
+    )
+    assert result.exit_code == 0, result.output
+
+    # Only the two requested strategies were dispatched.
+    assert set(invoked) == {"scenario_synthesis", "template"}, (
+        f"unexpected dispatch set: {invoked}"
+    )
+
+
+def test_generate_all_strategies_filter_rejects_unknown():
+    """An unknown strategy name must fail fast with a clear error."""
+    runner = CliRunner()
+    result = runner.invoke(
+        orchestrator.generate_all,
+        ["--strategies", "nope_not_a_strategy", "--dry-run"],
+    )
+    assert result.exit_code != 0
+    assert "Unknown strategy" in result.output or "Invalid value" in result.output

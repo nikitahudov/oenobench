@@ -135,6 +135,19 @@ STRATEGY_ORDER = [
 # Strategies that use an LLM generator
 LLM_STRATEGIES = {"fact_to_question", "comparative", "scenario_synthesis", "distractor_mining"}
 
+# Phase 2j: per-domain scenario-type map. The scenario strategy benefits
+# from framing the question in the natural professional context of the
+# source fact's domain — a wine_regions fact lands more cleanly as a
+# business/service/tasting question than a winemaker decision.
+DOMAIN_TO_SCENARIO_TYPES: dict[str, list[str]] = {
+    "winemaking":      ["winemaking"],
+    "viticulture":     ["viticulture"],
+    "grape_varieties": ["viticulture", "tasting"],
+    "wine_regions":    ["business", "service", "tasting"],
+    "producers":       ["service", "business"],
+    "wine_business":   ["business"],
+}
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -222,18 +235,24 @@ def _run_strategy(
     count: int,
     generator: str | None = None,
     dry_run: bool = False,
+    scenario_type: str | None = None,
 ) -> bool:
-    """Dispatch a single (strategy × domain × generator) cell from the
-    full-generation orchestrator.
+    """Dispatch a single (strategy × domain × generator [× scenario_type]) cell
+    from the full-generation orchestrator.
 
     In-process by default (Phase 2g.10 Team Delta A2). Set
     ``OENOBENCH_USE_SUBPROCESS_DISPATCH=1`` to fall back to the legacy
     subprocess path.
+
+    Phase 2j: ``scenario_type`` is forwarded to ``scenario_generator`` only;
+    other strategies ignore it (it stays None).
     """
     if os.environ.get(USE_SUBPROCESS_ENV_VAR) == "1":
         args = ["--domain", domain, "--count", str(count)]
         if generator:
             args += ["--generator", generator]
+        if scenario_type:
+            args += ["--scenario-type", scenario_type]
         return _run_subprocess(module, args, dry_run)
 
     try:
@@ -248,9 +267,12 @@ def _run_strategy(
     kwargs: dict = {"domain": domain, "count": count, "dry_run": dry_run}
     if generator is not None:
         kwargs["generator"] = generator
+    if scenario_type is not None:
+        kwargs["scenario_type"] = scenario_type
     logger.info(
-        "orchestrator: in-process {} domain={} count={} generator={} dry_run={}",
-        module, domain, count, generator, dry_run,
+        "orchestrator: in-process {} domain={} count={} generator={} "
+        "scenario_type={} dry_run={}",
+        module, domain, count, generator, scenario_type, dry_run,
     )
     try:
         result = mod.run_generate(**kwargs)
@@ -477,7 +499,16 @@ def _resolve_build_started_at(tag: str | None, resume: bool) -> datetime:
         "env var."
     ),
 )
-def generate_all(target, tag, seed, resume, dry_run, max_workers, strategy_workers):
+@click.option(
+    "--strategies",
+    type=str,
+    default=None,
+    help=(
+        "Comma-separated list of strategy names to run (default: all). "
+        "Useful for re-running a single strategy after a prompt fix."
+    ),
+)
+def generate_all(target, tag, seed, resume, dry_run, max_workers, strategy_workers, strategies):
     """Run full generation pipeline across all strategies/models/domains."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     logger.add(LOG_DIR / f"orchestrator_{timestamp}.log", rotation="50 MB")
@@ -485,6 +516,26 @@ def generate_all(target, tag, seed, resume, dry_run, max_workers, strategy_worke
     if seed is not None:
         random.seed(seed)
         logger.info("orchestrator: random seeded with {}", seed)
+
+    # Phase 2j: optional --strategies filter for partial re-runs (e.g.
+    # after a per-strategy prompt fix). Validate against STRATEGY_ORDER
+    # and fail fast on unknown names.
+    if strategies:
+        requested = [s.strip() for s in strategies.split(",") if s.strip()]
+        unknown = [s for s in requested if s not in STRATEGY_ORDER]
+        if unknown:
+            raise click.BadParameter(
+                f"Unknown strategy name(s): {', '.join(unknown)}. "
+                f"Valid: {', '.join(STRATEGY_ORDER)}"
+            )
+        # Preserve canonical execution order.
+        active_strategies = [s for s in STRATEGY_ORDER if s in requested]
+        click.echo(
+            f"--strategies filter: running {len(active_strategies)}/"
+            f"{len(STRATEGY_ORDER)} strategies → {', '.join(active_strategies)}"
+        )
+    else:
+        active_strategies = list(STRATEGY_ORDER)
 
     scaled_targets = _scale_strategy_targets(target)
     if scaled_targets != STRATEGY_TARGETS:
@@ -611,16 +662,16 @@ def generate_all(target, tag, seed, resume, dry_run, max_workers, strategy_worke
             )
 
         if s_workers <= 1:
-            for strategy in STRATEGY_ORDER:
+            for strategy in active_strategies:
                 _run_one_strategy(strategy)
         else:
             logger.info(
                 "orchestrator: dispatching {} strategies concurrently "
                 "(strategy_workers={}, max_passes={})",
-                len(STRATEGY_ORDER), s_workers, max_passes,
+                len(active_strategies), s_workers, max_passes,
             )
             with cf.ThreadPoolExecutor(max_workers=s_workers) as ex:
-                futures = {ex.submit(_run_one_strategy, s): s for s in STRATEGY_ORDER}
+                futures = {ex.submit(_run_one_strategy, s): s for s in active_strategies}
                 for fut in cf.as_completed(futures):
                     strategy = futures[fut]
                     try:
@@ -694,11 +745,21 @@ def _dispatch_llm_strategy(
     Phase 2g.10 (Team Delta A3): cell dispatch parallelised via a
     ThreadPoolExecutor when ``max_workers > 1``. Default 1 keeps the
     full-gen run sequential.
+
+    Phase 2j: when ``strategy == "scenario_synthesis"``, each
+    (domain, generator) cell is exploded into one sub-cell per scenario
+    type from ``DOMAIN_TO_SCENARIO_TYPES[domain]``, with the per-cell
+    count split evenly (rounded up so totals never underflow). For all
+    other strategies, ``scenario_type`` stays None and cell shape is
+    preserved.
     """
     generators = list(GENERATOR_TARGETS.keys())
     per_generator = max(1, total_remaining // len(generators))
 
-    cells: list[tuple[str, str, int]] = []  # (domain, generator, count)
+    is_scenario = strategy == "scenario_synthesis"
+
+    # Cell shape: (domain, generator, count, scenario_type | None)
+    cells: list[tuple[str, str, int, str | None]] = []
     for generator in generators:
         # Check per-generator quota
         gen_existing = sum(
@@ -717,13 +778,27 @@ def _dispatch_llm_strategy(
         for domain in sorted(DOMAIN_TARGETS.keys()):
             domain_share = DOMAIN_TARGETS[domain] / OVERALL_TARGET
             domain_count = max(1, int(gen_remaining * domain_share))
-            cells.append((domain, generator, domain_count))
+            if is_scenario:
+                types = DOMAIN_TO_SCENARIO_TYPES.get(domain, [])
+                if not types:
+                    # Defensive fallback: an unmapped domain falls back to
+                    # the legacy single-cell behaviour with scenario_type=None
+                    # so scenario_generator's own default kicks in.
+                    cells.append((domain, generator, domain_count, None))
+                    continue
+                # Round up so the per-type totals never underflow the cell.
+                per_type = max(1, math.ceil(domain_count / len(types)))
+                for stype in types:
+                    cells.append((domain, generator, per_type, stype))
+            else:
+                cells.append((domain, generator, domain_count, None))
 
     if max_workers <= 1:
-        for domain, generator, count in cells:
+        for domain, generator, count, scenario_type in cells:
             _run_strategy(
                 module, domain=domain, count=count,
                 generator=generator, dry_run=dry_run,
+                scenario_type=scenario_type,
             )
         return
 
@@ -732,8 +807,9 @@ def _dispatch_llm_strategy(
             ex.submit(
                 _run_strategy, module,
                 domain=d, count=c, generator=g, dry_run=dry_run,
+                scenario_type=stype,
             )
-            for d, g, c in cells
+            for d, g, c, stype in cells
         ]
         for fut in cf.as_completed(futures):
             try:
