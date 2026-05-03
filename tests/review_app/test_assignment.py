@@ -262,6 +262,69 @@ def test_next_question_falls_back_to_higher_review_count(scenario, client):
     )
 
 
+def test_next_question_for_exclude_ids_skips_listed_questions(scenario, app):
+    """`_next_question_for(..., exclude_ids=...)` must skip listed question ids.
+
+    Mirrors what the /skip-question route does at the session level.
+    """
+    from src.review_app.app import create_app  # noqa: F401  (ensures import path)
+
+    s = scenario
+    # No reviews recorded; with no exclusions, the first question is q1.
+    # Build a fresh app via the factory so we can introspect _next_question_for
+    # the same way the route does.
+    a = app
+    with a.test_request_context():
+        # Reach into the closure: re-create_app() returns a Flask app whose
+        # routes call the same _next_question_for. The simplest deterministic
+        # check is to call /api/next-question after the route's session is
+        # primed with skipped_question_ids.
+        client = a.test_client()
+        # Log in as r1.
+        resp = client.post(
+            "/login",
+            data={"email": s["r1"]["email"]},
+            headers=_basic_auth_headers(),
+            follow_redirects=False,
+        )
+        assert resp.status_code in (302, 303)
+
+        # Without skip: served question is q1.
+        resp = client.get(
+            f"/api/next-question?batch={s['batch_name']}",
+            headers=_basic_auth_headers(),
+        )
+        assert resp.status_code == 200
+        served = resp.get_json()["question"]["id"]
+        assert served == s["q1"][0]
+
+        # With q1 in the session skip list, the next call must serve q2.
+        with client.session_transaction() as sess:
+            sess["skipped_question_ids"] = {s["batch_name"]: [s["q1"][0]]}
+
+        resp = client.get(
+            f"/api/next-question?batch={s['batch_name']}",
+            headers=_basic_auth_headers(),
+        )
+        assert resp.status_code == 200
+        served = resp.get_json()["question"]["id"]
+        assert served in {s["q2"][0], s["q3"][0]}, (
+            f"expected q2 or q3 with q1 excluded; got {served}"
+        )
+
+        # Excluding q1 + q2 must yield q3.
+        with client.session_transaction() as sess:
+            sess["skipped_question_ids"] = {
+                s["batch_name"]: [s["q1"][0], s["q2"][0]]
+            }
+        resp = client.get(
+            f"/api/next-question?batch={s['batch_name']}",
+            headers=_basic_auth_headers(),
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["question"]["id"] == s["q3"][0]
+
+
 def test_next_question_done_when_reviewer_finished(scenario, client):
     s = scenario
     # R2 reviews all three.

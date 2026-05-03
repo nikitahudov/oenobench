@@ -51,7 +51,16 @@ def _expected_basic_auth() -> tuple[str, str]:
 
 REVIEW_APP_PORT = int(os.getenv("REVIEW_APP_PORT", "5556"))
 
-# 10 rubric column names, in display / submission order.
+# 8 rubric column names (v2; was 10). Display + submission order.
+#
+# Phase 4 review-app v2 collapses two pairs:
+#   * difficulty_match + cognitive_match  -> labels_correct
+#   * wine_category_leak                  -> folded into distractors_plausible
+#
+# The legacy three columns (difficulty_match, cognitive_match,
+# wine_category_leak) remain in the human_reviews table (migration 005 is
+# strictly additive) so historical κ analysis still works. The v2 form
+# simply does not write them.
 RUBRIC_COLUMNS = (
     "answer_correct",
     "distractors_plausible",
@@ -59,9 +68,16 @@ RUBRIC_COLUMNS = (
     "source_faithful",
     "needs_source",
     "no_vague_language",
+    "labels_correct",
+    "verbatim_copy",
+)
+
+# Legacy v1 columns kept on `human_reviews` but no longer written by the
+# v2 review form. Reads in export_reviews.py still emit them so downstream
+# κ analysis on legacy review rows continues to work.
+LEGACY_RUBRIC_COLUMNS = (
     "difficulty_match",
     "cognitive_match",
-    "verbatim_copy",
     "wine_category_leak",
 )
 
@@ -351,6 +367,16 @@ def create_app() -> Flask:
             stats=stats,
         )
 
+    def _session_skipped_ids(batch_name: str) -> tuple[str, ...]:
+        """Return the per-session skipped question_ids for this batch.
+
+        Stored under session["skipped_question_ids"][batch_name]. Returned
+        as a tuple so it can be passed straight to _next_question_for.
+        """
+        skipped = session.get("skipped_question_ids") or {}
+        ids = skipped.get(batch_name) or []
+        return tuple(ids)
+
     @app.route("/review/<batch>")
     @require_basic_auth
     @require_reviewer
@@ -367,7 +393,11 @@ def create_app() -> Flask:
             return Response(f"Batch '{batch}' not found.", 404)
         batch_row = batch_rows[0]
 
-        question_payload = _next_question_for(batch_row["id"], session["reviewer_id"])
+        question_payload = _next_question_for(
+            batch_row["id"],
+            session["reviewer_id"],
+            exclude_ids=_session_skipped_ids(batch_row["name"]),
+        )
         if question_payload is None:
             return redirect(url_for("complete", batch=batch))
 
@@ -447,7 +477,15 @@ def create_app() -> Flask:
 
     # --- Internal helpers shared by HTML + API routes ---------------------
 
-    def _next_question_for(batch_id: str, reviewer_id: str) -> dict | None:
+    def _next_question_for(
+        batch_id: str,
+        reviewer_id: str,
+        exclude_ids: tuple[str, ...] = (),
+    ) -> dict | None:
+        # `exclude_ids` is the per-session skip list (see /skip-question).
+        # Using a NULL-safe `!= ALL` against an empty array would still match
+        # every row, so we always cast through the array form.
+        exclude_list = list(exclude_ids) if exclude_ids else []
         rows = _pg_query(
             """
             WITH counts AS (
@@ -477,10 +515,11 @@ def create_app() -> Flask:
             JOIN counts c USING (question_id)
             WHERE bi.batch_id = %s::uuid
               AND bi.question_id NOT IN (SELECT question_id FROM mine)
+              AND bi.question_id != ALL(%s::uuid[])
             ORDER BY c.rev_count ASC, bi.position ASC
             LIMIT 1
             """,
-            (batch_id, batch_id, reviewer_id, batch_id),
+            (batch_id, batch_id, reviewer_id, batch_id, exclude_list),
         )
         if not rows:
             return None
@@ -685,7 +724,11 @@ def create_app() -> Flask:
         if not rows:
             return jsonify({"error": "batch_not_found"}), 404
         batch_id = rows[0]["id"]
-        q = _next_question_for(batch_id, reviewer_id)
+        q = _next_question_for(
+            batch_id,
+            reviewer_id,
+            exclude_ids=_session_skipped_ids(batch_name),
+        )
         if q is None:
             return jsonify({"done": True, "batch_id": batch_id})
         return jsonify({
@@ -748,6 +791,32 @@ def create_app() -> Flask:
             return redirect(url_for("review_batch", batch=batch["name"]))
         flash("Review saved.", "success")
         return redirect(url_for("review_batch", batch=batch["name"]))
+
+    @app.route("/skip-question", methods=["POST"])
+    @require_basic_auth
+    @require_reviewer
+    def skip_question():
+        """Skip a question for the rest of the current session.
+
+        Appends `question_id` to a per-batch list in `session["skipped_question_ids"]`.
+        The skip is in-session only — the question still goes to other reviewers
+        and to this reviewer in a future session.
+        """
+        batch_name = (request.form.get("batch_name") or "").strip()
+        question_id = (request.form.get("question_id") or "").strip()
+        if not batch_name or not question_id:
+            return Response("batch_name and question_id required", 400)
+
+        skipped = dict(session.get("skipped_question_ids") or {})
+        ids = list(skipped.get(batch_name) or [])
+        if question_id not in ids:
+            ids.append(question_id)
+        # Cap at 200 to keep the cookie compact.
+        if len(ids) > 200:
+            ids = ids[-200:]
+        skipped[batch_name] = ids
+        session["skipped_question_ids"] = skipped
+        return redirect(url_for("review_batch", batch=batch_name))
 
     @app.route("/api/progress")
     @require_basic_auth
@@ -873,6 +942,26 @@ def create_app() -> Flask:
                 "reviewers": [dict(r) for r in reviewers],
             })
 
+    @app.route("/admin/cleanup-test-batches")
+    @require_basic_auth
+    def admin_cleanup_test_batches():
+        """Delete leftover `test_batch_*` batches (from pre-conftest pytest runs).
+
+        CASCADE on review_batch_items + human_reviews makes a single DELETE
+        on review_batches sufficient. Returns the deleted batch UUIDs.
+        """
+        rows = _pg_execute(
+            """
+            DELETE FROM review_batches
+            WHERE name LIKE %s
+            RETURNING id::text AS id
+            """,
+            ("test_batch_%",),
+            fetch=True,
+        ) or []
+        deleted_ids = [r["id"] for r in rows]
+        return jsonify({"deleted_batch_ids": deleted_ids})
+
     @app.route("/admin/export.csv")
     @require_basic_auth
     def admin_export_csv():
@@ -897,6 +986,7 @@ def create_app() -> Flask:
                 hr.cognitive_match::text,
                 hr.verbatim_copy::text,
                 hr.wine_category_leak::text,
+                hr.labels_correct::text,
                 hr.overall_verdict::text,
                 hr.suggested_answer,
                 hr.suggested_difficulty,

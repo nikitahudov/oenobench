@@ -352,6 +352,7 @@ CREATE TABLE IF NOT EXISTS human_reviews (
     cognitive_match          rubric_score,
     verbatim_copy            rubric_score,
     wine_category_leak       rubric_score,
+    labels_correct           rubric_score,
 
     overall_verdict          overall_verdict,
     suggested_answer         TEXT,

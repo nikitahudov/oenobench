@@ -18,24 +18,45 @@ OenoBench is being submitted to the **NeurIPS 2026 Datasets & Benchmarks Track**
 3. **From the dashboard, click "Review" on the active batch.** The dashboard shows which batches are open and how many questions you have left in each.
 4. **Review one question at a time.** For each question:
     - Read the stem, the four options (the keyed correct option is flagged), and open the "Source facts" panel to see the supporting facts the question was generated from.
-    - Score each of the 10 rubrics with **PASS / WARN / FAIL** — or leave it as **SKIP** if you genuinely cannot decide.
+    - Score each of the 8 rubrics with **PASS / WARN / FAIL** — or leave it as **SKIP** if you genuinely cannot decide.
     - Set an **Overall Verdict**: Approve / Revise / Reject.
-    - Optionally suggest a corrected answer letter (A/B/C/D) or a corrected difficulty (1–4) if the keyed values look wrong.
+    - Optionally suggest a corrected answer letter (A/B/C/D) inline with `answer_correct`, or a corrected difficulty (1–4) inline with `labels_correct`, when the keyed values look wrong.
     - Add free-text notes when a `fail` rating needs context — these notes feed directly into the next regeneration round.
 5. **Click Submit.** The next question loads automatically.
 6. **When you reach the "All done" screen,** you can stop or come back later — your reviewer record is keyed by email, so picking up next session resumes where you left off.
+
+### Skip
+
+The **Skip** button drops the current question for the rest of *this* session — it does not write a row to `human_reviews` and does not affect the IRR count for that question. The question still goes to other reviewers, and it will come back to you in a future session if it still needs your input. Use Skip when the question is outside your area of confidence; use SKIP on a single rubric (rather than the whole question) when only one dimension is the problem.
+
+### Autosave
+
+Your in-progress chip selections, verdict, suggested answer/difficulty, and notes are saved to your browser's local storage on every change. If the browser crashes, the tab is closed, or you reload the page, the form rehydrates from local storage when you next land on the same question. The autosaved entry is cleared on a successful Submit (or on Skip).
 
 ---
 
 ## New fields
 
-The web app captures three fields on top of the 10 rubrics:
+The web app captures three fields on top of the 8 rubrics:
 
 - **`overall_verdict`** (Approve / Revise / Reject): the top-level call. Approve means the question is ready for release as-is; Revise means it has fixable defects (use notes to describe what); Reject means it should be removed from the corpus.
-- **`suggested_answer`**: optional letter (A / B / C / D) when you believe the keyed answer is wrong and you can identify which option *should* be correct.
-- **`suggested_difficulty`**: optional 1–4 override when `difficulty_match = fail`, so the corpus can be re-keyed without a follow-up review round.
+- **`suggested_answer`**: optional letter (A / B / C / D) when you believe the keyed answer is wrong and you can identify which option *should* be correct. The input sits inline with the `answer_correct` rubric row.
+- **`suggested_difficulty`**: optional 1–4 override when `labels_correct = fail` on the difficulty axis, so the corpus can be re-keyed without a follow-up review round. The dropdown sits inline with the `labels_correct` rubric row.
 
-These are independent of the 10 rubric scores — set them when they apply, leave them blank otherwise.
+These are independent of the 8 rubric scores — set them when they apply, leave them blank otherwise.
+
+---
+
+## Keyboard shortcuts
+
+The app is built for sustained 100+ question sessions, so most actions are reachable from the keyboard:
+
+- **`1` / `2` / `3` / `4`** — when a rubric chip group has focus, score it `pass` / `warn` / `fail` / `skip` respectively.
+- **`Tab` / `Shift+Tab`** — move forwards or backwards through the rubric rows, suggested-answer/difficulty inputs, verdict, and notes.
+- **`V`** — opens the **Overall verdict** dropdown from anywhere on the page (as long as no input or textarea is focused).
+- **`Enter`** — submits the form when the Submit button is enabled (i.e. once the verdict is non-empty).
+- **`Esc`** — clears focus and any open chip group, useful for re-grabbing keyboard control after clicking a tip.
+- **Show definitions** — a single button at the top of the rubric card flips all 8 rubric tip blocks open or closed at once. It does not have a keyboard shortcut; it's a one-time toggle when you want to see every definition without hovering.
 
 ---
 
@@ -51,7 +72,7 @@ Every question is shown to **≥2 reviewers when reviewers are available**. The 
 
 ## Rubric definitions
 
-There are 10 rubric columns. They are independent — a question can pass `answer_correct` while failing `needs_source`, etc.
+There are 8 rubric columns. They are independent — a question can pass `answer_correct` while failing `needs_source`, etc.
 
 ### `answer_correct`
 
@@ -69,6 +90,8 @@ Are the wrong options at least *plausibly close* to the correct answer? A distra
 - **warn**: 1 distractor is weak but the question is still non-trivial.
 - **fail**: 2+ distractors are obviously wrong on their face.
 
+This rubric also covers wine-category leakage: if the four options split categories so the correct answer's category is given away (e.g. correct = a red wine, three distractors red, one distractor white — the white is trivially eliminable, leaking that the answer is red), mark `warn` (one leak, question still has work) or `fail` (the categorical split collapses the question to a 2- or 3-option choice).
+
 ### `no_vague_language`
 
 Is the stem free of marketing fluff and hedge-words? Banned phrases include things like "Which best describes…", "Which of the following is most likely…", "iconic", "acclaimed", "renowned", "world-class".
@@ -85,21 +108,13 @@ Is there exactly one defensible answer among the four options? An "all of the ab
 - **warn**: a second option is technically defensible only on a wine-trivia stretch.
 - **fail**: ≥2 options are equally well supported by mainstream wine reference works.
 
-### `difficulty_match`
+### `labels_correct`
 
-Does the labelled difficulty (`1`/`2`/`3`/`4`) match the actual cognitive load? L1 should be a fast recall question; L4 should require expert chained reasoning.
+Do the labelled difficulty (`1`/`2`/`3`/`4`) AND the cognitive-dimension label (`recall`, `compare`, `apply`, `synthesize`, etc., from `cognitive_dim`) both match what the question actually demands? This is one combined judgement covering both the difficulty axis and the cognitive-class axis. If only the difficulty axis is off, use the inline **Suggested difficulty** dropdown to record the correction; use the notes textarea for cognitive-axis comments.
 
-- **pass**: the label is right within ±0 levels.
-- **warn**: off by 1 (e.g. labelled L3 but feels L2).
-- **fail**: off by ≥2 (e.g. labelled L4 but a beginner could answer in 5 seconds).
-
-### `cognitive_match`
-
-Does the cognitive class (`recall`, `compare`, `apply`, `synthesize`, etc., shown in `cognitive_dim`) match what the question actually demands?
-
-- **pass**: label correctly describes the cognitive demand.
-- **warn**: the demand straddles two adjacent classes.
-- **fail**: a question labelled `synthesize` is in fact pure recall, or vice versa.
+- **pass**: both labels are right — difficulty within ±0 levels, cognitive class correct.
+- **warn**: one axis is off by a small amount — difficulty off by 1 level (e.g. labelled L3 but feels L2), or the cognitive demand straddles two adjacent classes.
+- **fail**: at least one axis is materially wrong — difficulty off by ≥2 (e.g. labelled L4 but a beginner could answer in 5 seconds), or a question labelled `synthesize` is in fact pure recall (or vice versa).
 
 ### `source_faithful`
 
@@ -128,18 +143,6 @@ Does the question stem or the correct option text **copy more than ~60% of the s
 - **fail**: the stem or correct option is essentially a cut-and-paste of the source fact.
 
 Note: on multi-fact strategies a question MUST echo language from one of the facts to ground itself; mark `pass` unless the copying is verbatim-and-pointless (e.g. the entire stem is the source fact with the answer phrase blanked out).
-
-### `wine_category_leak`
-
-Do the distractors **leak the right wine category** of the correct answer? Example: the correct answer is a red wine and three of the distractors are also red wines, while the fourth is a white — the white is trivially eliminable, leaking that the answer is red.
-
-This rubric is about distractor *category coherence*, not plausibility.
-
-- **pass**: distractors all sit in the same category as (or a category overlapping with) the correct answer — there is no free elimination.
-- **warn**: one distractor's category leaks the answer but you still need wine knowledge to pick among the rest.
-- **fail**: the categorical split is so obvious that the question reduces to a 2- or 3-option choice.
-
-This rubric was narrowed from the broader `distractors_plausible` so we can isolate one specific failure mode. Distractor plausibility broadly is still on the `distractors_plausible` rubric above.
 
 ---
 
@@ -179,9 +182,9 @@ If the answer is a grape and one distractor is a country, two are grapes from a 
 > **Options:** Nizza / Valpolicella / **Franciacorta DOCG** / Ostuni DOC
 > **Verdict:** pass — only Franciacorta matches the 1990 consortium + Pinot-grigio-elimination signature.
 
-### `difficulty_match` — fail signal
+### `labels_correct` — fail signal
 
-If labelled `4` (expert chained reasoning) but the question is "What grape is in Champagne?", mark fail — the cognitive demand is L1.
+If labelled `4` (expert chained reasoning) but the question is "What grape is in Champagne?", mark fail — the cognitive demand is L1. Likewise, if a question is labelled `synthesize` but reduces to looking up a single fact, mark fail on the cognitive-class axis.
 
 ### `source_faithful` — multi-fact pass
 
@@ -207,11 +210,11 @@ The source fact is "Barolo requires 100% Nebbiolo" but the question stem describ
 > **Question:** "Barolo DOCG requires 100% _______ grapes."
 > **Verdict:** fail — the stem is the source fact with the answer blanked out. Trivial pattern-matching.
 
-### `wine_category_leak` — fail signal
+### `distractors_plausible` — wine-category leak fail signal
 
 > Correct answer: Cabernet Sauvignon (red).
 > Distractors: Merlot (red) / Syrah (red) / Sauvignon Blanc (white).
-> **Verdict:** fail — Sauvignon Blanc is the only white, leaking that the answer is red. The question collapses to a 3-option red-grape choice.
+> **Verdict:** fail — Sauvignon Blanc is the only white, leaking that the answer is red. The question collapses to a 3-option red-grape choice. This is the wine-category-leak case folded into `distractors_plausible`.
 
 ---
 

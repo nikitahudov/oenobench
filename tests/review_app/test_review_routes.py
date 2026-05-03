@@ -225,10 +225,8 @@ def test_happy_path_register_next_question_submit(env, client):
             "source_faithful": "pass",
             "needs_source": "pass",
             "no_vague_language": "pass",
-            "difficulty_match": "pass",
-            "cognitive_match": "pass",
+            "labels_correct": "pass",
             "verbatim_copy": "pass",
-            "wine_category_leak": "pass",
             "overall_verdict": "approve",
             "suggested_answer": "",
             "suggested_difficulty": "",
@@ -333,6 +331,48 @@ def test_login_with_known_email_logs_in(env, client):
     assert "/dashboard" in resp.headers["Location"]
     with client.session_transaction() as sess:
         assert sess.get("reviewer_id") == rid
+
+
+def test_api_review_persists_labels_correct(env, client):
+    """The v2 rubric column `labels_correct` round-trips through /api/review."""
+    email = f"v2-labels-{uuid.uuid4().hex[:8]}@test.local"
+    env["created_emails"].append(email)
+    client.post(
+        "/register",
+        data={"email": email, "name": "Labels Reviewer"},
+        headers=_basic_auth_headers(),
+    )
+    resp = client.post(
+        "/api/review",
+        json={
+            "batch_name": env["batch_name"],
+            "question_id": env["question_id"],
+            "labels_correct": "warn",
+            "overall_verdict": "revise",
+        },
+        headers=_basic_auth_headers(),
+    )
+    assert resp.status_code == 200, resp.data
+    with env["conn"].cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                labels_correct::text     AS labels_correct,
+                difficulty_match::text   AS difficulty_match,
+                cognitive_match::text    AS cognitive_match,
+                wine_category_leak::text AS wine_category_leak
+            FROM human_reviews
+            WHERE batch_id    = %s::uuid
+              AND question_id = %s::uuid
+            """,
+            (env["batch_id"], env["question_id"]),
+        )
+        row = cur.fetchone()
+    assert row["labels_correct"] == "warn"
+    # Legacy columns must stay NULL on v2 review rows.
+    assert row["difficulty_match"] is None
+    assert row["cognitive_match"] is None
+    assert row["wine_category_leak"] is None
 
 
 def test_api_review_validates_rubric_values(env, client):

@@ -2344,3 +2344,179 @@ once the pilot review is complete and used both for the paper's
 reliability section and for any final corpus revisions before NeurIPS
 submission.
 
+## 2026-05-03 — Phase 4: Review App UX/UI v2 pass
+
+### What was done
+
+Shipped a UX/UI v2 pass on the human-review web app (port 5556)
+hours after the v1 launch, before any external reviewer touched it.
+The work spanned four parallel agent teams (`review-app-v2` team,
+worktree isolation, all Opus): Track A (schema + backend routes),
+Track B (sticky layout), Track C (rubric UX, embedded suggestions,
+autosave, keyboard shortcuts), and Track D (docs + smoke). The
+commits land on `main` in dependency order A → B → C → D.
+
+Track A commit: `c9408aa` (migrations 005 + 006, init.sql, RUBRIC_COLUMNS → 8,
+/skip-question + /admin/cleanup-test-batches routes, _next_question_for
+exclude_ids, export_reviews + tests).
+
+Tracks B + C template/CSS commit: `5de9e3a` (sticky toolbar + question
+card + form-actions, source-facts open-by-default, tablet 901–1099 px
+breakpoint, 8-row rubric grid, embedded suggested_answer +
+suggested_difficulty, Show definitions toggle, Submit gate at HTML).
+
+Track C JS commit: `1996e7d` (autosave/rehydrate via localStorage,
+V verdict shortcut, Submit gate, idle timer, auto-grow notes,
+show-all-tips toggle, skip POST to /skip-question).
+
+Track D commit: `09aea33` (HUMAN_REVIEW_GUIDE.md → 8 rubrics +
+keyboard/skip/autosave sections; this PROCESS_LOG entry; smoke script
+extension; README update).
+
+### Sources & inputs
+
+- Live deployment at `http://164.92.153.209:5556/` running the v1
+  build (commits `4a7cab7` … `4d9bffc`) with 100 questions in
+  `release_v1_pilot` from `data/reports/gold_sheet_release_v1.csv`.
+- First-look feedback from the project lead identifying concrete UX
+  problems blocking sustained 100+ question sessions.
+- Audit of `src/review_app/` (templates, css, js, app.py routes) and
+  the live `winebench` Postgres DB (27 review batches, of which 26
+  were `test_batch_*` pytest leftovers — CASCADE-safe to delete).
+- `docs/HUMAN_REVIEW_GUIDE.md` v1 (10 rubrics, ~218 lines) as the
+  reference for the rubric-set reduction.
+
+### Methodology
+
+Reduced rubric set from 10 to 8 by merging `difficulty_match` +
+`cognitive_match` into a single `labels_correct` rubric (one
+combined judgement on whether both the difficulty 1–4 label AND the
+cognitive-dimension label match the question's actual demand) and
+folding `wine_category_leak` back into `distractors_plausible` (the
+category-leak failure mode is now a sub-criterion of the broader
+plausibility rubric). The user explicitly accepted the calibration
+trade-off: the v2.3 split-rationale (gold-v3 κ=0.30 for the
+verbatim-LCS proxy) does not apply to v2 review data going forward;
+the κ analysis in the paper will report 8 rubrics.
+
+DB approach was schema-additive: migration `005_rubric_v2.sql`
+appends `labels_correct rubric_score` to `human_reviews` and leaves
+the legacy `difficulty_match`, `cognitive_match`,
+`wine_category_leak` columns in place (NULL going forward), so any
+historical reviews remain readable. Migration `006_drop_test_batches`
+DELETEs `review_batches WHERE name LIKE 'test_batch_%'` (CASCADE
+into `review_batch_items` and `human_reviews`) once during deploy.
+The export CLI emits the new `labels_correct` column alongside the
+legacy NULL columns so downstream κ code can target either schema.
+
+UI architecture: the question card, top toolbar, and Submit/Skip row
+all become `position: sticky` with `max-height: calc(100vh - 6rem)`
+and inner `overflow-y: auto` on the question card so long
+source-facts scroll inside the card rather than pushing the question
+off-screen. A new `/skip-question` POST endpoint records the skip in
+the Flask session (capped at 200 IDs) and reroutes via
+`_next_question_for(exclude_ids=...)`; the skip is in-session only
+and writes no row. localStorage autosave runs on every chip change,
+verdict change, and notes input, keyed by `reviewApp:<question_id>`,
+and is cleared on successful Submit or Skip. Keyboard shortcuts:
+`1`/`2`/`3`/`4` chip scoring, `Tab`/`Shift+Tab` row navigation, `V`
+verdict dropdown, `Enter` submit (when verdict is non-empty), `Esc`
+clear focus, plus a "Show definitions" button that flips all 8 tips.
+
+### Quality controls
+
+- Schema-additive only — no destructive column drops, so legacy
+  reviews remain readable.
+- Submit gate disables the Submit button until verdict is non-empty
+  (visual: greyed-out chip + tooltip), preventing partial submits.
+- Idle timer pauses `time_spent_seconds` after 60 s without
+  keyboard/mouse activity to prevent tab-left-open inflation
+  distorting `avg_seconds`.
+- Autosave key is per-question (`reviewApp:<question_id>`) so a
+  reviewer who skips around batches doesn't cross-contaminate state.
+- Skip is session-scoped (Flask session list, capped at 200) — the
+  question still goes to other reviewers and returns to the same
+  reviewer in a future session.
+- Smoke script (`scripts/smoke_review_app.sh`) now applies
+  migrations 004 + 005 + 006 and asserts the
+  `human_reviews.labels_correct` column exists (via
+  `information_schema.columns`); exits non-zero if missing.
+- `tests/review_app/conftest.py` adds an auto-cleanup fixture that
+  deletes batches by id at the end of each test, so future test runs
+  do not re-leak `test_batch_*` rows into the dev DB. Test batches
+  renamed to `pytest_<uuid>_*` so the legacy cleanup pattern still
+  catches anything that escapes.
+
+### Quantitative results
+
+- Rubric count: 10 → 8 (`difficulty_match` + `cognitive_match` →
+  `labels_correct`; `wine_category_leak` folded into
+  `distractors_plausible`).
+- DB columns added on `human_reviews`: 1 (`labels_correct`).
+- DB columns removed: 0 (additive only).
+- Rows deleted by 006: 26 `test_batch_*` review_batches (with
+  CASCADE into `review_batch_items` and `human_reviews`); 1
+  `release_v1_pilot` batch retained.
+- New Flask routes: 2 (`POST /skip-question`,
+  `GET /admin/cleanup-test-batches`).
+- New keyboard shortcuts documented: 5 (chip 1/2/3/4, Tab/Shift+Tab,
+  V verdict, Enter submit, Esc clear) + 1 toggle button (Show
+  definitions).
+- New tests: `tests/review_app/test_skip_route.py`; integration
+  test-suite continues to pass with the v2 rubric set.
+- HUMAN_REVIEW_GUIDE.md: ~218 → ~225 lines (8 rubric sections, plus
+  added Skip / Autosave / Keyboard-shortcuts subsections).
+
+### Decisions & trade-offs
+
+- **8 rubrics, not 10.** User-confirmed. Trade-off: loses the v2.3
+  verbatim-LCS-vs-faithfulness split for difficulty/cognitive
+  axes, but the two were highly correlated in audit data and adding
+  rows to a sustained-session UI is more expensive than the
+  marginal κ insight. Paper will report κ on 8 rubrics.
+- **Schema-additive migration, no drops.** Keeps historical reviews
+  (if any pre-v2 reviews exist) readable from the same table.
+  Trade-off: 3 columns sit NULL going forward, slightly bloating
+  the row format; acceptable.
+- **Skip is session-scoped, not persisted.** Persisting per-reviewer
+  skips would have required a new table. Session-scoped Skip is
+  enough for in-session UX (the reviewer doesn't see the question
+  again *this session*) without complicating the IRR routing logic.
+- **Suggested answer / suggested difficulty embedded in their
+  rubric rows.** Reduces eye-travel during sustained review (the
+  prior layout put both fields in the verdict card, far from the
+  rubric they relate to). Submission backend unchanged — fields
+  are still read by `name=`.
+- **`<details open>` on source-facts by default.** Reviewers must
+  see the source to verify the keyed answer; closed-by-default
+  was an unnecessary click on every question.
+
+### Issues encountered & resolutions
+
+- The v1 Skip button was non-functional (handler navigated to the
+  same URL, no `/skip` endpoint, `_next_question_for` re-served
+  the same row because skipping wrote nothing). Resolved by adding
+  `POST /skip-question`, threading `exclude_ids` into
+  `_next_question_for`, and adjusting the JS handler to POST
+  rather than navigate.
+- 26 `test_batch_*` rows from prior pytest runs polluted the live
+  DB (no test cleanup). Resolved by migration 006 (one-time DELETE)
+  plus `tests/review_app/conftest.py` auto-cleanup fixture and
+  renaming test batches to `pytest_<uuid>_*` so future leakage is
+  glob-distinguishable.
+- The question card stopped sticking when source-facts expanded
+  beyond the viewport (no max-height, no inner scroll). Resolved
+  by adding `max-height: calc(100vh - 6rem)` + `overflow-y: auto`
+  on `.question-card` and a sticky toolbar above + sticky
+  form-actions below to keep navigation reachable.
+
+### Human review notes
+
+User explicitly approved the 10 → 8 rubric reduction, the
+schema-additive migration approach, and the multi-team parallel
+execution pattern (per `feedback_multi_agent_execution.md`). No
+external reviewers had touched the v1 build before v2 shipped, so
+no in-flight review data was disrupted. The `release_v1_pilot`
+batch (100 questions) is intact and now scored against the 8-rubric
+set going forward.
+
