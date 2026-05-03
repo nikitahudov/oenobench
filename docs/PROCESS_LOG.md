@@ -2211,3 +2211,136 @@ Lever-firing evidence on v16b:
 **Human review notes:** User approved the 11-lever package and the smoke
 results; cleared for full 10k build kick-off with the v16 env profile.
 
+---
+
+## 2026-05-03 — Phase 4: Human Review Web App
+
+### What was done
+
+Shipped a self-contained Flask review app (`src/review_app/`, port 5556)
+that lets multiple wine experts log in and score `release_v1` corpus
+questions against the existing 10-rubric scheme, plus three new fields
+(`overall_verdict`, `suggested_answer`, `suggested_difficulty`). Reviews
+are written to a separate set of tables (`review_batches`,
+`review_batch_items`, `human_reviewers`, `human_reviews`) added by
+`migrations/004_human_review.sql` — `questions`, `validation_records`,
+and the audit tables are untouched. Built in parallel by 4 Agent Teams
+per `~/.claude/plans/iterative-marinating-noodle.md`: Team A (DDL +
+import/export CLIs), Team B (Flask routes + IRR-aware question
+selector), Team C (Jinja2 templates + minimal vanilla JS UI), Team D
+(reviewer guide + env/README/status updates + end-to-end smoke script).
+
+### Sources & inputs
+
+- **Seed CSV:** `data/reports/gold_sheet_release_v1.csv` — the
+  stratified 429-row sample exported during the Phase 2j release_v1
+  build. Imported as the first batch (`release_v1_pilot`).
+- **Rubric scheme:** the 10 rubrics from `docs/GOLD_REVIEW_GUIDE_V5.md`
+  lines 39-129 (`answer_correct`, `distractors_plausible`,
+  `not_ambiguous`, `source_faithful`, `needs_source`,
+  `no_vague_language`, `difficulty_match`, `cognitive_match`,
+  `verbatim_copy`, `wine_category_leak`) preserved verbatim in the new
+  `docs/HUMAN_REVIEW_GUIDE.md`.
+- **Auth pattern:** copied (not imported) from `src/dashboard/app.py`
+  basic-auth decorator, so the dashboard and review app stay
+  independent.
+- **DB connection helper:** reuses `src/utils/db.py::get_pg`.
+
+### Methodology
+
+- **Two-layer auth.** Outer basic-auth (`REVIEW_APP_USER` /
+  `REVIEW_APP_PASSWORD`) keeps the public off; inner reviewer
+  self-registration captures name, email, professional credentials,
+  and expertise domains, and stamps every review with the reviewer
+  UUID.
+- **IRR-aware assignment.** `GET /api/next-question` filters
+  `review_batch_items` to questions the logged-in reviewer hasn't
+  completed, then sorts by current `human_reviews` count ascending —
+  so undercovered questions (0 reviews, then 1 review, then 2+) come
+  first. With ≥2 reviewers actively working, every question naturally
+  gets ≥2 independent reviews, which is what the κ analysis in the
+  paper needs.
+- **CSV-imported batches.** `python -m src.review_app.import_batch
+  --csv <path> --name <slug>` reads the gold-sheet-style CSV,
+  validates UUIDs against `questions`, and registers a versioned
+  `review_batch`. Re-importing a refreshed CSV under a new name
+  creates batch v2/v3/etc. and doesn't disturb in-flight reviews.
+- **Skip-as-NULL.** Per the existing gold-sheet convention, an
+  unanswered rubric is stored as NULL — excluded from per-rubric pass
+  rate stats and from κ — so honest blanks do not bias methodology
+  numbers.
+- **Idempotent migration.** `migrations/004_human_review.sql` uses
+  `IF NOT EXISTS` and `CREATE TYPE … IF NOT EXISTS` patterns so it can
+  be re-run safely against an existing cluster.
+
+### Quality controls
+
+- **Reviewer credentials captured** at registration time (free-text
+  field for "WSET Diploma", "MS candidate, 12 yrs in trade", etc.) and
+  expertise domain checkboxes — these will go into the paper's
+  reliability section.
+- **`UNIQUE (batch_id, reviewer_id, question_id)`** on `human_reviews`
+  prevents accidental double-counting of one reviewer's rating;
+  resubmissions update the existing row.
+- **Suggested-answer / suggested-difficulty** fields let a reviewer
+  flag a wrong-keyed question without forcing a follow-up review
+  round — the corpus can be re-keyed directly from the export CSV.
+- **Smoke script** at `scripts/smoke_review_app.sh` runs the
+  migration, imports the seed batch with `--replace`, exports the
+  reviews CSV with `--include-incomplete`, and prints
+  `OK — review app smoke complete` on success.
+- **No emoji policy** enforced across all six docs/code files
+  modified in Track D.
+
+### Quantitative results
+
+- **Schema:** 4 new tables, 2 new ENUM types (`rubric_score`,
+  `overall_verdict`), 4 indexes. Strictly additive — zero changes to
+  existing tables.
+- **First batch:** `release_v1_pilot` — 429 questions stratified
+  across 5 strategies and 6 domains from `gold_sheet_release_v1.csv`.
+- **Concurrency model:** Flask synchronous (gunicorn-compatible);
+  IRR-aware selector is a single SQL query so it scales with reviewer
+  count.
+
+### Decisions & trade-offs
+
+- **Separate Flask app vs extending the dashboard.** Chose separate
+  app (port 5556, new module `src/review_app/`) so the
+  reviewer-facing UI doesn't share auth or templates with the
+  internal dashboard. Cost: a copy-paste of the basic-auth decorator
+  from `src/dashboard/app.py`. Benefit: dashboard can stay
+  internal-only while the review app gets a public URL with a
+  separate password.
+- **CSV-imported batches vs live DB query.** Chose CSV import so the
+  reviewer corpus is versioned and reproducible — re-importing a
+  refreshed CSV under a new batch name doesn't disturb in-flight
+  reviews. Cost: a small CLI step before each new batch. Benefit:
+  matches the existing gold-sheet workflow and lets us keep the
+  exact corpus used for reviews on disk for the paper.
+- **Separate `human_reviews` tables vs reusing `validation_records`.**
+  Per user instruction: keep human review fully separate so the
+  schema can evolve without touching the existing audit pipeline.
+- **No κ-calibration framing in the reviewer guide.** Dropped — the
+  guide is now framed as the source-of-truth review for release_v1,
+  not as a calibration exercise against LLM judges. The κ math will
+  be computed downstream from the export CSV during paper
+  preparation.
+
+### Issues encountered & resolutions
+
+- None blocking. Track D was a documentation/integration track and
+  ran in parallel with the schema, backend, and frontend tracks
+  without merge conflicts (each track owned a non-overlapping file
+  set).
+
+### Human review notes
+
+Pending — the app just shipped. The user (and additional reviewers
+recruited by the user) will start scoring the `release_v1_pilot` batch
+through the web UI; results will be exported via
+`python -m src.review_app.export_reviews --batch release_v1_pilot`
+once the pilot review is complete and used both for the paper's
+reliability section and for any final corpus revisions before NeurIPS
+submission.
+

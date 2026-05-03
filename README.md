@@ -106,6 +106,27 @@ pip install -r requirements.txt
 python -m src.scrapers.wikidata --dry-run
 ```
 
+### Human Review App
+
+A small Flask app (port 5556) lets wine experts log in and score questions against the 10-rubric scheme used in `docs/HUMAN_REVIEW_GUIDE.md`. Reviews are written to a separate set of tables (`review_batches`, `review_batch_items`, `human_reviewers`, `human_reviews`) so the live `questions`, `validation_records`, and audit tables are untouched.
+
+```bash
+# 1. Apply the migration (first time only)
+psql -h localhost -U postgres -d winebench -f migrations/004_human_review.sql
+
+# 2. Import a batch from a stratified gold-sheet CSV
+python -m src.review_app.import_batch \
+    --csv data/reports/gold_sheet_release_v1.csv \
+    --name release_v1_pilot
+
+# 3. Start the app (set the env vars or read them from .env)
+REVIEW_APP_USER=admin REVIEW_APP_PASSWORD=... python -m src.review_app.app
+
+# 4. Share http://<vm>:5556/ with reviewers along with the basic-auth credentials
+```
+
+Re-importing a refreshed CSV under a new batch name (e.g. `release_v1_pilot_v2`) creates a new versioned batch without disturbing in-flight reviews.
+
 ## Publication
 
 Targeting **NeurIPS 2026 Datasets & Benchmarks Track** with concurrent ArXiv preprint.

@@ -1,6 +1,6 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** May 3, 2026 (release_v1 build shipped — corpus capped at 2,146 by fact-pool ceiling)
+**Last updated:** May 3, 2026 (Phase 4 human review web app shipped; release_v1 build still capped at 2,146 by fact-pool ceiling)
 **Project phase:** Phase 2j — release_v1 build complete. 6,500-target run capped at **2,146 draft + 389 cb_reserve = 2,535 release_v1 questions** (33% of target draft, 39% with cb_reserve) due to substantive-fact-pool exhaustion. Per-strategy: FTQ 1,292 (sampler exhausted), distractor 389, template 260 (max_passes), comparative 114, scenario 91. Per-domain: wine_regions 730, grape_varieties 508, producers 355, viticulture 281, wine_business 181, winemaking **91 (severe under-representation)**. Cost: **$125 actual** OpenRouter spend, 13,660 LLM calls. Wall: ~3.5h cumulative across 4 launches with mid-flight bug fixes. 746/746 tests pass on main.
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
@@ -236,7 +236,7 @@
 | 2i. Audit run #10 (rebuild on Phase 2g.12 fixes) | 15-16 | **Pending** — re-run `run_audit_pilot_v9_build.sh` at `per_strategy=40` (target=200) on a new tag to validate the fixes. Estimated yield 145–165/200 vs v8's 111/200. |
 | 2j. Full 10k generation run | 16 | **Pending** — gated on v9 Go/No-Go pass; runs with `--max-workers 8 --strategy-workers 3` and the v9 env-var profile. |
 | 3. AI Validation | 15-17 | Not started |
-| 4. Human Review & Control Set | 18-20 | Not started |
+| 4. Human Review & Control Set | 18-20 | **In progress** — review web app shipped 2026-05-03 (Flask, port 5556). Import + launch: `python -m src.review_app.import_batch --csv data/reports/gold_sheet_release_v1.csv --name release_v1_pilot && REVIEW_APP_USER=admin REVIEW_APP_PASSWORD=... python -m src.review_app.app` then share `http://<vm>:5556/`. |
 | 5. Evaluation & Analysis | 21-24 | Not started |
 | 6. Publication & Release | 25-30 | Not started |
 
