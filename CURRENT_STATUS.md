@@ -1,10 +1,71 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** May 2, 2026 (sample-DB eval shipped)
-**Project phase:** Phase 2g.18 — cost-down v16 shipped + smoke-validated. 11 levers (CB quota 0.40, generator mix v2.4, verifier-skip B5 plumbing + confidence-field, gate L3→Sonnet, B1/B2 Sonnet override, B2 panel slim, comparative substantive filter, D1 halved, C4 opt-in, FTQ substantive-strict) reduce per-Q cost from ~$0.15 (v9 baseline) to $0.034 (v16b smoke) — ~73% build reduction. Audit cuts validate ~50% (v15: $340/10k → v16: $170/10k). Total 10k projection: ~$507 (vs $9/100 baseline of $900) = **44-49% reduction**. 624/624 tests pass on main.
+**Last updated:** May 3, 2026 (release_v1 build shipped — corpus capped at 2,146 by fact-pool ceiling)
+**Project phase:** Phase 2j — release_v1 build complete. 6,500-target run capped at **2,146 draft + 389 cb_reserve = 2,535 release_v1 questions** (33% of target draft, 39% with cb_reserve) due to substantive-fact-pool exhaustion. Per-strategy: FTQ 1,292 (sampler exhausted), distractor 389, template 260 (max_passes), comparative 114, scenario 91. Per-domain: wine_regions 730, grape_varieties 508, producers 355, viticulture 281, wine_business 181, winemaking **91 (severe under-representation)**. Cost: **$125 actual** OpenRouter spend, 13,660 LLM calls. Wall: ~3.5h cumulative across 4 launches with mid-flight bug fixes. 746/746 tests pass on main.
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ## Latest cliff notes (start here next session)
+
+- **Phase 2j release_v1 build shipped (2026-05-03):** 6,500-target run completed
+  with corpus tag `release_v1`. Final state: **2,146 draft + 389 cb_reserve =
+  2,535 questions** (33% draft / 39% incl. cb_reserve of the 6,500 ask). Build
+  hit a hard ceiling from the substantive-fact pool — multi-pass and tag-scoped
+  count fixes maximised what could be extracted, but the underlying fact corpus
+  cannot support 6,500 release questions without expansion.
+
+  Per-strategy outcomes:
+  | Strategy | Final draft | Target | Limit |
+  |---|---:|---:|---|
+  | fact_to_question | 1,292 (+389 cb_reserve) | 2,925 | sampler exhausted (passes 4-5 = 0) |
+  | distractor_mining | 389 | 975 | producing through max_passes |
+  | template | 260 | 650 | hit max_passes=8 cap |
+  | comparative | 114 | 975 | entity-pair sampler exhausted |
+  | scenario_synthesis | 91 | 975 | LLM cluster-coherence rejections |
+
+  Per-domain (draft only):
+  | Domain | Count | Plan share at 6,500 |
+  |---|---:|---:|
+  | wine_regions | 730 | ~2,275 (35%) |
+  | grape_varieties | 508 | ~780 (12%) |
+  | producers | 355 | ~520 (8%) |
+  | viticulture | 281 | ~975 (15%) |
+  | wine_business | 181 | ~650 (10%) |
+  | winemaking | **91** | ~1,300 (20%) — SEVERE UNDER-REPRESENTATION |
+
+  Three orchestrator bugs surfaced and were fixed mid-flight:
+  1. `get_pg()` was `@lru_cache`'d → all 24 worker threads shared one psycopg2
+     connection → killed 4 of 5 strategies in 4 min with `set_session cannot be
+     used inside a transaction`. Fix: `threading.local()` per-thread connections
+     (commit `49d13bc`).
+  2. `generate-all` did single-pass dispatch → capped at 620/6,500 even after
+     connection fix. Added outer multi-pass loop (commit `c5a4369`).
+  3. `_count_by_method()` returned all-DB counts (incl. ~3,710 audit-pilot rows)
+     → orchestrator's "remaining" math underestimated by ~3,000. Added `tag`
+     parameter (commit `a300e54`).
+  4. Outer multi-pass blocked 4 strategies on FTQ pass barrier (FTQ ran 2.2h on
+     pass 1 while others sat idle 90+ min). Refactored to per-strategy
+     multi-pass inside `_run_one_strategy` (commit `e088fa5`).
+
+  Artefacts:
+  - DB: 2,535 rows tagged `release_v1` in `public.questions`
+  - Gold sheet: `data/reports/gold_sheet_release_v1.csv` (stratified sample for
+    human review)
+  - Build logs: `data/logs/release_v1_build_*.log` (4 logs across 4 launches)
+  - Monitor CSV: `data/logs/release_v1_monitor.csv` (33 5-min snapshots tracking
+    Q/min, per-strategy progress, alive flag, ETA projection)
+  - Wrapper script: `scripts/run_release_v1_build.sh` (idempotent, auto-resume)
+  - Monitor script: `scripts/monitor_release_v1.py` (overnight metrics)
+
+  **Open decisions (next session):**
+  - Accept ~2,150 corpus + sample-DB 1,062 (Phase 5) as the NeurIPS submission
+  - Or promote 389 cb_reserve via manual review → ~2,540
+  - Or expand the fact pool (especially winemaking + wine_business) — ~1-3 day
+    lift but unblocks 500-1,000 more release questions
+  - Or loosen filters (substantive, ubiquity, scenario coherence) and re-run —
+    risks quality regressions
+  - Audit phase 2 NOT yet run on release_v1 — gated on user gold-sheet review
+    and corpus-size decision
+
 
 - **Phase 5 sample-DB eval shipped (2026-05-02):** 16-config slate
   evaluated against the 1062-Q `sample` schema corpus. Tag
