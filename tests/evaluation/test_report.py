@@ -810,6 +810,53 @@ class TestSectionCostEfficiency:
         assert rows[0][1].startswith("$")
 
 
+class TestTwinDisambiguation:
+    """Slots 1+16 (Opus std/thinking) and 5+14 (Gemini std/thinking) share
+    model_id; the report must keep them in separate buckets via reasoning_config."""
+
+    def test_compound_key_separates_reasoning_twins(self):
+        from src.evaluation.report import _row_compound_key
+        std = {"model_name": "anthropic/claude-opus-4.7", "reasoning_config": None}
+        think = {"model_name": "anthropic/claude-opus-4.7",
+                 "reasoning_config": {"max_tokens": 512}}
+        assert _row_compound_key(std) != _row_compound_key(think)
+        assert _row_compound_key(std) == "anthropic/claude-opus-4.7"
+        assert "max_tokens" in _row_compound_key(think)
+
+    def test_config_compound_key_matches_row(self):
+        from src.evaluation.report import _row_compound_key, _config_compound_key
+        from src.evaluation.configs import by_slot
+        c1 = by_slot(1)   # Opus standard
+        c16 = by_slot(16) # Opus thinking, reasoning_budget=512
+        row1 = {"model_name": c1.model_id, "reasoning_config": None}
+        row16 = {"model_name": c16.model_id,
+                 "reasoning_config": {"max_tokens": 512}}
+        assert _config_compound_key(c1) == _row_compound_key(row1)
+        assert _config_compound_key(c16) == _row_compound_key(row16)
+        assert _config_compound_key(c1) != _config_compound_key(c16)
+
+    def test_section_5_finds_separate_twin_buckets(self):
+        """Synthetic rows for slots 1 and 16 with different correctness — the
+        Section 5 delta should be non-zero."""
+        from io import StringIO
+        from src.evaluation.report import _section_reasoning_deltas
+        from src.evaluation.configs import by_slot
+        c1, c16 = by_slot(1), by_slot(16)
+        answers = []
+        # 100% accuracy for slot 16 (thinking), 50% for slot 1 (standard)
+        for i in range(20):
+            answers.append({"model_name": c1.model_id, "reasoning_config": None,
+                            "is_correct": (i < 10)})
+            answers.append({"model_name": c16.model_id,
+                            "reasoning_config": {"max_tokens": 512},
+                            "is_correct": True})
+        buf = StringIO()
+        _section_reasoning_deltas(buf, answers)
+        out = buf.getvalue()
+        # The Opus pair line should contain the +50.0% delta.
+        assert "+50" in out, f"expected +50.0% delta for Opus pair, got: {out}"
+
+
 @pytest.mark.integration
 @pytest.mark.skipif(
     os.environ.get("OENOBENCH_EVAL_TESTS_DB") != "1",

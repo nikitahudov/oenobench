@@ -119,6 +119,41 @@ def effective_cost(row: dict[str, Any]) -> float | None:
     return None
 
 
+def _row_compound_key(row: dict) -> str:
+    """Bucket key for one evaluation_answers row that disambiguates
+    reasoning twins (same model_id, different reasoning_config).
+    Format: model_name#<canonical-json-of-reasoning_config> when
+    reasoning_config is non-empty; bare model_name otherwise.
+    """
+    mn = row.get("model_name") or "unknown"
+    rc = row.get("reasoning_config")
+    if rc is None or rc == {} or rc == "":
+        return mn
+    if isinstance(rc, str):
+        # Defensive — DB returns dict via psycopg2 jsonb adaptor, but if a
+        # caller hands us a string, normalise.
+        try:
+            import json as _json
+            rc = _json.loads(rc)
+        except Exception:
+            return f"{mn}#{rc}"
+    import json as _json
+    return f"{mn}#{_json.dumps(rc, sort_keys=True)}"
+
+
+def _config_compound_key(c) -> str:
+    """Bucket key for an EvalConfig that matches _row_compound_key
+    on rows the harness wrote for that config."""
+    import json as _json
+    if c.reasoning_mode is None:
+        return c.model_id
+    if c.reasoning_mode == "explicit_budget":
+        d = {"max_tokens": int(c.reasoning_budget or 512)}
+    else:  # "effort"
+        d = {"effort": c.reasoning_effort or "medium"}
+    return f"{c.model_id}#{_json.dumps(d, sort_keys=True)}"
+
+
 def fmt_ms(ms: float | None) -> str:
     """Format latency in ms as integer string; return '—' for None."""
     if ms is None or (isinstance(ms, float) and math.isnan(ms)):
@@ -349,15 +384,15 @@ def _section_per_config_summary(buf: StringIO, answers: list[dict]) -> None:
     """Section 1: Per-config summary table (16 rows)."""
     configs = _get_eval_configs()
 
-    # Group answers by model_name
+    # Group answers by compound key (model_name + reasoning_config) so that
+    # reasoning twins (same model_id, different reasoning_config) stay separate.
     by_config: dict[str, list[dict]] = {}
     for r in answers:
-        mn = r.get("model_name") or "unknown"
-        by_config.setdefault(mn, []).append(r)
+        by_config.setdefault(_row_compound_key(r), []).append(r)
 
     # Determine ordering: if configs available, use slot order; else alphabetical
     if configs:
-        order = [c.model_id for c in configs if c.model_id in by_config]
+        order = [_config_compound_key(c) for c in configs if _config_compound_key(c) in by_config]
         # append any unexpected names
         for name in sorted(by_config):
             if name not in order:
@@ -377,7 +412,7 @@ def _section_per_config_summary(buf: StringIO, answers: list[dict]) -> None:
 
     config_map: dict[str, Any] = {}
     if configs:
-        config_map = {c.model_id: c for c in configs}
+        config_map = {_config_compound_key(c): c for c in configs}
 
     for name in order:
         rows = by_config[name]
@@ -444,18 +479,20 @@ def _section_config_domain(buf: StringIO, answers: list[dict]) -> None:
 
     by_config: dict[str, list[dict]] = {}
     for r in answers:
-        mn = r.get("model_name") or "unknown"
-        by_config.setdefault(mn, []).append(r)
+        by_config.setdefault(_row_compound_key(r), []).append(r)
 
     if configs:
-        order = [c.model_id for c in configs if c.model_id in by_config]
+        order = [_config_compound_key(c) for c in configs if _config_compound_key(c) in by_config]
         for name in sorted(by_config):
             if name not in order:
                 order.append(name)
     else:
         order = sorted(by_config)
 
-    pivot = pivot_accuracy(answers, "model_name", "domain", order, DOMAINS)
+    # Stamp each row with its compound key so the generic pivot helper can
+    # bucket reasoning twins separately.
+    stamped_rows = [{**r, "_compound_key": _row_compound_key(r)} for r in answers]
+    pivot = pivot_accuracy(stamped_rows, "_compound_key", "domain", order, DOMAINS)
 
     buf.write("## 2. Per-Config × Per-Domain Accuracy (%)\n\n")
     domain_headers = " | ".join(DOMAIN_LABELS.get(d, d) for d in DOMAINS)
@@ -464,7 +501,7 @@ def _section_config_domain(buf: StringIO, answers: list[dict]) -> None:
 
     all_domain_correct: dict[str, int] = {d: 0 for d in DOMAINS}
     all_domain_total: dict[str, int] = {d: 0 for d in DOMAINS}
-    display_map = {c.model_id: c.name for c in configs} if configs else {}
+    display_map = {_config_compound_key(c): c.name for c in configs} if configs else {}
 
     for name in order:
         cells = []
@@ -489,18 +526,18 @@ def _section_config_strategy(buf: StringIO, answers: list[dict]) -> None:
 
     by_config: dict[str, list[dict]] = {}
     for r in answers:
-        mn = r.get("model_name") or "unknown"
-        by_config.setdefault(mn, []).append(r)
+        by_config.setdefault(_row_compound_key(r), []).append(r)
 
     if configs:
-        order = [c.model_id for c in configs if c.model_id in by_config]
+        order = [_config_compound_key(c) for c in configs if _config_compound_key(c) in by_config]
         for name in sorted(by_config):
             if name not in order:
                 order.append(name)
     else:
         order = sorted(by_config)
 
-    pivot = pivot_accuracy(answers, "model_name", "strategy", order, STRATEGIES)
+    stamped_rows = [{**r, "_compound_key": _row_compound_key(r)} for r in answers]
+    pivot = pivot_accuracy(stamped_rows, "_compound_key", "strategy", order, STRATEGIES)
 
     buf.write("## 3. Per-Config × Per-Strategy Accuracy (%)\n\n")
     strat_headers = " | ".join(STRATEGY_LABELS.get(s, s) for s in STRATEGIES)
@@ -509,7 +546,7 @@ def _section_config_strategy(buf: StringIO, answers: list[dict]) -> None:
 
     all_strat_correct: dict[str, int] = {s: 0 for s in STRATEGIES}
     all_strat_total: dict[str, int] = {s: 0 for s in STRATEGIES}
-    display_map = {c.model_id: c.name for c in configs} if configs else {}
+    display_map = {_config_compound_key(c): c.name for c in configs} if configs else {}
 
     for name in order:
         cells = []
@@ -574,13 +611,12 @@ def _section_sps(buf: StringIO, answers: list[dict]) -> None:
     else:
         generator_family_configs = generator_families
 
-    # Group answers by config
+    # Group answers by compound config key (disambiguate reasoning twins).
     by_config: dict[str, list[dict]] = {}
     for r in answers:
-        mn = r.get("model_name") or "unknown"
-        by_config.setdefault(mn, []).append(r)
+        by_config.setdefault(_row_compound_key(r), []).append(r)
 
-    config_map = {c.model_id: c for c in configs}
+    config_map = {_config_compound_key(c): c for c in configs}
 
     buf.write(
         "Bootstrap 95% CI via 1000 resamples. "
@@ -750,7 +786,6 @@ def _section_reasoning_deltas(buf: StringIO, answers: list[dict]) -> None:
         )
         return
 
-    config_map = {c.model_id: c for c in configs}
     slot_map = {c.slot: c for c in configs}
 
     # Define pairs (thinking_slot, standard_slot, label)
@@ -761,11 +796,10 @@ def _section_reasoning_deltas(buf: StringIO, answers: list[dict]) -> None:
         (15, 9, "DeepSeek-R1 vs DeepSeek-V3"),
     ]
 
-    # Group answers by model_name
+    # Group answers by compound config key (disambiguates reasoning twins).
     by_config: dict[str, list[dict]] = {}
     for r in answers:
-        mn = r.get("model_name") or "unknown"
-        by_config.setdefault(mn, []).append(r)
+        by_config.setdefault(_row_compound_key(r), []).append(r)
 
     buf.write(
         "Bootstrap 95% CI via 1000 resamples. "
@@ -781,8 +815,8 @@ def _section_reasoning_deltas(buf: StringIO, answers: list[dict]) -> None:
             buf.write(f"| {label} | slot {think_slot} | slot {std_slot} | — | — | — | config not in registry |\n")
             continue
 
-        think_rows_raw = by_config.get(think_cfg.name, [])
-        std_rows_raw = by_config.get(std_cfg.name, [])
+        think_rows_raw = by_config.get(_config_compound_key(think_cfg), [])
+        std_rows_raw = by_config.get(_config_compound_key(std_cfg), [])
 
         if not think_rows_raw and not std_rows_raw:
             buf.write(f"| {label} | {think_cfg.name} | {std_cfg.name} | — | — | — | no data |\n")
@@ -840,11 +874,11 @@ def _section_item_analysis(buf: StringIO, answers: list[dict]) -> None:
         buf.write("_No answers found for this run._\n\n")
         return
 
-    # Group answers by config (model_name) to determine n_configs and per-config accuracy.
+    # Group answers by compound config key to determine n_configs and
+    # per-config accuracy.  Compound key disambiguates reasoning twins.
     by_config: dict[str, list[dict]] = {}
     for r in answers:
-        mn = r.get("model_name") or "unknown"
-        by_config.setdefault(mn, []).append(r)
+        by_config.setdefault(_row_compound_key(r), []).append(r)
 
     config_names = sorted(by_config.keys())
     n_configs = len(config_names)
@@ -869,7 +903,7 @@ def _section_item_analysis(buf: StringIO, answers: list[dict]) -> None:
         if qid is None:
             continue
         qid = str(qid)
-        cfg = r.get("model_name") or "unknown"
+        cfg = _row_compound_key(r)
         outcomes.setdefault(qid, {})[cfg] = 1 if r.get("is_correct") else 0
         # Capture a parsed_answer for floor sample reporting (any one is fine).
         if qid not in correct_letter and r.get("is_correct") and r.get("parsed_answer"):
@@ -997,12 +1031,11 @@ def _section_cost_efficiency(buf: StringIO, answers: list[dict]) -> None:
     with zero correct answers render '—' and sort to the bottom.
     """
     configs = _get_eval_configs()
-    config_map = {c.model_id: c for c in configs} if configs else {}
+    config_map = {_config_compound_key(c): c for c in configs} if configs else {}
 
     by_config: dict[str, list[dict]] = {}
     for r in answers:
-        mn = r.get("model_name") or "unknown"
-        by_config.setdefault(mn, []).append(r)
+        by_config.setdefault(_row_compound_key(r), []).append(r)
 
     buf.write("## 10. Cost-Efficiency\n\n")
     buf.write(
@@ -1055,18 +1088,17 @@ def _section_cost_ledger(buf: StringIO, answers: list[dict]) -> None:
 
     by_config: dict[str, list[dict]] = {}
     for r in answers:
-        mn = r.get("model_name") or "unknown"
-        by_config.setdefault(mn, []).append(r)
+        by_config.setdefault(_row_compound_key(r), []).append(r)
 
     if configs:
-        order = [c.model_id for c in configs if c.model_id in by_config]
+        order = [_config_compound_key(c) for c in configs if _config_compound_key(c) in by_config]
         for name in sorted(by_config):
             if name not in order:
                 order.append(name)
     else:
         order = sorted(by_config)
 
-    config_map = {c.model_id: c for c in configs} if configs else {}
+    config_map = {_config_compound_key(c): c for c in configs} if configs else {}
 
     buf.write("## 6. Cost & Wall Ledger\n\n")
     buf.write("| Slot | Config | Questions | Cost (effective) | Effective wall (est.) |\n")
@@ -1128,18 +1160,17 @@ def _section_cb_split(buf: StringIO, answers: list[dict]) -> None:
 
     by_config: dict[str, list[dict]] = {}
     for r in answers:
-        mn = r.get("model_name") or "unknown"
-        by_config.setdefault(mn, []).append(r)
+        by_config.setdefault(_row_compound_key(r), []).append(r)
 
     if configs:
-        order = [c.model_id for c in configs if c.model_id in by_config]
+        order = [_config_compound_key(c) for c in configs if _config_compound_key(c) in by_config]
         for name in sorted(by_config):
             if name not in order:
                 order.append(name)
     else:
         order = sorted(by_config)
 
-    config_map = {c.model_id: c for c in configs} if configs else {}
+    config_map = {_config_compound_key(c): c for c in configs} if configs else {}
 
     buf.write(
         "| Slot | Config | n CB-fail | acc CB-fail | n CB-pass | acc CB-pass | δ | 95% CI |\n"
@@ -1231,19 +1262,19 @@ def _section_difficulty(buf: StringIO, answers: list[dict]) -> None:
 
     by_config: dict[str, list[dict]] = {}
     for r in answers:
-        mn = r.get("model_name") or "unknown"
-        by_config.setdefault(mn, []).append(r)
+        by_config.setdefault(_row_compound_key(r), []).append(r)
 
     if configs:
-        order = [c.model_id for c in configs if c.model_id in by_config]
+        order = [_config_compound_key(c) for c in configs if _config_compound_key(c) in by_config]
         for name in sorted(by_config):
             if name not in order:
                 order.append(name)
     else:
         order = sorted(by_config)
 
+    stamped_rows = [{**r, "_compound_key": _row_compound_key(r)} for r in answers]
     pivot = pivot_accuracy(
-        answers, "model_name", "difficulty", order, DIFFICULTY_LEVELS
+        stamped_rows, "_compound_key", "difficulty", order, DIFFICULTY_LEVELS
     )
 
     buf.write("## 8. Per-Config × Per-Difficulty Accuracy (%)\n\n")
@@ -1256,7 +1287,7 @@ def _section_difficulty(buf: StringIO, answers: list[dict]) -> None:
 
     all_diff_correct: dict[str, int] = {d: 0 for d in DIFFICULTY_LEVELS}
     all_diff_total: dict[str, int] = {d: 0 for d in DIFFICULTY_LEVELS}
-    display_map = {c.model_id: c.name for c in configs} if configs else {}
+    display_map = {_config_compound_key(c): c.name for c in configs} if configs else {}
 
     for name in order:
         cells = []
