@@ -82,6 +82,54 @@ def test_corpus_loader_invalid_corpus() -> None:
         load_questions("foo")
 
 
+# ─── Test 2b: corpus loader — release_v1.2 default pins to 3,329 ──────────────
+
+
+@pytest.mark.integration
+@_DB_SKIP
+def test_corpus_loader_public_default_is_release_v1_2() -> None:
+    """When corpus='public' and release is unset, the loader returns the
+    3,329-question release_v1.2 set (NOT the full 5,740 row table).  This is
+    the official NeurIPS submission corpus."""
+    if not _db_available():
+        pytest.skip("DB not reachable")
+
+    from src.evaluation._corpus_loader import (
+        DEFAULT_PUBLIC_RELEASE,
+        load_questions,
+    )
+
+    assert DEFAULT_PUBLIC_RELEASE == "v1.2", (
+        f"Default release must be v1.2 to match the NeurIPS submission; "
+        f"got {DEFAULT_PUBLIC_RELEASE!r}"
+    )
+
+    questions = load_questions("public")
+    # release_v1.2 is fixed at 3,329 questions per docs/PROCESS_LOG.md
+    # 2026-05-03 entry.  If this asserts changes, the release-tagging policy
+    # has shifted and the eval pipeline + paper numbers must be reviewed.
+    assert len(questions) == 3329, (
+        f"release_v1.2 should yield 3,329 questions, got {len(questions)}.  "
+        f"Either the release filter regressed or the DB tagging changed."
+    )
+
+
+@pytest.mark.integration
+@_DB_SKIP
+def test_corpus_loader_public_release_all_loads_more() -> None:
+    """release='all' opt-out loads the full public table (minus stubs)."""
+    if not _db_available():
+        pytest.skip("DB not reachable")
+
+    from src.evaluation._corpus_loader import load_questions
+
+    questions = load_questions("public", release="all")
+    # Full public minus 153 stubs = 5,740.  Larger than release_v1.2.
+    assert len(questions) > 3329, (
+        f"release='all' should load more than release_v1.2; got {len(questions)}"
+    )
+
+
 # ─── Test 3: dry-run exits 0 without DB writes ───────────────────────────────
 
 

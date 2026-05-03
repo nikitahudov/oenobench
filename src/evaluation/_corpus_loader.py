@@ -44,11 +44,27 @@ def _parse_options(raw) -> dict[str, str]:
     raise ValueError(f"Unexpected options shape: {type(raw)!r}")
 
 
-def load_questions(corpus: str = "sample", limit: int | None = None) -> list[EvalQuestion]:
+DEFAULT_PUBLIC_RELEASE = "v1.2"
+
+
+def load_questions(
+    corpus: str = "sample",
+    limit: int | None = None,
+    release: str | None = None,
+) -> list[EvalQuestion]:
     """Load questions from sample.questions (default) or public.questions.
 
     `corpus` must be either 'sample' or 'public'. Returns a list of EvalQuestion
     sorted by id for determinism.
+
+    `release` pins the public corpus to a specific tagged release subset.  When
+    `corpus="public"` and `release` is None, defaults to `DEFAULT_PUBLIC_RELEASE`
+    (currently `"v1.2"` — 3,329 questions tagged `release_v1.2` with
+    status='draft').  Pass `release="all"` to load the full public table
+    (5,893 rows minus stubs); useful for ad-hoc audits, NOT for the official eval.
+
+    For the sample corpus the `release` parameter is ignored — the sample table
+    has no release tagging.
 
     Column notes:
     - `options` is JSONB: list of {"id": letter, "text": ...} objects.
@@ -62,14 +78,25 @@ def load_questions(corpus: str = "sample", limit: int | None = None) -> list[Eva
 
     schema = corpus
 
-    # For the sample schema we can join generation_metadata directly.
-    # For the public schema the metadata is also in public.generation_metadata.
-    # Both schemas use the same join pattern; we just prefix with the schema.
-    # Filter out rows with NULL options or NULL/empty correct_answer — these are
-    # stub/legacy rows that are not answerable as MCQ.  Public corpus contains
-    # 153 such "stub question N" rows accidentally left over from earlier
-    # pipeline development; they have question_type=multiple_choice but no
-    # options column populated, which would crash _parse_options below.
+    # Defensive null-check — release_v1.2 already excludes stubs (verified:
+    # 0 of the 153 stub-question rows carry the release tag), but the filter
+    # also covers ad-hoc release="all" use and any future release that
+    # accidentally re-introduces NULL options.
+    where_clauses = [
+        "q.options IS NOT NULL",
+        "q.correct_answer IS NOT NULL",
+        "q.correct_answer <> ''",
+    ]
+
+    # Public-corpus release pinning.  Pass release="all" to opt out.
+    if corpus == "public":
+        effective_release = release if release is not None else DEFAULT_PUBLIC_RELEASE
+        if effective_release != "all":
+            tag = f"release_{effective_release}"
+            where_clauses.append(f"'{tag}' = ANY(q.tags)")
+            where_clauses.append("q.status::text = 'draft'")
+
+    where_sql = "\n          AND ".join(where_clauses)
     sql = f"""
         SELECT
             q.id::text          AS id,
@@ -82,9 +109,7 @@ def load_questions(corpus: str = "sample", limit: int | None = None) -> list[Eva
         FROM {schema}.questions q
         LEFT JOIN {schema}.generation_metadata gm
                ON gm.question_id = q.id
-        WHERE q.options IS NOT NULL
-          AND q.correct_answer IS NOT NULL
-          AND q.correct_answer <> ''
+        WHERE {where_sql}
         ORDER BY q.id
     """
     if limit is not None:
