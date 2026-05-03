@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}Admin — OenoBench Review{% endblock %}
+
+{% block content %}
+<section class="card">
+    <h2>Batches</h2>
+    {% if batches %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Batch</th>
+                <th>Questions</th>
+                <th>Reviews</th>
+                <th>Reviewers</th>
+                <th>Created</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for batch in batches %}
+            <tr>
+                <td>
+                    <div class="batch-name">{{ batch.name }}</div>
+                    {% if batch.description %}
+                        <div class="batch-desc">{{ batch.description }}</div>
+                    {% endif %}
+                </td>
+                <td class="mono">{{ batch.question_count }}</td>
+                <td class="mono">{{ batch.review_count }}</td>
+                <td class="mono">{{ batch.unique_reviewers }}</td>
+                <td class="mono">{{ batch.created_at }}</td>
+                <td>
+                    <a class="btn btn-secondary" href="{{ url_for('admin_export_csv', batch=batch.name) }}">Export CSV</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <p class="empty-state">No batches imported yet.</p>
+    {% endif %}
+</section>
+
+<section class="card">
+    <h2>Reviewers</h2>
+    {% if reviewers %}
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Email</th>
+                <th>Credentials</th>
+                <th>Domains</th>
+                <th>Reviews</th>
+                <th>Last active</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in reviewers %}
+            <tr>
+                <td>{{ r.name }}</td>
+                <td class="mono">{{ r.email }}</td>
+                <td class="truncate-cell">{{ r.credentials or '—' }}</td>
+                <td>
+                    {% if r.expertise_domains %}
+                        {% for d in r.expertise_domains %}
+                            <span class="meta-pill">{{ d }}</span>
+                        {% endfor %}
+                    {% else %}
+                        <span class="meta-pill">—</span>
+                    {% endif %}
+                </td>
+                <td class="mono">{{ r.completed_reviews }}</td>
+                <td class="mono">{{ r.last_active_at }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <p class="empty-state">No reviewers registered yet.</p>
+    {% endif %}
+</section>
+{% endblock %}

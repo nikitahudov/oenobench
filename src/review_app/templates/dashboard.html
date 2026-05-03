@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}My dashboard — OenoBench Review{% endblock %}
+
+{% block content %}
+<section class="card">
+    <h2>Welcome back, {{ reviewer.name }}</h2>
+    <div class="summary-row">
+        <div class="stat-box">
+            <span class="stat-value">{{ stats.total_reviews }}</span>
+            <span class="stat-label">Reviews submitted</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-value">{{ stats.avg_seconds }}</span>
+            <span class="stat-label">Avg seconds / question</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-value">{{ stats.batches_touched }}</span>
+            <span class="stat-label">Batches touched</span>
+        </div>
+    </div>
+</section>
+
+<section class="card">
+    <h2>Active batches</h2>
+    {% if batches %}
+    <table class="data-table batch-table">
+        <thead>
+            <tr>
+                <th>Batch</th>
+                <th>Questions</th>
+                <th class="progress-col">Your progress</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for batch in batches %}
+            <tr>
+                <td>
+                    <div class="batch-name">{{ batch.name }}</div>
+                    {% if batch.description %}
+                        <div class="batch-desc">{{ batch.description }}</div>
+                    {% endif %}
+                </td>
+                <td class="mono">{{ batch.total }}</td>
+                <td class="progress-cell">
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: {{ batch.pct }}%"></div>
+                    </div>
+                    <span class="progress-text">
+                        <span class="mono">{{ batch.mine }}</span> /
+                        <span class="mono">{{ batch.total }}</span>
+                    </span>
+                </td>
+                <td>
+                    {% if batch.total and batch.mine >= batch.total %}
+                        <a class="btn btn-secondary" href="{{ url_for('complete', batch=batch.name) }}">Done</a>
+                    {% else %}
+                        <a class="btn btn-primary" href="{{ url_for('review_batch', batch=batch.name) }}">Review</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <p class="empty-state">No active batches yet. Ask the admin to import one.</p>
+    {% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Sign in — OenoBench Review{% endblock %}
+
+{% block content %}
+<section class="card narrow">
+    <h2>Sign in or register</h2>
+    <p class="card-intro">
+        Enter your email to continue. New addresses are forwarded to the
+        registration form.
+    </p>
+    <form method="post" action="{{ url_for('login') }}" class="stack-form">
+        <label for="email">Email</label>
+        <input
+            type="email"
+            id="email"
+            name="email"
+            required
+            autocomplete="email"
+            autofocus
+            placeholder="name@example.com"
+        >
+        <button type="submit" class="btn btn-primary">Continue</button>
+    </form>
+</section>
+{% endblock %}

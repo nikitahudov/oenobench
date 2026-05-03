@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}All done — OenoBench Review{% endblock %}
+
+{% block content %}
+<section class="card narrow celebrate-card">
+    <h2>You're all done with {{ batch.name }}</h2>
+    <p class="card-intro">
+        Thanks for reviewing — every label feeds directly into the inter-rater
+        reliability table for the NeurIPS submission.
+    </p>
+
+    <div class="summary-row">
+        <div class="stat-box">
+            <span class="stat-value">{{ stats.batch_reviews }}</span>
+            <span class="stat-label">Reviewed in this batch</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-value">{{ stats.avg_seconds }}</span>
+            <span class="stat-label">Avg seconds / question</span>
+        </div>
+        <div class="stat-box">
+            <span class="stat-value">{{ stats.total_reviews }}</span>
+            <span class="stat-label">Total reviews lifetime</span>
+        </div>
+    </div>
+
+    <div class="form-actions">
+        <a href="{{ url_for('dashboard') }}" class="btn btn-primary">Back to dashboard</a>
+        <a href="{{ url_for('instructions') }}" class="btn btn-secondary">Reviewer guide</a>
+    </div>
+</section>
+{% endblock %}

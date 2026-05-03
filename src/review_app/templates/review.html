@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block title %}Review — {{ batch.name }}{% endblock %}
+
+{% block content %}
+{#
+    Rubric definitions are embedded inline (extracted from
+    docs/GOLD_REVIEW_GUIDE_V5.md lines 39-129). Do NOT fetch at runtime.
+#}
+{% set rubrics = [
+    {
+        "key": "answer_correct",
+        "label": "Answer correct",
+        "summary": "Does the keyed answer correspond to the wine fact in the source?",
+        "pass":  "Keyed answer is unambiguously correct given the source.",
+        "warn":  "Technically defensible but the source is ambiguous.",
+        "fail":  "Keyed answer contradicts the source, or the source does not support it."
+    },
+    {
+        "key": "distractors_plausible",
+        "label": "Distractors plausible",
+        "summary": "Are the wrong options plausibly close to the correct answer?",
+        "pass":  "Each distractor is from the same category and could fool a reasonable taker.",
+        "warn":  "One distractor is weak but the question is still non-trivial.",
+        "fail":  "Two or more distractors are obviously wrong on their face."
+    },
+    {
+        "key": "not_ambiguous",
+        "label": "Not ambiguous",
+        "summary": "Is there exactly one defensible answer among the four options?",
+        "pass":  "Exactly one defensible answer.",
+        "warn":  "A second option is technically defensible only on a wine-trivia stretch.",
+        "fail":  "Two or more options are equally well supported by mainstream wine references."
+    },
+    {
+        "key": "source_faithful",
+        "label": "Source faithful",
+        "summary": "Does the question stay within the semantic claims of the source fact(s)?",
+        "pass":  "Question, options, and explanation only assert claims supported by source_facts.",
+        "warn":  "One minor factual extension you happen to know is true but isn't in source_facts.",
+        "fail":  "The question makes a wine claim not supported by the listed source facts."
+    },
+    {
+        "key": "needs_source",
+        "label": "Needs source",
+        "summary": "Could a knowledgeable wine taker answer without consulting the source?",
+        "pass":  "Question genuinely requires the source — the specific datum is needed.",
+        "warn":  "A wine pro can guess but a layperson cannot.",
+        "fail":  "Answer is part of basic wine knowledge (e.g. Nebbiolo for Barolo)."
+    },
+    {
+        "key": "no_vague_language",
+        "label": "No vague language",
+        "summary": "Is the stem free of marketing fluff and hedge-words?",
+        "pass":  "Clean, neutral, factual stem.",
+        "warn":  "One borderline phrase but the question is still answerable.",
+        "fail":  "Stem is so hedged or florid the answer becomes a matter of interpretation."
+    },
+    {
+        "key": "difficulty_match",
+        "label": "Difficulty match",
+        "summary": "Does the labelled difficulty match the actual cognitive load?",
+        "pass":  "Label is right (within ±0 levels).",
+        "warn":  "Off by 1 (e.g. labelled L3 but feels L2).",
+        "fail":  "Off by 2 or more (e.g. labelled L4 but a beginner could answer instantly)."
+    },
+    {
+        "key": "cognitive_match",
+        "label": "Cognitive match",
+        "summary": "Does the cognitive class match what the question demands?",
+        "pass":  "Label correctly describes the cognitive demand.",
+        "warn":  "Demand straddles two adjacent classes.",
+        "fail":  "A 'synthesize' label on a pure recall question, or vice versa."
+    },
+    {
+        "key": "verbatim_copy",
+        "label": "Verbatim copy",
+        "summary": "Is the stem or correct option copied verbatim from the source (~60%+)?",
+        "pass":  "Question paraphrases or transforms the source.",
+        "warn":  "A long phrase (≥6 words) is copied but the rest is rewritten.",
+        "fail":  "Stem or correct option is essentially a cut-and-paste of the source fact."
+    },
+    {
+        "key": "wine_category_leak",
+        "label": "Wine category leak",
+        "summary": "Do distractors leak the right wine category of the correct answer?",
+        "pass":  "Distractors all sit in the same category as the correct answer — no free elimination.",
+        "warn":  "One distractor's category leaks the answer but you still need wine knowledge.",
+        "fail":  "Categorical split is so obvious the question reduces to 2-3 options."
+    }
+] %}
+
+<section class="review-shell" data-batch="{{ batch.name }}">
+    <div class="review-toolbar">
+        <div class="review-toolbar-left">
+            <span class="batch-name">{{ batch.name }}</span>
+            <span class="separator">/</span>
+            <span class="qid mono">{{ question.public_qid }}</span>
+        </div>
+        <div class="review-toolbar-right">
+            <span class="review-counter">
+                <span class="mono" id="reviewer-progress-mine">{{ progress.mine }}</span> /
+                <span class="mono" id="reviewer-progress-total">{{ progress.total }}</span> reviewed
+            </span>
+            <a href="{{ url_for('dashboard') }}" class="link-button">Back to dashboard</a>
+        </div>
+    </div>
+
+    <div class="review-grid">
+        <div class="review-col-left">
+            <article class="card question-card">
+                <div class="question-meta">
+                    <span class="meta-pill">Difficulty {{ question.difficulty or '—' }}</span>
+                    <span class="meta-pill">{{ question.cognitive_dim or 'cognitive: —' }}</span>
+                    {% if question.question_type %}
+                        <span class="meta-pill">{{ question.question_type }}</span>
+                    {% endif %}
+                    {% if question.domain %}
+                        <span class="meta-pill">{{ question.domain }}</span>
+                    {% endif %}
+                </div>
+
+                <h2 class="question-stem">{{ question.question_text }}</h2>
+
+                <ol class="options-list" type="A">
+                    {% for option in question.options %}
+                        {% set letter = ['A','B','C','D'][loop.index0] %}
+                        {% set is_correct = letter == question.correct_answer %}
+                        <li class="option-row {% if is_correct %}option-correct{% endif %}">
+                            <span class="option-letter">{{ letter }}</span>
+                            <span class="option-text">{{ option }}</span>
+                            {% if is_correct %}
+                                <span class="option-flag" aria-label="keyed correct">
+                                    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+                                        <path fill="currentColor" d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7 7a.75.75 0 0 1-1.06 0l-3-3a.75.75 0 1 1 1.06-1.06L6.25 10.69l6.47-6.47a.75.75 0 0 1 1.06 0Z"/>
+                                    </svg>
+                                    <span>Keyed</span>
+                                </span>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                </ol>
+
+                {% if question.source_facts %}
+                <details class="source-facts">
+                    <summary>Source facts</summary>
+                    <pre class="source-block">{{ question.source_facts }}</pre>
+                </details>
+                {% endif %}
+            </article>
+        </div>
+
+        <div class="review-col-right">
+            <form
+                id="review-form"
+                method="post"
+                action="{{ url_for('submit_review') }}"
+                data-batch-name="{{ batch.name }}"
+                data-batch-id="{{ batch.id }}"
+                data-question-id="{{ question.id }}"
+                data-render-ts="{{ render_ts }}"
+            >
+                <input type="hidden" name="batch_id" value="{{ batch.id }}">
+                <input type="hidden" name="question_id" value="{{ question.id }}">
+                <input type="hidden" name="time_spent_seconds" id="time-spent" value="0">
+
+                <article class="card rubric-card">
+                    <h3>Rubric scoring</h3>
+                    <p class="rubric-help">
+                        Click <strong>Pass</strong>, <strong>Warn</strong>, <strong>Fail</strong>,
+                        or leave a row unset (<strong>Skip</strong>). Use <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>/<kbd>4</kbd>
+                        on the focused row, <kbd>Tab</kbd> to move, <kbd>Enter</kbd> to submit.
+                    </p>
+                    <div class="rubric-grid">
+                        {% for r in rubrics %}
+                        <div
+                            class="rubric-row"
+                            data-rubric="{{ r.key }}"
+                            tabindex="0"
+                        >
+                            <div class="rubric-name-cell">
+                                <span class="rubric-name">{{ r.label }}</span>
+                                <button
+                                    type="button"
+                                    class="rubric-help-btn"
+                                    aria-label="Show definition for {{ r.label }}"
+                                    data-target="tip-{{ r.key }}"
+                                >?</button>
+                            </div>
+                            <div class="rubric-summary">{{ r.summary }}</div>
+                            <div class="rubric-tip" id="tip-{{ r.key }}" hidden>
+                                <div class="tip-line tip-pass"><strong>Pass:</strong> {{ r.pass }}</div>
+                                <div class="tip-line tip-warn"><strong>Warn:</strong> {{ r.warn }}</div>
+                                <div class="tip-line tip-fail"><strong>Fail:</strong> {{ r.fail }}</div>
+                            </div>
+                            <div class="rubric-chips" role="radiogroup" aria-label="{{ r.label }} score">
+                                <input
+                                    type="hidden"
+                                    name="{{ r.key }}"
+                                    id="input-{{ r.key }}"
+                                    value=""
+                                >
+                                <button type="button" class="chip chip-pass" data-rubric="{{ r.key }}" data-value="pass">Pass</button>
+                                <button type="button" class="chip chip-warn" data-rubric="{{ r.key }}" data-value="warn">Warn</button>
+                                <button type="button" class="chip chip-fail" data-rubric="{{ r.key }}" data-value="fail">Fail</button>
+                                <button type="button" class="chip chip-skip" data-rubric="{{ r.key }}" data-value="">Skip</button>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </article>
+
+                <article class="card verdict-card">
+                    <h3>Overall verdict</h3>
+                    <div class="verdict-grid">
+                        <label class="verdict-field">
+                            <span class="verdict-label">Verdict</span>
+                            <select name="overall_verdict" required>
+                                <option value="">— select —</option>
+                                <option value="approve">Approve</option>
+                                <option value="revise">Revise</option>
+                                <option value="reject">Reject</option>
+                            </select>
+                        </label>
+
+                        <label class="verdict-field">
+                            <span class="verdict-label">Suggested answer</span>
+                            <input
+                                type="text"
+                                name="suggested_answer"
+                                maxlength="1"
+                                pattern="[A-Da-d]"
+                                placeholder="A–D (optional)"
+                            >
+                        </label>
+
+                        <label class="verdict-field">
+                            <span class="verdict-label">Suggested difficulty</span>
+                            <select name="suggested_difficulty">
+                                <option value="">—</option>
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                                <option value="4">4</option>
+                            </select>
+                        </label>
+                    </div>
+
+                    <label class="full-width-field">
+                        <span class="verdict-label">Notes</span>
+                        <textarea
+                            name="notes"
+                            rows="3"
+                            placeholder="Optional comments — especially helpful when flagging fail."
+                        ></textarea>
+                    </label>
+
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" id="skip-question">Skip question</button>
+                        <button type="submit" class="btn btn-primary" id="submit-review">Submit</button>
+                    </div>
+                </article>
+            </form>
+        </div>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/review.js') }}"></script>
+{% endblock %}

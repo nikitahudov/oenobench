@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}OenoBench Review{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/review.css') }}">
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+    <header>
+        <div class="header-left">
+            <h1>OenoBench Review</h1>
+            <span class="subtitle">Wine AI Benchmark — NeurIPS 2026</span>
+        </div>
+        <div class="header-right">
+            {% if reviewer %}
+                <span class="reviewer-name">{{ reviewer.name }}</span>
+                <span class="reviewer-email">{{ reviewer.email }}</span>
+                <a href="{{ url_for('logout') }}" class="link-button">Logout</a>
+            {% else %}
+                <a href="{{ url_for('login') }}" class="link-button">Sign in</a>
+            {% endif %}
+        </div>
+    </header>
+
+    <div class="layout">
+        <aside class="sidebar">
+            <h3>Active batches</h3>
+            <div id="sidebar-progress" class="sidebar-progress">
+                {% if active_batches %}
+                    {% for batch in active_batches %}
+                        <div class="sidebar-batch" data-batch="{{ batch.name }}">
+                            <div class="sidebar-batch-name">{{ batch.name }}</div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: {{ batch.pct }}%"></div>
+                            </div>
+                            <div class="sidebar-batch-meta">
+                                <span class="mono">{{ batch.mine }}</span> /
+                                <span class="mono">{{ batch.total }}</span> reviewed
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="sidebar-empty">No active batches.</div>
+                {% endif %}
+            </div>
+
+            <h3>Help</h3>
+            <ul class="sidebar-links">
+                <li><a href="{{ url_for('instructions') }}">Reviewer guide</a></li>
+                {% if reviewer %}
+                    <li><a href="{{ url_for('dashboard') }}">My dashboard</a></li>
+                {% endif %}
+            </ul>
+        </aside>
+
+        <main>
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="flash-stack">
+                        {% for category, message in messages %}
+                            <div class="flash flash-{{ category }}">{{ message }}</div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            {% endwith %}
+
+            {% if error %}
+                <div class="flash flash-error">{{ error }}</div>
+            {% endif %}
+
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <footer>
+        <span class="meta-text">OenoBench &mdash; NeurIPS 2026 D&amp;B Track</span>
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

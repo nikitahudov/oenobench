@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}Register — OenoBench Review{% endblock %}
+
+{% block content %}
+{% set form = form or {} %}
+<section class="card narrow">
+    <h2>Register as reviewer</h2>
+    <p class="card-intro">
+        Tell us a bit about your wine credentials so we can attribute reviews and
+        match expertise to the question domains.
+    </p>
+    <form method="post" action="{{ url_for('register') }}" class="stack-form">
+        <label for="name">Full name</label>
+        <input
+            type="text"
+            id="name"
+            name="name"
+            required
+            autocomplete="name"
+            value="{{ form.name or '' }}"
+        >
+
+        <label for="email">Email</label>
+        <input
+            type="email"
+            id="email"
+            name="email"
+            required
+            autocomplete="email"
+            value="{{ form.email or request.args.get('email', '') }}"
+        >
+
+        <label for="credentials">Wine credentials</label>
+        <textarea
+            id="credentials"
+            name="credentials"
+            rows="3"
+            placeholder="WSET Diploma, Master Sommelier candidate, 10 yrs in restaurant trade…"
+        >{{ form.credentials or '' }}</textarea>
+
+        <fieldset class="domain-checks">
+            <legend>Areas of expertise</legend>
+            <p class="fieldset-help">
+                Select all domains where you'd be comfortable reviewing questions.
+            </p>
+            {% set selected = form.expertise_domains or [] %}
+            {% set domains = [
+                ('wine_regions',    'Wine regions'),
+                ('grape_varieties', 'Grape varieties'),
+                ('producers',       'Producers'),
+                ('viticulture',     'Viticulture'),
+                ('winemaking',      'Winemaking'),
+                ('wine_business',   'Wine business'),
+            ] %}
+            {% for slug, label in domains %}
+                <label class="check-row">
+                    <input
+                        type="checkbox"
+                        name="expertise_domains"
+                        value="{{ slug }}"
+                        {% if slug in selected %}checked{% endif %}
+                    >
+                    <span>{{ label }}</span>
+                </label>
+            {% endfor %}
+        </fieldset>
+
+        <button type="submit" class="btn btn-primary">Create account</button>
+    </form>
+</section>
+{% endblock %}
