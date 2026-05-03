@@ -2356,23 +2356,22 @@ Track B (sticky layout), Track C (rubric UX, embedded suggestions,
 autosave, keyboard shortcuts), and Track D (docs + smoke). The
 commits land on `main` in dependency order A → B → C → D.
 
-Track A commits: `<commit-hash-A1>` (migration 005 + 006, init.sql),
-`<commit-hash-A2>` (RUBRIC_COLUMNS → 8, /skip-question route,
-/admin/cleanup-test-batches route, _next_question_for exclude_ids),
-`<commit-hash-A3>` (export_reviews + tests).
+Track A commit: `c9408aa` (migrations 005 + 006, init.sql, RUBRIC_COLUMNS → 8,
+/skip-question + /admin/cleanup-test-batches routes, _next_question_for
+exclude_ids, export_reviews + tests).
 
-Track B commits: `<commit-hash-B1>` (sticky toolbar + question card +
-form-actions, source-facts open-by-default, tablet 901–1099 px
-breakpoint).
+Tracks B + C template/CSS commit: `5de9e3a` (sticky toolbar + question
+card + form-actions, source-facts open-by-default, tablet 901–1099 px
+breakpoint, 8-row rubric grid, embedded suggested_answer +
+suggested_difficulty, Show definitions toggle, Submit gate at HTML).
 
-Track C commits: `<commit-hash-C1>` (8-row rubric grid, embedded
-suggested_answer + suggested_difficulty), `<commit-hash-C2>`
-(autosave/rehydrate via localStorage, V verdict shortcut, Submit
-gate, idle timer, auto-grow notes, show-all-tips toggle).
+Track C JS commit: `1996e7d` (autosave/rehydrate via localStorage,
+V verdict shortcut, Submit gate, idle timer, auto-grow notes,
+show-all-tips toggle, skip POST to /skip-question).
 
-Track D commits: `<commit-hash-D1>` (HUMAN_REVIEW_GUIDE.md → 8
-rubrics + keyboard/skip/autosave sections; PROCESS_LOG entry; smoke
-script extension; README update).
+Track D commit: `09aea33` (HUMAN_REVIEW_GUIDE.md → 8 rubrics +
+keyboard/skip/autosave sections; this PROCESS_LOG entry; smoke script
+extension; README update).
 
 ### Sources & inputs
 
