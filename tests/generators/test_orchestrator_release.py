@@ -23,6 +23,7 @@ from src.generators import _question_db, orchestrator
 from src.generators._fact_sampler import DOMAIN_TARGETS
 from src.generators._question_db import BUILD_TAG_ENV_VAR
 from src.generators.orchestrator import (
+    DOMAIN_TO_COMPARISON_TYPES,
     DOMAIN_TO_SCENARIO_TYPES,
     GENERATOR_TARGETS,
     OVERALL_TARGET,
@@ -323,6 +324,132 @@ def test_dispatch_llm_strategy_non_scenario_keeps_legacy_shape(monkeypatch):
     assert len(calls) == len(GENERATOR_TARGETS) * len(DOMAIN_TARGETS), (
         f"unexpected cell count for non-scenario: {len(calls)}"
     )
+
+
+# ─── Phase 2j — DOMAIN_TO_COMPARISON_TYPES + cell explosion ─────────────────
+
+
+def test_domain_to_comparison_types_covers_all_domain_targets():
+    """Every domain in DOMAIN_TARGETS must have at least one comparison type
+    so _dispatch_llm_strategy("comparative") never falls through to the
+    defensive None fallback under normal operation.
+    """
+    assert set(DOMAIN_TO_COMPARISON_TYPES.keys()) == set(DOMAIN_TARGETS.keys()), (
+        f"Mismatch: DOMAIN_TO_COMPARISON_TYPES keys "
+        f"{set(DOMAIN_TO_COMPARISON_TYPES.keys())} vs DOMAIN_TARGETS keys "
+        f"{set(DOMAIN_TARGETS.keys())}"
+    )
+    valid_types = {"same_vs_different", "which_one", "most_least"}
+    for domain, types in DOMAIN_TO_COMPARISON_TYPES.items():
+        assert isinstance(types, list) and types, (
+            f"Domain {domain!r} has empty comparison-type list"
+        )
+        for t in types:
+            assert t in valid_types, (
+                f"Domain {domain!r} has invalid comparison_type {t!r}; "
+                f"valid: {valid_types}"
+            )
+
+
+def test_dispatch_llm_strategy_explodes_comparative_cells_across_types(monkeypatch):
+    """For comparative, each (domain, generator) cell must explode into
+    len(DOMAIN_TO_COMPARISON_TYPES[domain]) sub-cells, one per type.
+
+    Verified by recording every _run_strategy call (via monkeypatch) and
+    asserting the (domain → set_of_comparison_types) shape matches the map.
+    """
+    calls: list[dict] = []
+
+    def fake_run_strategy(module, **kwargs):
+        calls.append({"module": module, **kwargs})
+        return True
+
+    monkeypatch.setattr(orchestrator, "_run_strategy", fake_run_strategy)
+
+    _dispatch_llm_strategy(
+        strategy="comparative",
+        module="comparative_generator",
+        total_remaining=10_000,
+        existing_dgc={},
+        dry_run=True,
+        max_workers=1,
+    )
+
+    assert calls, "no cells were dispatched"
+    # Every dispatched call must carry a comparison_type for the comparative strategy
+    # and must NOT carry a scenario_type.
+    for c in calls:
+        assert c["comparison_type"] is not None, (
+            f"comparative cell missing comparison_type: {c}"
+        )
+        assert c["scenario_type"] is None, (
+            f"comparative cell unexpectedly carries scenario_type: {c}"
+        )
+
+    # Per-generator: each domain should appear with exactly the set of types
+    # named in DOMAIN_TO_COMPARISON_TYPES[domain].
+    n_generators = len(GENERATOR_TARGETS)
+    per_generator_per_domain: dict[tuple[str, str], set[str]] = {}
+    for c in calls:
+        key = (c["generator"], c["domain"])
+        per_generator_per_domain.setdefault(key, set()).add(c["comparison_type"])
+
+    expected_total_cells = 0
+    for generator in GENERATOR_TARGETS:
+        for domain, types in DOMAIN_TO_COMPARISON_TYPES.items():
+            observed = per_generator_per_domain.get((generator, domain))
+            assert observed == set(types), (
+                f"({generator}, {domain}) types mismatch: observed={observed}, "
+                f"expected={set(types)}"
+            )
+            expected_total_cells += len(types)
+
+    assert len(calls) == expected_total_cells, (
+        f"cell count mismatch: dispatched={len(calls)}, "
+        f"expected={expected_total_cells} "
+        f"(= n_generators({n_generators}) × sum(len(types))="
+        f"{sum(len(t) for t in DOMAIN_TO_COMPARISON_TYPES.values())})"
+    )
+
+
+def test_dispatch_llm_strategy_non_comparative_unchanged_by_comparison_type_map(monkeypatch):
+    """fact_to_question / distractor_mining cells must NOT receive a
+    comparison_type and must NOT explode into per-comparison-type sub-cells
+    just because DOMAIN_TO_COMPARISON_TYPES exists.
+    """
+    for strategy, module in [
+        ("fact_to_question", "fact_to_question"),
+        ("distractor_mining", "distractor_miner"),
+    ]:
+        calls: list[dict] = []
+
+        def fake_run_strategy(module, **kwargs):
+            calls.append({"module": module, **kwargs})
+            return True
+
+        monkeypatch.setattr(orchestrator, "_run_strategy", fake_run_strategy)
+
+        _dispatch_llm_strategy(
+            strategy=strategy,
+            module=module,
+            total_remaining=5_000,
+            existing_dgc={},
+            dry_run=True,
+            max_workers=1,
+        )
+
+        assert calls, f"no cells dispatched for {strategy}"
+        assert all(c["comparison_type"] is None for c in calls), (
+            f"{strategy} must not receive comparison_type"
+        )
+        assert all(c["scenario_type"] is None for c in calls), (
+            f"{strategy} must not receive scenario_type"
+        )
+        # Cell count stays n_generators × n_domains — no per-type explosion.
+        assert len(calls) == len(GENERATOR_TARGETS) * len(DOMAIN_TARGETS), (
+            f"{strategy}: unexpected cell count {len(calls)} (expected "
+            f"{len(GENERATOR_TARGETS) * len(DOMAIN_TARGETS)})"
+        )
 
 
 # ─── Phase 2j — --strategies filter ─────────────────────────────────────────

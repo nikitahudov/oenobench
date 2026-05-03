@@ -35,6 +35,8 @@ DOMAIN_TARGETS = {
 
 DOMAIN_ORDER = ["wine_regions", "grape_varieties", "producers", "viticulture", "winemaking", "wine_business"]
 
+DEADLINE = datetime(2026, 5, 4, tzinfo=timezone.utc)
+
 PROJECT_PHASES = [
     {
         "id": 1,
@@ -42,57 +44,56 @@ PROJECT_PHASES = [
         "status": "complete",
         "target": "15,000+ facts",
         "actual": None,
-        "details": "35 scrapers across 22 countries. Wikipedia, Wikidata SPARQL, government registries, academic journals, official wine bodies.",
+        "details": "35 genuine scrapers across 22 countries — Wikipedia + Wikidata SPARQL + government registries (INAO, TTB) + academic journals (UC Davis, OENO One) + official wine bodies. Full provenance rebuild April 2026.",
     },
     {
         "id": 2,
         "name": "Question Generation",
-        "status": "not_started",
-        "target": "7,000 raw \u2192 6,000 unique",
+        "status": "complete",
+        "target": "release_v1 corpus",
         "actual": None,
-        "details": "Multi-model generation to avoid self-preference bias in evaluation.",
+        "details": "5 generation strategies (fact-to-question, template, comparative, scenario synthesis, distractor mining) with multi-model prompts (Claude / GPT-5 / Gemini 2.5 / Llama / template). Build hit substantive-fact ceiling at ~2,535 release_v1 questions across all 6 domains.",
         "sub_tasks": [
-            {"name": "Prompt engineering & templates", "status": "not_started"},
-            {"name": "Claude generation (30%)", "status": "not_started"},
-            {"name": "GPT-4 generation (30%)", "status": "not_started"},
-            {"name": "Gemini generation (20%)", "status": "not_started"},
-            {"name": "Llama generation (10%)", "status": "not_started"},
-            {"name": "Template-based generation (10%)", "status": "not_started"},
-            {"name": "Deduplication & normalization", "status": "not_started"},
+            {"name": "Prompt engineering + 5 strategies (Phase 2 \u2192 2g)", "status": "complete"},
+            {"name": "Closed-book gate v2 + cb_reserve (Phase 2g.6)", "status": "complete"},
+            {"name": "10 speedup levers + cell-allocation fixes (Phase 2g.11\u201312)", "status": "complete"},
+            {"name": "Yield recovery: parse retries + dead-cell skip (Phase 2g.15)", "status": "complete"},
+            {"name": "Template quality push v14c (Phase 2g.16)", "status": "complete"},
+            {"name": "release_v1 build (Phase 2j)", "status": "complete"},
         ],
     },
     {
         "id": 3,
         "name": "AI Validation",
-        "status": "not_started",
-        "target": "5,500 validated",
+        "status": "complete",
+        "target": "9-agent audit framework",
         "actual": None,
-        "details": "Multi-model validator (3+ models must agree). Automated difficulty estimator with calibrated scores. Bias detection pass.",
+        "details": "Multi-team audit: Team A (lexical hygiene, bias stats, fact echo, template fingerprint), Team B (tri-judge answer consensus + closed-book solvability), Team C (category leak), Team D (self-preference, skew). Iterative audit_pilot v1\u2192v16 with Go/No-Go gates.",
     },
     {
         "id": 4,
-        "name": "Human Review & Control Set",
-        "status": "not_started",
-        "target": "5,000 + 300 human-authored",
+        "name": "Human Review",
+        "status": "in_progress",
+        "target": "Multi-expert review on release_v1",
         "actual": None,
-        "details": "Expert panel (3-5 wine domain experts) reviews flagged questions. 300 human-authored control questions for bias analysis.",
+        "details": "Web app on port 5556 \u2014 reviewers self-register, score 10 rubrics (pass/warn/fail) plus overall verdict, suggested-answer override, and notes. IRR-aware assignment ensures every question is reviewed by \u22652 reviewers when available, supporting Cohen's \u03ba reliability statistics.",
     },
     {
         "id": 5,
         "name": "Evaluation & Analysis",
-        "status": "not_started",
-        "target": "Full LLM benchmark",
+        "status": "in_progress",
+        "target": "16-config OpenRouter slate",
         "actual": None,
-        "details": "Evaluate target LLMs on held-out subsets. Self-Preference Score (SPS) analysis. Category-level scoring across all 6 domains.",
+        "details": "Sample-DB eval shipped 2026-05-02 against the 1,062-question `sample` schema. 14 model configs, 16,572 LLM calls, ~$31 spend, 28-min wall. Final eval against release_v1 + reasoning-stratified subset pending. SPS analysis to follow.",
     },
     {
         "id": 6,
         "name": "Publication & Release",
         "status": "not_started",
-        "target": "NeurIPS 2026",
+        "target": "NeurIPS 2026 D&B Track",
         "actual": None,
         "details": "Paper writing, ArXiv preprint, public dataset release on HuggingFace + GitHub.",
-        "deadline": "2026-05-15",
+        "deadline": "2026-05-04",
     },
 ]
 
@@ -160,20 +161,27 @@ def api_project():
     except Exception:
         total_questions = 0
 
+    try:
+        rows = _pg_query("SELECT count(*) AS cnt FROM questions WHERE 'release_v1' = ANY(tags)")
+        release_v1_count = rows[0]["cnt"]
+    except Exception:
+        release_v1_count = 0
+
     phases = copy.deepcopy(PROJECT_PHASES)
     phases[0]["actual"] = f"{total_facts:,} facts"
+    phases[1]["actual"] = f"{release_v1_count:,} questions"
 
-    deadline = datetime(2026, 5, 15, tzinfo=timezone.utc)
-    days_remaining = (deadline - datetime.now(timezone.utc)).days
+    days_remaining = (DEADLINE - datetime.now(timezone.utc)).days
 
     return jsonify({
         "phases": phases,
         "metrics": {
             "total_facts": total_facts,
             "total_questions": total_questions,
-            "target_questions": 5000,
+            "release_v1_count": release_v1_count,
+            "target_questions": release_v1_count or 2535,
             "days_until_deadline": max(days_remaining, 0),
-            "deadline": "2026-05-15",
+            "deadline": DEADLINE.date().isoformat(),
         },
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
@@ -394,6 +402,185 @@ def api_health():
     return jsonify({
         "services": services,
         "docker_stats": docker_stats,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+@app.route("/api/questions")
+@require_auth
+def api_questions():
+    """release_v1 corpus breakdown — per-strategy, per-domain, status counts."""
+    try:
+        status_rows = _pg_query(
+            "SELECT status, count(*) AS cnt FROM questions WHERE 'release_v1' = ANY(tags) GROUP BY status"
+        )
+        by_status = {r["status"]: r["cnt"] for r in status_rows}
+    except Exception:
+        by_status = {}
+
+    try:
+        strat_rows = _pg_query(
+            "SELECT gm.generation_method AS strategy, count(*) AS cnt "
+            "FROM questions q JOIN generation_metadata gm ON gm.question_id = q.id "
+            "WHERE 'release_v1' = ANY(q.tags) GROUP BY gm.generation_method ORDER BY cnt DESC"
+        )
+        by_strategy = [{"strategy": r["strategy"], "count": r["cnt"]} for r in strat_rows]
+    except Exception:
+        by_strategy = []
+
+    try:
+        domain_rows = _pg_query(
+            "SELECT domain, count(*) AS cnt FROM questions "
+            "WHERE 'release_v1' = ANY(tags) GROUP BY domain"
+        )
+        domain_counts = {r["domain"]: r["cnt"] for r in domain_rows}
+    except Exception:
+        domain_counts = {}
+
+    try:
+        diff_rows = _pg_query(
+            "SELECT difficulty::text AS difficulty, count(*) AS cnt FROM questions "
+            "WHERE 'release_v1' = ANY(tags) GROUP BY difficulty ORDER BY difficulty"
+        )
+        by_difficulty = [{"level": r["difficulty"], "count": r["cnt"]} for r in diff_rows]
+    except Exception:
+        by_difficulty = []
+
+    by_domain = []
+    total = sum(domain_counts.values())
+    for name in DOMAIN_ORDER:
+        cnt = domain_counts.get(name, 0)
+        by_domain.append({
+            "domain": name,
+            "count": cnt,
+            "pct": round(cnt / total * 100, 1) if total else 0,
+        })
+
+    return jsonify({
+        "tag": "release_v1",
+        "total": sum(by_status.values()),
+        "by_status": by_status,
+        "by_strategy": by_strategy,
+        "by_domain": by_domain,
+        "by_difficulty": by_difficulty,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+@app.route("/api/reviews")
+@require_auth
+def api_reviews():
+    """Human review progress — batches, reviewers, completed reviews."""
+    try:
+        rows = _pg_query("SELECT count(*) AS cnt FROM human_reviewers")
+        reviewer_count = rows[0]["cnt"]
+    except Exception:
+        reviewer_count = 0
+
+    try:
+        rows = _pg_query("SELECT count(*) AS cnt FROM human_reviews WHERE is_complete")
+        review_count = rows[0]["cnt"]
+    except Exception:
+        review_count = 0
+
+    try:
+        # Exclude pytest fixture batches (named test_batch_*)
+        batch_rows = _pg_query(
+            "SELECT b.name, b.question_count, b.created_at, "
+            "  count(DISTINCT hr.reviewer_id) FILTER (WHERE hr.is_complete) AS reviewer_count, "
+            "  count(*) FILTER (WHERE hr.is_complete) AS review_count, "
+            "  count(DISTINCT hr.question_id) FILTER (WHERE hr.is_complete) AS questions_with_review "
+            "FROM review_batches b "
+            "LEFT JOIN human_reviews hr ON hr.batch_id = b.id "
+            "WHERE b.name NOT LIKE 'test_batch_%%' "
+            "GROUP BY b.id, b.name, b.question_count, b.created_at "
+            "ORDER BY b.created_at DESC"
+        )
+        batches = [
+            {
+                "name": r["name"],
+                "question_count": r["question_count"],
+                "reviewer_count": r["reviewer_count"] or 0,
+                "review_count": r["review_count"] or 0,
+                "questions_with_review": r["questions_with_review"] or 0,
+                "coverage_pct": round((r["questions_with_review"] or 0) / r["question_count"] * 100, 1)
+                                if r["question_count"] else 0,
+            }
+            for r in batch_rows
+        ]
+    except Exception:
+        batches = []
+
+    try:
+        rev_rows = _pg_query(
+            "SELECT hu.name, hu.email, hu.credentials, count(hr.id) FILTER (WHERE hr.is_complete) AS reviews "
+            "FROM human_reviewers hu "
+            "LEFT JOIN human_reviews hr ON hr.reviewer_id = hu.id "
+            "GROUP BY hu.id, hu.name, hu.email, hu.credentials "
+            "ORDER BY reviews DESC NULLS LAST"
+        )
+        reviewers = [
+            {
+                "name": r["name"],
+                "email": r["email"],
+                "credentials": r["credentials"] or "",
+                "reviews": r["reviews"] or 0,
+            }
+            for r in rev_rows
+        ]
+    except Exception:
+        reviewers = []
+
+    return jsonify({
+        "reviewer_count": reviewer_count,
+        "review_count": review_count,
+        "batches": batches,
+        "reviewers": reviewers,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+@app.route("/api/evaluation")
+@require_auth
+def api_evaluation():
+    """LLM evaluation leaderboard from the latest run."""
+    try:
+        rows = _pg_query(
+            "SELECT ea.model_name, count(*) AS n, "
+            "  sum(CASE WHEN ea.is_correct THEN 1 ELSE 0 END) AS correct, "
+            "  round((avg(CASE WHEN ea.is_correct THEN 1.0 ELSE 0.0 END) * 100)::numeric, 1) AS pct "
+            "FROM evaluation_answers ea "
+            "WHERE ea.parsed_answer IS NOT NULL "
+            "GROUP BY ea.model_name "
+            "ORDER BY pct DESC NULLS LAST"
+        )
+        leaderboard = [
+            {
+                "model": r["model_name"],
+                "n": r["n"],
+                "correct": r["correct"],
+                "pct": float(r["pct"]) if r["pct"] is not None else 0.0,
+            }
+            for r in rows
+        ]
+    except Exception:
+        leaderboard = []
+
+    try:
+        run_rows = _pg_query(
+            "SELECT count(*) AS cnt, max(started_at) AS latest_run "
+            "FROM evaluation_runs"
+        )
+        run_count = run_rows[0]["cnt"]
+        latest = run_rows[0]["latest_run"].isoformat() if run_rows[0]["latest_run"] else None
+    except Exception:
+        run_count = 0
+        latest = None
+
+    return jsonify({
+        "run_count": run_count,
+        "latest_run": latest,
+        "leaderboard": leaderboard,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 

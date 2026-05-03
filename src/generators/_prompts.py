@@ -298,9 +298,21 @@ COMPARATIVE_TEMPLATE = (
 type, yield limit, phenolic threshold, clone name, altitude, specific \
 varietal %, regulatory minimum, blend percentage) and ask the test-taker \
 to infer which entity it describes.
-- If both facts describe only iconic entities with no fact-specific \
-technical/regulatory/attribute detail, output instead: \
-{{"skip": true, "reason": "Iconic entities without fact-specific technical depth"}}
+- ICONIC-SKIP RULE (TYPE-CONDITIONAL on COMPARISON TYPE below):
+  * For comparison types `most_least` and `same_vs_different`: if both \
+facts describe only iconic entities with no fact-specific \
+technical/regulatory/attribute detail, output: \
+{{"skip": true, "reason": "Iconic entities without fact-specific technical depth"}}. \
+These framings test technical/quantitative depth, so name-recognition \
+answers are world-knowledge-solvable.
+  * For comparison type `which_one`: iconic entities ARE valid subjects — \
+"which of these famous entities matches attribute X" is a legitimate \
+identification framing PROVIDED the answer pivots on a specific \
+source-fact detail (an attribute, number, or regulatory clause that \
+appears verbatim or paraphrased in the facts). Skip ONLY if the facts \
+contain no usable retrievable detail to anchor the identification \
+clue on (e.g., the fact text is a fragment, a bare name with no \
+predicate, or otherwise has zero detail beyond the entity name).
 
 ENTITY A: {entity_a}
 FACT A: {fact_a}
@@ -338,7 +350,13 @@ question unanswerable
 
 SKIP CONDITIONS — output {{"skip": true, "reason": "..."}} if:
 - The two facts don't contain a meaningful, testable comparison
-- The entities are from completely different countries with no shared context
+- Cross-country pairs ARE acceptable when the comparison hinges on a \
+comparable attribute that BOTH source facts independently anchor (e.g., \
+"Pinot Noir in Burgundy vs Oregon: which has the higher minimum aging?"). \
+Do NOT skip purely on country mismatch.
+- Skip ONLY when the two facts share no comparable attribute at all (e.g., \
+one fact is about producer founding year, the other about a grape's \
+botanical origin — no axis of comparison).
 - The only possible question would test trivial metadata, not wine knowledge
 
 OUTPUT FORMAT (JSON):
@@ -413,9 +431,16 @@ COMPARATIVE_TEMPLATE_WHICH_ONE = (
 - DO build the identification clue set from OBSERVABLE ATTRIBUTES (aging \
 months, soil type, yield limit, phenolic threshold, clone name, altitude, \
 varietal %, regulatory minimum, blend percentage) drawn from the facts.
-- If the facts provide only famous names with no fact-specific technical \
-detail, output instead: \
-{{"skip": true, "reason": "Iconic entities without fact-specific technical depth"}}
+- ICONIC-ENTITY POLICY (which_one is RELAXED): Iconic entities are \
+LEGITIMATE subjects for "which of these famous entities matches \
+attribute X" identification framings, provided the answer pivots on a \
+specific source-fact detail (an attribute, number, or regulatory clause \
+that appears verbatim or paraphrased in the facts). Skip ONLY if the \
+facts contain no usable retrievable detail to anchor the identification \
+clue on (e.g., the fact text is a fragment, a bare name with no \
+predicate, or otherwise has zero detail beyond the entity name). In \
+that case output: \
+{{"skip": true, "reason": "Source facts contain no retrievable detail to anchor an identification clue"}}.
 
 {facts_block}
 

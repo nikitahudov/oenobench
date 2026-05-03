@@ -354,6 +354,32 @@ def reset_ubiquity_filtered_count() -> None:
     _UBIQUITY_FILTERED_COUNT = 0
 
 
+# Phase 5 release_v1 follow-up: the comparative strategy was returning ZERO
+# candidate pairs for producers / wine_business / winemaking / viticulture
+# because the strict candidate-set query (same country OR same subdomain)
+# was over-restrictive for the sparse long-tail domains. ``sample_fact_pairs``
+# now runs a strict pass first (preserves the historical contract) and, only
+# if it falls short, runs a loose fallback (same domain + same etype only)
+# to backfill. Loose pairs are tagged ``_pair_strictness="loose"`` on both
+# facts so downstream callers can downstream-filter or weight them.
+_PAIR_STRICTNESS_COUNTS: dict[str, int] = {"strict": 0, "loose": 0}
+
+
+def get_pair_strictness_counts() -> dict[str, int]:
+    """Return a copy of the strict/loose pair admission counters.
+
+    Telemetry hook for the Phase 5 comparative-yield investigation: how often
+    did the loose fallback fire vs. how many strict pairs survived?
+    """
+    return dict(_PAIR_STRICTNESS_COUNTS)
+
+
+def reset_pair_strictness_counts() -> None:
+    """Reset the strict/loose pair counters (useful in tests)."""
+    _PAIR_STRICTNESS_COUNTS["strict"] = 0
+    _PAIR_STRICTNESS_COUNTS["loose"] = 0
+
+
 def _fact_has_ubiquitous_grape(fact_text: str) -> bool:
     """Convenience: True if the fact's extracted grape name is in the ubiquity set."""
     name = _extract_grape_name(fact_text)
@@ -1552,16 +1578,57 @@ def sample_fact_pairs(
             ``ceil(per_country_cap * count * 2)`` facts to the returned set
             (pairs contribute 2 facts each toward the country quota). Default
             ``None`` preserves the prior behaviour (no per-call cap).
+
+    Phase 5 release_v1 follow-up: the candidate-set query has been loosened
+    to recover the empty (generator × domain) cells producers, wine_business,
+    winemaking, viticulture. Two changes:
+
+    1. The base ``entity_facts`` CTE now (a) accepts a wider entity-type
+       whitelist that includes the long-tail classification labels our
+       scrapers tag (DOC/AOC sub-tiers, classification systems, AVA, IGP,
+       DOCa, AOP, style); (b) drops the ``length > 40`` floor to ``>= 30``;
+       and (c) admits facts with a country tag even when ``subdomain`` is
+       NULL.
+    2. The pairing JOIN gains a third "same-subdomain across countries" arm
+       and is followed by a SECOND, looser fallback query that drops the
+       country/subdomain matching entirely and only requires same domain +
+       same etype. The fallback only runs if the strict pass returned fewer
+       than ``count`` pairs; loose-pair facts are tagged with
+       ``_pair_strictness="loose"`` so callers may downstream-filter or
+       weight them. ``_PAIR_STRICTNESS_COUNTS`` tracks how often each path
+       contributed to the returned set.
     """
     conn = get_pg()
     cur = conn.cursor()
     exclude = list(exclude_ids) if exclude_ids else []
 
+    # ── Strict pass ────────────────────────────────────────────────────
     # Entity-based pairing: find pairs of facts that mention different entities
-    # of the same type, constrained by country (or subdomain when country is
-    # absent). This prevents nonsensical cross-country comparisons.
-    cur.execute(
-        """
+    # of the same type, constrained by country (with a same-subdomain fallback
+    # for facts that lack a country tag). Prevents nonsensical cross-country
+    # comparisons by default.
+    #
+    # Entity-type whitelist (Phase 5 release_v1 expansion):
+    #   region, grape, appellation, producer    — original four
+    #   classification, style                   — generic classification
+    #                                             labels our scrapers tag
+    #   doc, aoc, docg, ava, doca, igp, aop     — DOC/AOC sub-tiers and
+    #                                             nation-specific quality
+    #                                             classification systems
+    # These long-tail types unlock pair candidates in producers /
+    # wine_business / winemaking / viticulture where the original four-type
+    # whitelist returned ZERO rows for most generator × domain cells.
+    #
+    # Length floor 40 → 30: a 30-char fact is still substantive ("Barolo
+    # requires 38 months aging" = 31 chars) and is a valid comparison side.
+    # The downstream ``_is_fact_specific`` / ``_is_fact_rich`` /
+    # ``_is_fact_substantive`` filters still reject thin facts.
+    #
+    # Subdomain relaxation: ``subdomain IS NOT NULL OR country IS NOT NULL``
+    # admits facts that have a country entity but no subdomain — there are
+    # plenty of such facts in producers / wine_business and the country
+    # alone is enough geographic context to pair on.
+    _STRICT_SQL = """
         WITH entity_facts AS (
             SELECT f.id, f.fact_text, f.domain, f.subdomain,
                    f.entities, f.source_id, s.name AS source_name,
@@ -1574,10 +1641,17 @@ def sample_fact_pairs(
             jsonb_array_elements(f.entities) e
             WHERE f.domain = %s
               AND f.confidence >= 0.7
-              AND f.subdomain IS NOT NULL
-              AND length(f.fact_text) > 40
-              AND e->>'type' IN ('region', 'grape', 'appellation', 'producer')
+              AND length(f.fact_text) >= 30
+              AND e->>'type' IN (
+                  'region', 'grape', 'appellation', 'producer',
+                  'classification', 'style',
+                  'doc', 'aoc', 'docg', 'ava', 'doca', 'igp', 'aop'
+              )
               AND NOT (f.id = ANY(%s::uuid[]))
+        ),
+        admissible AS (
+            SELECT * FROM entity_facts
+            WHERE subdomain IS NOT NULL OR country IS NOT NULL
         )
         SELECT
             a.id AS a_id, a.fact_text AS a_text, a.domain AS a_domain,
@@ -1591,41 +1665,31 @@ def sample_fact_pairs(
             b.source_id AS b_source_id, b.source_name AS b_source_name,
             b.source_url AS b_source_url, b.confidence AS b_confidence,
             b.tags AS b_tags
-        FROM entity_facts a
-        JOIN entity_facts b
+        FROM admissible a
+        JOIN admissible b
           ON a.etype = b.etype
           AND a.ename != b.ename
           AND a.id < b.id
           AND (
+              -- Arm 1: same country (original behaviour).
               (a.country IS NOT NULL AND a.country = b.country)
-              OR (a.country IS NULL AND b.country IS NULL AND a.subdomain = b.subdomain)
+              -- Arm 2: both country-less, same subdomain (original fallback).
+              OR (a.country IS NULL AND b.country IS NULL
+                  AND a.subdomain IS NOT NULL AND a.subdomain = b.subdomain)
+              -- Arm 3 (Phase 5): same subdomain across different countries.
+              -- Unlocks pairs like "Two appellations growing the same grape"
+              -- where the subdomain encodes the comparable trait but the
+              -- country tags differ.
+              OR (a.subdomain IS NOT NULL AND a.subdomain = b.subdomain
+                  AND a.country IS NOT NULL AND b.country IS NOT NULL
+                  AND a.country <> b.country)
           )
         ORDER BY random()
         LIMIT %s
-        """,
-        (domain, exclude, count * 20),
-    )
+        """
+    cur.execute(_STRICT_SQL, (domain, exclude, count * 20))
 
-    rows = cur.fetchall()
-
-    # Phase 2g.17: post-filter rows where BOTH facts contain the SAME ubiquitous
-    # grape — e.g. "Napa + Cabernet" vs "Bordeaux + Cabernet". Such pairs produce
-    # ambiguous comparative questions ("Which region makes better Cabernet?").
-    # Pairs where the two grapes differ, or neither is ubiquitous, are kept.
-    global _UBIQUITY_FILTERED_COUNT
-    filtered_rows = []
-    for row in rows:
-        a_text, b_text = row["a_text"], row["b_text"]
-        if _fact_has_ubiquitous_grape(a_text) and _fact_has_ubiquitous_grape(b_text):
-            name_a = _extract_grape_name(a_text)
-            name_b = _extract_grape_name(b_text)
-            if (name_a is not None and name_b is not None
-                    and _normalise_grape_name(name_a) == _normalise_grape_name(name_b)):
-                _UBIQUITY_FILTERED_COUNT += 1
-                logger.debug("dropped same-ubiquitous-grape pair | grape={}", _normalise_grape_name(name_a))
-                continue
-        filtered_rows.append(row)
-    rows = filtered_rows
+    strict_rows = cur.fetchall()
 
     # Phase 2g.18: substantiveness filter for fact pairs. v16 smoke pilot
     # showed comparative=0/15 yield because Gemini correctly declined pairs
@@ -1636,60 +1700,6 @@ def sample_fact_pairs(
         os.environ.get(_FACT_SUBSTANTIVE_ENV_VAR, "").strip() == "1"
         or require_substantive
     )
-
-    # Score all candidates by entity affinity + dimension match
-    scored: list[tuple[float, str, dict, str | None, str]] = []
-    for row in rows:
-        a_text, b_text = row["a_text"], row["b_text"]
-        if not _is_fact_specific(a_text) or not _is_fact_specific(b_text):
-            continue
-        if not _is_fact_rich(a_text) or not _is_fact_rich(b_text):
-            continue
-        if substantive_filter_on:
-            if not _is_fact_substantive(a_text) or not _is_fact_substantive(b_text):
-                continue
-        # Stricter minimum for comparative: short facts are too thin
-        if len(a_text.split()) < 18 or len(b_text.split()) < 18:
-            if not (_WINE_CONTENT_SIGNALS.search(a_text) and _WINE_CONTENT_SIGNALS.search(b_text)):
-                continue
-
-        # Plan §10 — wine-category leak guard. If both facts have a detectable
-        # wine category and they DIFFER, reject the pair so we never compare
-        # a sparkling fact against a red fact (or similar). Pairs where one
-        # or both facts are category-unclassifiable are allowed through.
-        cat_a = _classify_wine_category(a_text)
-        cat_b = _classify_wine_category(b_text)
-        if cat_a and cat_b and cat_a != cat_b:
-            continue
-
-        map_a = _extract_entity_map(row["a_entities"])
-        map_b = _extract_entity_map(row["b_entities"])
-        affinity, reason = _entity_affinity_score(map_a, map_b)
-        if affinity < 0.2:
-            continue
-
-        # Dimension classification and scoring
-        dim_a = _classify_dimension(a_text)
-        dim_b = _classify_dimension(b_text)
-
-        if dim_a is not None and dim_a == dim_b:
-            affinity += 0.4
-            reason += f"; same dimension ({dim_a})"
-        elif dim_a is not None and dim_b is not None and dim_a != dim_b:
-            affinity -= 0.2
-            reason += f"; dimension mismatch ({dim_a} vs {dim_b})"
-        elif dim_a is None and dim_b is None:
-            # Both unclassified — require keyword overlap as fallback
-            kw_overlap = len(_content_keywords(a_text) & _content_keywords(b_text))
-            if kw_overlap < 3:
-                continue
-            reason += f"; keyword overlap ({kw_overlap})"
-
-        auto_type = _auto_comparison_type(dim_a, dim_b, a_text, b_text)
-        scored.append((affinity, reason, row, dim_a, auto_type))
-
-    # Sort by affinity descending — best pairs first
-    scored.sort(key=lambda x: x[0], reverse=True)
 
     pairs: list[tuple[dict, dict]] = []
     seen_ids: set[str] = set()
@@ -1707,96 +1717,257 @@ def sample_fact_pairs(
     )
     per_call_country_count: dict[str, int] = defaultdict(int)
 
-    for affinity, reason, row, dim, auto_type in scored:
-        if len(pairs) >= count:
-            break
-        a_id, b_id = str(row["a_id"]), str(row["b_id"])
-        # Avoid reusing the same fact in multiple pairs
-        if a_id in seen_ids or b_id in seen_ids:
-            continue
+    def _ubiquity_filter(rows_in: list) -> list:
+        """Drop rows where BOTH facts contain the SAME ubiquitous grape.
 
-        fact_a = {
-            "id": row["a_id"], "fact_text": row["a_text"],
-            "domain": row["a_domain"], "subdomain": row["a_sub"],
-            "entities": row["a_entities"], "source_id": row["a_source_id"],
-            "source_name": row["a_source_name"], "source_url": row["a_source_url"],
-            "confidence": row["a_confidence"], "tags": row["a_tags"],
-            "_comparison_context": reason,
-            "_dimension": dim,
-            "_auto_comparison_type": auto_type,
-            "_matched_entity_name": row["a_entity"],
-        }
-        fact_b = {
-            "id": row["b_id"], "fact_text": row["b_text"],
-            "domain": row["a_domain"], "subdomain": row["b_sub"],
-            "entities": row["b_entities"], "source_id": row["b_source_id"],
-            "source_name": row["b_source_name"], "source_url": row["b_source_url"],
-            "confidence": row["b_confidence"], "tags": row["b_tags"],
-            "_dimension": dim,
-            "_matched_entity_name": row["b_entity"],
-        }
-        # v2.3 Phase F — iconic anchor requirement. If BOTH facts in the pair
-        # are iconic-only, the comparative question is world-knowledge-solvable
-        # ("Compare Château Margaux to Château Latour") — reject. A pair with
-        # ≥1 non-iconic anchor fact is fine: the anchor fact supplies the
-        # fact-specific attribute the question must key on.
-        if not _bundle_has_non_iconic_anchor([fact_a, fact_b]):
-            iconic_bundle_rejected += 1
-            continue
-        # v2.3 fix #17 — enforce the 1.2x hard cap BEFORE accepting the pair.
-        # We admit both facts atomically: if admitting the first would fit
-        # but admitting the second would not, roll back the first. This keeps
-        # the country quota honest across all generator strategies.
-        country_a = _extract_country_from_entities(fact_a.get("entities"))
-        country_b = _extract_country_from_entities(fact_b.get("entities"))
+        Phase 2g.17 invariant: such pairs produce ambiguous comparative
+        questions ("Which region makes better Cabernet?"). Different
+        ubiquitous grapes (Cab vs Pinot) and non-ubiquitous grapes pass.
+        """
+        global _UBIQUITY_FILTERED_COUNT
+        out = []
+        for row in rows_in:
+            a_text, b_text = row["a_text"], row["b_text"]
+            if _fact_has_ubiquitous_grape(a_text) and _fact_has_ubiquitous_grape(b_text):
+                name_a = _extract_grape_name(a_text)
+                name_b = _extract_grape_name(b_text)
+                if (name_a is not None and name_b is not None
+                        and _normalise_grape_name(name_a) == _normalise_grape_name(name_b)):
+                    _UBIQUITY_FILTERED_COUNT += 1
+                    logger.debug(
+                        "dropped same-ubiquitous-grape pair | grape={}",
+                        _normalise_grape_name(name_a),
+                    )
+                    continue
+            out.append(row)
+        return out
 
-        # Per-call absolute cap (Team ε). Both facts of a pair count toward
-        # the same country if they share one — admit atomically.
-        if per_call_max is not None:
-            added_a = 1 if country_a is not None else 0
-            added_b = 1 if country_b is not None else 0
-            if country_a is not None and country_a == country_b:
-                # Same-country pair: total addition is 2, must fit at once.
-                if per_call_country_count[country_a] + 2 > per_call_max:
-                    per_call_capped += 1
+    def _score_rows(rows_in: list) -> list:
+        """Apply quality filters and score by entity affinity + dimension match."""
+        scored_out: list[tuple[float, str, dict, str | None, str]] = []
+        for row in rows_in:
+            a_text, b_text = row["a_text"], row["b_text"]
+            if not _is_fact_specific(a_text) or not _is_fact_specific(b_text):
+                continue
+            if not _is_fact_rich(a_text) or not _is_fact_rich(b_text):
+                continue
+            if substantive_filter_on:
+                if not _is_fact_substantive(a_text) or not _is_fact_substantive(b_text):
                     continue
-            else:
-                if (
-                    country_a is not None
-                    and per_call_country_count[country_a] + added_a > per_call_max
-                ):
-                    per_call_capped += 1
-                    continue
-                if (
-                    country_b is not None
-                    and per_call_country_count[country_b] + added_b > per_call_max
-                ):
-                    per_call_capped += 1
+            # Stricter minimum for comparative: short facts are too thin
+            if len(a_text.split()) < 18 or len(b_text.split()) < 18:
+                if not (_WINE_CONTENT_SIGNALS.search(a_text) and _WINE_CONTENT_SIGNALS.search(b_text)):
                     continue
 
-        if not _cap_admit_and_record(country_a):
-            capped += 1
-            continue
-        if not _cap_admit_and_record(country_b):
-            # Roll back the A admission so the counters stay consistent.
-            with _QUOTA_LOCK:
-                global _TOTAL_RETURNED, _TOTAL_RETURNED_TAGGED
-                _TOTAL_RETURNED -= 1
-                if country_a:
-                    _TOTAL_RETURNED_TAGGED -= 1
-                    if _COUNTRY_USAGE.get(country_a, 0) > 0:
-                        _COUNTRY_USAGE[country_a] -= 1
-                        if _COUNTRY_USAGE[country_a] == 0:
-                            del _COUNTRY_USAGE[country_a]
-            capped += 1
-            continue
-        pairs.append((fact_a, fact_b))
-        seen_ids.update({a_id, b_id})
-        # Per-call cap bookkeeping (Team ε).
-        if country_a is not None:
-            per_call_country_count[country_a] += 1
-        if country_b is not None:
-            per_call_country_count[country_b] += 1
+            # Plan §10 — wine-category leak guard. If both facts have a detectable
+            # wine category and they DIFFER, reject the pair so we never compare
+            # a sparkling fact against a red fact (or similar). Pairs where one
+            # or both facts are category-unclassifiable are allowed through.
+            cat_a = _classify_wine_category(a_text)
+            cat_b = _classify_wine_category(b_text)
+            if cat_a and cat_b and cat_a != cat_b:
+                continue
+
+            map_a = _extract_entity_map(row["a_entities"])
+            map_b = _extract_entity_map(row["b_entities"])
+            affinity, reason = _entity_affinity_score(map_a, map_b)
+            if affinity < 0.2:
+                continue
+
+            # Dimension classification and scoring
+            dim_a = _classify_dimension(a_text)
+            dim_b = _classify_dimension(b_text)
+
+            if dim_a is not None and dim_a == dim_b:
+                affinity += 0.4
+                reason += f"; same dimension ({dim_a})"
+            elif dim_a is not None and dim_b is not None and dim_a != dim_b:
+                affinity -= 0.2
+                reason += f"; dimension mismatch ({dim_a} vs {dim_b})"
+            elif dim_a is None and dim_b is None:
+                # Both unclassified — require keyword overlap as fallback
+                kw_overlap = len(_content_keywords(a_text) & _content_keywords(b_text))
+                if kw_overlap < 3:
+                    continue
+                reason += f"; keyword overlap ({kw_overlap})"
+
+            auto_type = _auto_comparison_type(dim_a, dim_b, a_text, b_text)
+            scored_out.append((affinity, reason, row, dim_a, auto_type))
+        return scored_out
+
+    def _admit_pairs(scored_in: list, strictness: str) -> None:
+        """Walk scored candidates, applying iconic-anchor + country caps.
+
+        Mutates the enclosing ``pairs`` / ``seen_ids`` / ``per_call_country_count``
+        and ``capped`` / ``iconic_bundle_rejected`` / ``per_call_capped``
+        counters via ``nonlocal``. Pairs admitted here are tagged with
+        ``_pair_strictness=<strictness>`` and the module-level
+        ``_PAIR_STRICTNESS_COUNTS`` counter is incremented per admitted pair.
+        """
+        nonlocal capped, iconic_bundle_rejected, per_call_capped
+        for affinity, reason, row, dim, auto_type in scored_in:
+            if len(pairs) >= count:
+                break
+            a_id, b_id = str(row["a_id"]), str(row["b_id"])
+            # Avoid reusing the same fact in multiple pairs
+            if a_id in seen_ids or b_id in seen_ids:
+                continue
+
+            fact_a = {
+                "id": row["a_id"], "fact_text": row["a_text"],
+                "domain": row["a_domain"], "subdomain": row["a_sub"],
+                "entities": row["a_entities"], "source_id": row["a_source_id"],
+                "source_name": row["a_source_name"], "source_url": row["a_source_url"],
+                "confidence": row["a_confidence"], "tags": row["a_tags"],
+                "_comparison_context": reason,
+                "_dimension": dim,
+                "_auto_comparison_type": auto_type,
+                "_matched_entity_name": row["a_entity"],
+                "_pair_strictness": strictness,
+            }
+            fact_b = {
+                "id": row["b_id"], "fact_text": row["b_text"],
+                "domain": row["a_domain"], "subdomain": row["b_sub"],
+                "entities": row["b_entities"], "source_id": row["b_source_id"],
+                "source_name": row["b_source_name"], "source_url": row["b_source_url"],
+                "confidence": row["b_confidence"], "tags": row["b_tags"],
+                "_dimension": dim,
+                "_matched_entity_name": row["b_entity"],
+                "_pair_strictness": strictness,
+            }
+            # v2.3 Phase F — iconic anchor requirement. If BOTH facts in the
+            # pair are iconic-only, the comparative question is world-knowledge-
+            # solvable ("Compare Château Margaux to Château Latour") — reject.
+            if not _bundle_has_non_iconic_anchor([fact_a, fact_b]):
+                iconic_bundle_rejected += 1
+                continue
+            # v2.3 fix #17 — enforce the 1.2x hard cap BEFORE accepting.
+            country_a = _extract_country_from_entities(fact_a.get("entities"))
+            country_b = _extract_country_from_entities(fact_b.get("entities"))
+
+            # Per-call absolute cap (Team ε). Both facts of a pair count toward
+            # the same country if they share one — admit atomically.
+            if per_call_max is not None:
+                added_a = 1 if country_a is not None else 0
+                added_b = 1 if country_b is not None else 0
+                if country_a is not None and country_a == country_b:
+                    if per_call_country_count[country_a] + 2 > per_call_max:
+                        per_call_capped += 1
+                        continue
+                else:
+                    if (
+                        country_a is not None
+                        and per_call_country_count[country_a] + added_a > per_call_max
+                    ):
+                        per_call_capped += 1
+                        continue
+                    if (
+                        country_b is not None
+                        and per_call_country_count[country_b] + added_b > per_call_max
+                    ):
+                        per_call_capped += 1
+                        continue
+
+            if not _cap_admit_and_record(country_a):
+                capped += 1
+                continue
+            if not _cap_admit_and_record(country_b):
+                # Roll back the A admission so the counters stay consistent.
+                with _QUOTA_LOCK:
+                    global _TOTAL_RETURNED, _TOTAL_RETURNED_TAGGED
+                    _TOTAL_RETURNED -= 1
+                    if country_a:
+                        _TOTAL_RETURNED_TAGGED -= 1
+                        if _COUNTRY_USAGE.get(country_a, 0) > 0:
+                            _COUNTRY_USAGE[country_a] -= 1
+                            if _COUNTRY_USAGE[country_a] == 0:
+                                del _COUNTRY_USAGE[country_a]
+                capped += 1
+                continue
+            pairs.append((fact_a, fact_b))
+            seen_ids.update({a_id, b_id})
+            # Per-call cap bookkeeping (Team ε).
+            if country_a is not None:
+                per_call_country_count[country_a] += 1
+            if country_b is not None:
+                per_call_country_count[country_b] += 1
+            # Strict/loose telemetry.
+            _PAIR_STRICTNESS_COUNTS[strictness] = (
+                _PAIR_STRICTNESS_COUNTS.get(strictness, 0) + 1
+            )
+
+    # ── Strict pass ────────────────────────────────────────────────────
+    strict_filtered = _ubiquity_filter(strict_rows)
+    strict_scored = _score_rows(strict_filtered)
+    strict_scored.sort(key=lambda x: x[0], reverse=True)
+    _admit_pairs(strict_scored, "strict")
+
+    # ── Loose fallback ────────────────────────────────────────────────
+    # Only fires if the strict pass returned fewer than ``count`` pairs.
+    # The loose query drops the country/subdomain match constraint entirely
+    # and only requires same domain + same etype, so it will surface pairs
+    # the strict pass couldn't construct (e.g. cross-country/cross-subdomain
+    # producer or wine_business comparisons). Loose pairs are appended AFTER
+    # strict pairs so callers that only inspect the head of the list still
+    # see the highest-quality matches first; downstream callers may key off
+    # ``_pair_strictness`` to filter or weight the looser tail.
+    if len(pairs) < count:
+        deficit = count - len(pairs)
+        # Carry the IDs we've already admitted so the loose query doesn't
+        # re-surface the same facts.
+        loose_exclude = list({*exclude, *seen_ids})
+        _LOOSE_SQL = """
+            WITH entity_facts AS (
+                SELECT f.id, f.fact_text, f.domain, f.subdomain,
+                       f.entities, f.source_id, s.name AS source_name,
+                       s.url AS source_url, f.confidence, f.tags,
+                       e->>'type' AS etype, e->>'name' AS ename,
+                       (SELECT e2->>'name' FROM jsonb_array_elements(f.entities) e2
+                        WHERE e2->>'type' = 'country' LIMIT 1) AS country
+                FROM facts f
+                JOIN sources s ON s.id = f.source_id,
+                jsonb_array_elements(f.entities) e
+                WHERE f.domain = %s
+                  AND f.confidence >= 0.7
+                  AND length(f.fact_text) >= 30
+                  AND e->>'type' IN (
+                      'region', 'grape', 'appellation', 'producer',
+                      'classification', 'style',
+                      'doc', 'aoc', 'docg', 'ava', 'doca', 'igp', 'aop'
+                  )
+                  AND NOT (f.id = ANY(%s::uuid[]))
+            )
+            SELECT
+                a.id AS a_id, a.fact_text AS a_text, a.domain AS a_domain,
+                a.subdomain AS a_sub, a.entities AS a_entities,
+                a.source_id AS a_source_id, a.source_name AS a_source_name,
+                a.source_url AS a_source_url, a.confidence AS a_confidence,
+                a.tags AS a_tags, a.etype AS shared_type,
+                a.ename AS a_entity, b.ename AS b_entity,
+                b.id AS b_id, b.fact_text AS b_text,
+                b.subdomain AS b_sub, b.entities AS b_entities,
+                b.source_id AS b_source_id, b.source_name AS b_source_name,
+                b.source_url AS b_source_url, b.confidence AS b_confidence,
+                b.tags AS b_tags
+            FROM entity_facts a
+            JOIN entity_facts b
+              ON a.etype = b.etype
+              AND a.ename != b.ename
+              AND a.id < b.id
+              -- No country / subdomain constraint: only same domain + same
+              -- etype. Quality control still flows through the post-filters
+              -- (affinity score, ubiquity, iconic, dimension match, country
+              -- caps), so loose pairs that survive are still substantive.
+            ORDER BY random()
+            LIMIT %s
+            """
+        cur2 = conn.cursor()
+        cur2.execute(_LOOSE_SQL, (domain, loose_exclude, deficit * 20))
+        loose_rows = cur2.fetchall()
+        loose_filtered = _ubiquity_filter(loose_rows)
+        loose_scored = _score_rows(loose_filtered)
+        loose_scored.sort(key=lambda x: x[0], reverse=True)
+        _admit_pairs(loose_scored, "loose")
 
     if capped:
         logger.debug(

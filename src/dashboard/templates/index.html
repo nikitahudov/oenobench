@@ -79,9 +79,116 @@
             <div id="source-distribution" class="source-bar-chart"></div>
         </section>
 
-        <!-- Section 3: Upcoming Phases -->
+        <!-- Section 3: Question Generation (release_v1) -->
         <section class="card full-width">
-            <h2>Upcoming Phases</h2>
+            <h2>Question Generation <span class="badge badge-complete">release_v1</span></h2>
+            <div class="summary-row" id="questions-summary">
+                <div class="stat-box">
+                    <span class="stat-value" id="q-total">--</span>
+                    <span class="stat-label">release_v1 Questions</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-value" id="q-draft">--</span>
+                    <span class="stat-label">Draft</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-value" id="q-cb-reserve">--</span>
+                    <span class="stat-label">cb_reserve</span>
+                </div>
+            </div>
+
+            <div class="two-col">
+                <div>
+                    <h3>By Strategy</h3>
+                    <div id="strategy-bars" class="source-bar-chart"></div>
+                </div>
+                <div>
+                    <h3>By Domain</h3>
+                    <div id="qdomain-bars" class="source-bar-chart"></div>
+                </div>
+            </div>
+
+            <h3>By Difficulty</h3>
+            <div id="difficulty-row" class="difficulty-row"></div>
+        </section>
+
+        <!-- Section 4: Human Review -->
+        <section class="card full-width">
+            <h2>Human Review <span class="badge badge-in-progress">in progress</span></h2>
+            <div class="summary-row" id="reviews-summary">
+                <div class="stat-box">
+                    <span class="stat-value" id="reviewer-count">--</span>
+                    <span class="stat-label">Registered Reviewers</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-value" id="review-count">--</span>
+                    <span class="stat-label">Reviews Submitted</span>
+                </div>
+                <div class="stat-box wide">
+                    <span class="stat-label">Active Batches</span>
+                    <span class="meta-text" id="batch-meta">\u2014</span>
+                </div>
+            </div>
+
+            <h3>Batches</h3>
+            <table class="data-table" id="batches-table">
+                <thead>
+                    <tr>
+                        <th>Batch</th>
+                        <th>Questions</th>
+                        <th>Reviewers</th>
+                        <th>Reviews</th>
+                        <th>Coverage</th>
+                    </tr>
+                </thead>
+                <tbody id="batches-body"></tbody>
+            </table>
+
+            <h3>Reviewers</h3>
+            <table class="data-table" id="reviewers-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Credentials</th>
+                        <th>Reviews</th>
+                    </tr>
+                </thead>
+                <tbody id="reviewers-body"></tbody>
+            </table>
+        </section>
+
+        <!-- Section 5: Evaluation -->
+        <section class="card full-width">
+            <h2>Evaluation <span class="badge badge-in-progress">sample DB</span></h2>
+            <div class="summary-row" id="eval-summary">
+                <div class="stat-box">
+                    <span class="stat-value" id="eval-runs">--</span>
+                    <span class="stat-label">Runs</span>
+                </div>
+                <div class="stat-box wide">
+                    <span class="stat-label">Latest run</span>
+                    <span class="meta-text" id="eval-latest">\u2014</span>
+                </div>
+            </div>
+
+            <h3>Leaderboard</h3>
+            <table class="data-table" id="eval-table">
+                <thead>
+                    <tr>
+                        <th>Model</th>
+                        <th>n</th>
+                        <th>Correct</th>
+                        <th>Accuracy</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="eval-body"></tbody>
+            </table>
+        </section>
+
+        <!-- Section 6: Upcoming Phases -->
+        <section class="card full-width">
+            <h2>Phase Detail</h2>
             <div id="phase-details"></div>
         </section>
 

@@ -148,6 +148,20 @@ DOMAIN_TO_SCENARIO_TYPES: dict[str, list[str]] = {
     "wine_business":   ["business"],
 }
 
+# Phase 2j: per-domain comparison-type map. Mirrors DOMAIN_TO_SCENARIO_TYPES.
+# Each domain gets the comparison framings most natural for its fact pool —
+# wine_regions facts pair well with most_least (yield caps, aging minima);
+# producers facts pair well with same_vs_different (two estates contrasted);
+# winemaking facts pair well with most_least (quantitative thresholds).
+DOMAIN_TO_COMPARISON_TYPES: dict[str, list[str]] = {
+    "winemaking":      ["most_least", "same_vs_different"],
+    "viticulture":     ["most_least", "same_vs_different"],
+    "grape_varieties": ["same_vs_different", "which_one"],
+    "wine_regions":    ["same_vs_different", "most_least", "which_one"],
+    "producers":       ["same_vs_different", "which_one"],
+    "wine_business":   ["most_least", "which_one"],
+}
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -236,16 +250,18 @@ def _run_strategy(
     generator: str | None = None,
     dry_run: bool = False,
     scenario_type: str | None = None,
+    comparison_type: str | None = None,
 ) -> bool:
-    """Dispatch a single (strategy × domain × generator [× scenario_type]) cell
-    from the full-generation orchestrator.
+    """Dispatch a single (strategy × domain × generator [× scenario_type
+    | × comparison_type]) cell from the full-generation orchestrator.
 
     In-process by default (Phase 2g.10 Team Delta A2). Set
     ``OENOBENCH_USE_SUBPROCESS_DISPATCH=1`` to fall back to the legacy
     subprocess path.
 
     Phase 2j: ``scenario_type`` is forwarded to ``scenario_generator`` only;
-    other strategies ignore it (it stays None).
+    ``comparison_type`` is forwarded to ``comparative_generator`` only.
+    Other strategies ignore both (they stay None).
     """
     if os.environ.get(USE_SUBPROCESS_ENV_VAR) == "1":
         args = ["--domain", domain, "--count", str(count)]
@@ -253,6 +269,8 @@ def _run_strategy(
             args += ["--generator", generator]
         if scenario_type:
             args += ["--scenario-type", scenario_type]
+        if comparison_type:
+            args += ["--comparison-type", comparison_type]
         return _run_subprocess(module, args, dry_run)
 
     try:
@@ -269,10 +287,12 @@ def _run_strategy(
         kwargs["generator"] = generator
     if scenario_type is not None:
         kwargs["scenario_type"] = scenario_type
+    if comparison_type is not None:
+        kwargs["comparison_type"] = comparison_type
     logger.info(
         "orchestrator: in-process {} domain={} count={} generator={} "
-        "scenario_type={} dry_run={}",
-        module, domain, count, generator, scenario_type, dry_run,
+        "scenario_type={} comparison_type={} dry_run={}",
+        module, domain, count, generator, scenario_type, comparison_type, dry_run,
     )
     try:
         result = mod.run_generate(**kwargs)
@@ -748,18 +768,24 @@ def _dispatch_llm_strategy(
 
     Phase 2j: when ``strategy == "scenario_synthesis"``, each
     (domain, generator) cell is exploded into one sub-cell per scenario
-    type from ``DOMAIN_TO_SCENARIO_TYPES[domain]``, with the per-cell
-    count split evenly (rounded up so totals never underflow). For all
-    other strategies, ``scenario_type`` stays None and cell shape is
-    preserved.
+    type from ``DOMAIN_TO_SCENARIO_TYPES[domain]``. When
+    ``strategy == "comparative"``, each (domain, generator) cell is
+    exploded into one sub-cell per comparison type from
+    ``DOMAIN_TO_COMPARISON_TYPES[domain]``. Per-cell count is split
+    evenly (rounded up so totals never underflow). For all other
+    strategies, ``scenario_type``/``comparison_type`` stay None and
+    cell shape is preserved.
     """
     generators = list(GENERATOR_TARGETS.keys())
     per_generator = max(1, total_remaining // len(generators))
 
     is_scenario = strategy == "scenario_synthesis"
+    is_comparative = strategy == "comparative"
 
-    # Cell shape: (domain, generator, count, scenario_type | None)
-    cells: list[tuple[str, str, int, str | None]] = []
+    # Cell shape: (domain, generator, count, scenario_type | None,
+    # comparison_type | None). At most one of scenario_type /
+    # comparison_type is non-None for any given cell.
+    cells: list[tuple[str, str, int, str | None, str | None]] = []
     for generator in generators:
         # Check per-generator quota
         gen_existing = sum(
@@ -784,21 +810,34 @@ def _dispatch_llm_strategy(
                     # Defensive fallback: an unmapped domain falls back to
                     # the legacy single-cell behaviour with scenario_type=None
                     # so scenario_generator's own default kicks in.
-                    cells.append((domain, generator, domain_count, None))
+                    cells.append((domain, generator, domain_count, None, None))
                     continue
                 # Round up so the per-type totals never underflow the cell.
                 per_type = max(1, math.ceil(domain_count / len(types)))
                 for stype in types:
-                    cells.append((domain, generator, per_type, stype))
+                    cells.append((domain, generator, per_type, stype, None))
+            elif is_comparative:
+                ctypes = DOMAIN_TO_COMPARISON_TYPES.get(domain, [])
+                if not ctypes:
+                    # Defensive fallback: an unmapped domain falls back to
+                    # the legacy single-cell behaviour with
+                    # comparison_type=None so comparative_generator's own
+                    # "auto" default kicks in.
+                    cells.append((domain, generator, domain_count, None, None))
+                    continue
+                per_type = max(1, math.ceil(domain_count / len(ctypes)))
+                for ctype in ctypes:
+                    cells.append((domain, generator, per_type, None, ctype))
             else:
-                cells.append((domain, generator, domain_count, None))
+                cells.append((domain, generator, domain_count, None, None))
 
     if max_workers <= 1:
-        for domain, generator, count, scenario_type in cells:
+        for domain, generator, count, scenario_type, comparison_type in cells:
             _run_strategy(
                 module, domain=domain, count=count,
                 generator=generator, dry_run=dry_run,
                 scenario_type=scenario_type,
+                comparison_type=comparison_type,
             )
         return
 
@@ -807,9 +846,9 @@ def _dispatch_llm_strategy(
             ex.submit(
                 _run_strategy, module,
                 domain=d, count=c, generator=g, dry_run=dry_run,
-                scenario_type=stype,
+                scenario_type=stype, comparison_type=ctype,
             )
-            for d, g, c, stype in cells
+            for d, g, c, stype, ctype in cells
         ]
         for fut in cf.as_completed(futures):
             try:

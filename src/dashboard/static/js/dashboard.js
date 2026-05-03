@@ -185,6 +185,129 @@ function updateSourceDistribution(data) {
     }
 }
 
+/* ── Question Generation ────────────────────────────────────────────────── */
+
+function renderHorizontalBars(containerId, items, labelFn) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = "";
+    if (!items || items.length === 0) {
+        container.innerHTML = '<span style="color:var(--text-muted)">No data</span>';
+        return;
+    }
+    const max = Math.max(...items.map(i => i.count));
+    for (const it of items) {
+        const widthPct = Math.max(2, (it.count / max) * 100);
+        const label = labelFn ? labelFn(it) : it.label;
+        container.innerHTML += `
+            <div class="source-bar-row">
+                <span class="source-bar-label">${escapeHtml(label)}</span>
+                <div class="source-bar-track">
+                    <div class="source-bar-fill" style="width:${widthPct.toFixed(1)}%"></div>
+                </div>
+                <span class="source-bar-value">${formatNumber(it.count)}</span>
+            </div>`;
+    }
+}
+
+function updateQuestions(data) {
+    document.getElementById("q-total").textContent = formatNumber(data.total);
+    document.getElementById("q-draft").textContent = formatNumber(data.by_status.draft || 0);
+    document.getElementById("q-cb-reserve").textContent = formatNumber(data.by_status.cb_reserve || 0);
+
+    const stratItems = data.by_strategy.map(s => ({label: s.strategy, count: s.count}));
+    renderHorizontalBars("strategy-bars", stratItems, it => formatDomain(it.label));
+
+    const domainItems = data.by_domain.map(d => ({label: d.domain, count: d.count}));
+    renderHorizontalBars("qdomain-bars", domainItems, it => formatDomain(it.label));
+
+    const diffRow = document.getElementById("difficulty-row");
+    diffRow.innerHTML = "";
+    const totalDiff = data.by_difficulty.reduce((s, d) => s + d.count, 0) || 1;
+    for (const d of data.by_difficulty) {
+        const pct = (d.count / totalDiff * 100).toFixed(1);
+        diffRow.innerHTML += `
+            <div class="difficulty-cell">
+                <span class="difficulty-label">L${escapeHtml(d.level)}</span>
+                <span class="difficulty-count">${formatNumber(d.count)}</span>
+                <span class="difficulty-pct">${pct}%</span>
+            </div>`;
+    }
+}
+
+/* ── Human Review ───────────────────────────────────────────────────────── */
+
+function updateReviews(data) {
+    document.getElementById("reviewer-count").textContent = formatNumber(data.reviewer_count);
+    document.getElementById("review-count").textContent = formatNumber(data.review_count);
+    document.getElementById("batch-meta").textContent =
+        `${data.batches.length} active`;
+
+    const bbody = document.getElementById("batches-body");
+    bbody.innerHTML = "";
+    if (data.batches.length === 0) {
+        bbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-muted)">No batches imported</td></tr>';
+    } else {
+        for (const b of data.batches) {
+            const cov = Math.min(b.coverage_pct, 100);
+            bbody.innerHTML += `
+                <tr>
+                    <td class="mono">${escapeHtml(b.name)}</td>
+                    <td>${formatNumber(b.question_count)}</td>
+                    <td>${formatNumber(b.reviewer_count)}</td>
+                    <td>${formatNumber(b.review_count)}</td>
+                    <td>
+                        <div class="inline-progress">
+                            <div class="inline-progress-bar"><div class="inline-progress-fill ${progressClass(cov)}" style="width:${cov}%"></div></div>
+                            <span>${cov}%</span>
+                        </div>
+                    </td>
+                </tr>`;
+        }
+    }
+
+    const rbody = document.getElementById("reviewers-body");
+    rbody.innerHTML = "";
+    if (data.reviewers.length === 0) {
+        rbody.innerHTML = '<tr><td colspan="3" style="color:var(--text-muted)">No reviewers registered yet</td></tr>';
+    } else {
+        for (const r of data.reviewers) {
+            rbody.innerHTML += `
+                <tr>
+                    <td>${escapeHtml(r.name)}</td>
+                    <td class="meta-text">${escapeHtml(r.credentials || "\u2014")}</td>
+                    <td>${formatNumber(r.reviews)}</td>
+                </tr>`;
+        }
+    }
+}
+
+/* ── Evaluation ─────────────────────────────────────────────────────────── */
+
+function updateEvaluation(data) {
+    document.getElementById("eval-runs").textContent = formatNumber(data.run_count);
+    const latest = data.latest_run ? new Date(data.latest_run).toLocaleString() : "\u2014";
+    document.getElementById("eval-latest").textContent = latest;
+
+    const tbody = document.getElementById("eval-body");
+    tbody.innerHTML = "";
+    if (data.leaderboard.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="color:var(--text-muted)">No evaluation data</td></tr>';
+        return;
+    }
+    const maxPct = Math.max(...data.leaderboard.map(m => m.pct));
+    for (const m of data.leaderboard) {
+        const widthPct = (m.pct / maxPct) * 100;
+        tbody.innerHTML += `
+            <tr>
+                <td class="mono">${escapeHtml(m.model)}</td>
+                <td>${formatNumber(m.n)}</td>
+                <td>${formatNumber(m.correct)}</td>
+                <td><strong>${m.pct.toFixed(1)}%</strong></td>
+                <td style="width:35%"><div class="inline-progress-bar"><div class="inline-progress-fill ${progressClass(m.pct)}" style="width:${widthPct.toFixed(1)}%"></div></div></td>
+            </tr>`;
+    }
+}
+
 /* ── Upcoming Phases ────────────────────────────────────────────────────── */
 
 function updatePhaseDetails(data) {
@@ -273,13 +396,19 @@ function updateHealth(data) {
 async function refresh() {
     const ts = document.getElementById("last-refresh");
     try {
-        const [facts, project, health] = await Promise.all([
+        const [facts, project, questions, reviews, evaluation, health] = await Promise.all([
             fetchJSON("/api/facts"),
             fetchJSON("/api/project"),
+            fetchJSON("/api/questions"),
+            fetchJSON("/api/reviews"),
+            fetchJSON("/api/evaluation"),
             fetchJSON("/api/health"),
         ]);
         updateProject(project);
         updateFacts(facts);
+        updateQuestions(questions);
+        updateReviews(reviews);
+        updateEvaluation(evaluation);
         updatePhaseDetails(project);
         updateHealth(health);
         ts.textContent = "Last refresh: " + new Date().toLocaleTimeString();
