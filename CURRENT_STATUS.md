@@ -1,10 +1,105 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** May 3, 2026 (release_v1.1 corpus assembled — **3,670 questions** after dedup; cb_reserve promoted + sample DB merged)
-**Project phase:** Phase 2j — release_v1.1 corpus assembled. Final NeurIPS submission corpus: **3,670 questions** (all draft, post-dedup). Composition: 2,616 from release_v1 + 1,054 from sample-DB v2 (curated quality-vetted set). 389 cb_reserve rows promoted to draft. 42 near-duplicate pairs (sim≥0.92) removed during dedup pass. Per-strategy: FTQ 2,098, distractor 486, template 433, scenario 345, comparative 308. Per-domain: wine_regions 1,206, grape_varieties 935, producers 539, viticulture 525, wine_business 272, winemaking 193. Cost: ~$160 cumulative OpenRouter spend across all release_v1 work. 771/771 tests pass on main.
+**Last updated:** May 3, 2026 (release_v1.2 SHIPPED — **3,329 questions** post-audit, post-drop, post-difficulty-relabel)
+**Project phase:** Phase 2j — release_v1.2 final NeurIPS submission corpus. **3,329 questions** (all draft) after running the full 9-agent audit on release_v1.1 (3,670), dropping 341 with critical FAILs on {A1, A3, B1, C2, B3-UbiquityRisk}, and relabelling 1,259 difficulties using C4_DifficultyAudit's rated_difficulty (1,252) + human suggested_difficulty (7) from the gold-sheet review. B2 (closed-book solvability) and C4 (difficulty-audit) FAILs were intentionally KEPT — B2 because LLM judges have low historical κ with humans for this rubric, C4 because the relabel addresses the underlying signal. Per-strategy: FTQ 1,940, distractor 412, template 389, scenario 327, comparative 261. Per-domain: wine_regions 1,108, grape_varieties 766, producers 515, viticulture 502, wine_business 250, winemaking 188. Per-difficulty post-relabel: L1=694, L2=927, L3=698, L4=1,010 (vs pre-relabel L1=1,261, L2=1,559, L3=218, L4=291 — 51% L3+L4 vs prior 14%). Audit cost: ~$76 + ~$160 cumulative release_v1 work = ~$236 total OpenRouter. 771/771 tests pass on main.
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ## Latest cliff notes (start here next session)
+
+- **Phase 2j release_v1.2 shipped (2026-05-03):** Audit + drops + difficulty
+  relabel applied to release_v1.1 (3,670). Final submission corpus is
+  **3,329 questions** tagged `release_v1.2`.
+
+  Audit run id: `2ba38269-5e66-44aa-aaaf-010dc7ef19d4`. Wall: 5h 22m. Cost: $76.
+  Followed by Phase 5a (drops) + Phase 5b (difficulty relabel) in a single
+  Postgres transaction.
+
+  Drop policy: untag from release_v1.1 if any FAIL on
+  {A1_LexicalHygiene, A3_FactEcho, B1_TriJudgeAnswer, C2_CategoryLeak,
+  B3_UbiquityRisk}. KEEP if only B2 or C4 fails. User-decided rationale:
+  B2 has low historical κ (0.007) — LLM closed-book judges are unreliable
+  for this rubric, so don't bulk-drop on their signal. C4 difficulty
+  mislabel is fixable via relabel rather than drop.
+
+  Drop attribution (with overlap):
+    A1 (vague phrasing)        :  60 questions
+    A3 (verbatim copy)         :  63
+    B1 (wrong answer key)      :  47
+    C2 (wine-category leak)    :   9
+    B3 (ubiquity-grape × region):  183  ← biggest contributor
+  Distinct dropped: **341** (21 questions failed multiple drop-agents).
+
+  Difficulty relabel:
+    Source: C4_DifficultyAudit FAIL (delta ≥ 2 from assigned)  + human
+    suggested_difficulty from the release_v1_1_smart gold-sheet review.
+    Human override wins over C4 where both present (matched on 8/8 spot
+    checks anyway — C4 well-calibrated against human judgement).
+    Updated 1,259 questions (1,252 from C4, 7 from human).
+    Provenance preserved via tags: `audit_difficulty_relabeled_c4_fail` /
+    `audit_difficulty_relabeled_human_override`.
+    Note: the public `question_id` (e.g. `WB-REG-0042-L3`) keeps its
+    original L-suffix; only `questions.difficulty` column was updated.
+    Eval consumers read from the column, not the suffix.
+
+  **release_v1.2 final state:**
+
+  | Strategy | release_v1.1 | release_v1.2 | Δ |
+  |---|---:|---:|---:|
+  | fact_to_question | 2,098 | 1,940 | -158 |
+  | distractor_mining | 486 | 412 | -74 |
+  | template | 433 | 389 | -44 |
+  | scenario_synthesis | 345 | 327 | -18 |
+  | comparative | 308 | 261 | -47 |
+  | **TOTAL** | **3,670** | **3,329** | **-341** |
+
+  Per-domain (draft only):
+  | Domain | release_v1.1 | release_v1.2 |
+  |---|---:|---:|
+  | wine_regions | 1,206 | 1,108 |
+  | grape_varieties | 935 | 766 (B3 hit hardest) |
+  | producers | 539 | 515 |
+  | viticulture | 525 | 502 |
+  | wine_business | 272 | 250 |
+  | winemaking | 193 | 188 |
+
+  Per-difficulty (post-relabel):
+  | Level | Pre | Post | Δ |
+  |---|---:|---:|---:|
+  | L1 | 1,261 | 694 | -567 |
+  | L2 | 1,559 | 927 | -632 |
+  | L3 | 218 | 698 | +480 |
+  | L4 | 291 | 1,010 | +719 |
+
+  Corpus is now 51% L3+L4 (was 14%) — meaningfully harder, calibrated by
+  C4's Gemini-Pro re-rating + human spot-check overrides.
+
+  Kept-but-flagged (FAIL surviving in release_v1.2 — disclosed in datasheet):
+    B2 (closed-book solvability) : 1,340 questions
+    C4 (difficulty mislabel)     : 1,252 questions (now relabelled — these
+                                    are the SOURCE of the relabel; the
+                                    audit signal pre-dates the new
+                                    difficulty column)
+
+  Tools shipped during this phase:
+  - `scripts/audit_ubiquity_full.py` — corpus-wide B3_UbiquityRisk audit
+    (curated + data-driven ubiquity grapes × region-class entity match)
+  - `scripts/tag_audit_actions.py` — categorises questions into
+    audit_clean / audit_warn_only / audit_fail_review / audit_fail_critical;
+    emits `docs/RELEASE_V1_1_AUDIT_ACTIONS.md`
+  - `scripts/build_smart_review_sheet.py` — composes a 50-Q smart sample
+    (stratified random + critical-FAIL + borderline-WARN); fed
+    `release_v1_1_smart` review batch into the Phase 4 Flask review app
+  - Parallelised Team B + C4 outer loops via `OENOBENCH_AUDIT_MAX_WORKERS`
+    (default 1 — sequential preserved; setting 8 brought B from ~25h
+    sequential to ~3.5h)
+
+  **Open decisions / next-session candidates:**
+  - Phase 5 evaluation slate (16 configs × 3,329 Qs) ready to launch.
+    Updated cost projection per the Phase 5 plan: standard ~$1700, with
+    reasoning configs ~$2200. Stratified 1k subset ~$300.
+  - Final paper datasheet generation
+  - Submission packaging
+
 
 - **Phase 2j release_v1.1 assembly (2026-05-03):** Combined three sources
   into the unified NeurIPS submission corpus tagged `release_v1.1`:
