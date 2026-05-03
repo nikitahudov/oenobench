@@ -108,11 +108,13 @@ python -m src.scrapers.wikidata --dry-run
 
 ### Human Review App
 
-A small Flask app (port 5556) lets wine experts log in and score questions against the 10-rubric scheme used in `docs/HUMAN_REVIEW_GUIDE.md`. Reviews are written to a separate set of tables (`review_batches`, `review_batch_items`, `human_reviewers`, `human_reviews`) so the live `questions`, `validation_records`, and audit tables are untouched.
+A small Flask app (port 5556) lets wine experts log in and score questions against the 8-rubric scheme used in `docs/HUMAN_REVIEW_GUIDE.md`. Reviews are written to a separate set of tables (`review_batches`, `review_batch_items`, `human_reviewers`, `human_reviews`) so the live `questions`, `validation_records`, and audit tables are untouched.
 
 ```bash
-# 1. Apply the migration (first time only)
-psql -h localhost -U postgres -d winebench -f migrations/004_human_review.sql
+# 1. Apply the migrations (first time only — 004 base schema, 005 v2 rubric column,
+#    006 cleans legacy test_batch_* rows). The smoke script does all three plus a column-
+#    existence check.
+bash scripts/smoke_review_app.sh
 
 # 2. Import a batch from a stratified gold-sheet CSV
 python -m src.review_app.import_batch \
@@ -124,6 +126,8 @@ REVIEW_APP_USER=admin REVIEW_APP_PASSWORD=... python -m src.review_app.app
 
 # 4. Share http://<vm>:5556/ with reviewers along with the basic-auth credentials
 ```
+
+The reviewer UI is built for sustained 100+ question sessions: the question card, top toolbar, and Submit/Skip row are all sticky; rubric chips are keyboard-driven (`1`/`2`/`3`/`4` for `pass`/`warn`/`fail`/`skip`); `Tab` and `Shift+Tab` move between rows; `V` opens the verdict dropdown; `Enter` submits when the verdict is set; `Esc` clears focus; and a single "Show definitions" button flips all 8 rubric tips open or closed at once. In-progress chip selections, suggested answer/difficulty, and notes autosave to localStorage and rehydrate after a browser crash or reload; the entry is cleared on a successful Submit. The Skip button drops a question for the rest of *this* session only — no row is written, the question goes to other reviewers, and it returns to you in a future session.
 
 Re-importing a refreshed CSV under a new batch name (e.g. `release_v1_pilot_v2`) creates a new versioned batch without disturbing in-flight reviews.
 
