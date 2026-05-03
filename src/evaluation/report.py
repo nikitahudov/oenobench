@@ -823,6 +823,221 @@ def _section_reasoning_deltas(buf: StringIO, answers: list[dict]) -> None:
     buf.write("\n")
 
 
+def _section_item_analysis(buf: StringIO, answers: list[dict]) -> None:
+    """Section 9: Item analysis — per-question accuracy distribution, ceiling/floor,
+    hardest/easiest, and item discrimination (point-biserial).
+
+    Pure aggregation over ``answers``.  No new LLM calls, no new joins.
+    """
+    buf.write("## 9. Item Analysis\n\n")
+
+    if not answers:
+        buf.write("_No answers found for this run._\n\n")
+        return
+
+    # Group answers by config (model_name) to determine n_configs and per-config accuracy.
+    by_config: dict[str, list[dict]] = {}
+    for r in answers:
+        mn = r.get("model_name") or "unknown"
+        by_config.setdefault(mn, []).append(r)
+
+    config_names = sorted(by_config.keys())
+    n_configs = len(config_names)
+    if n_configs == 0:
+        buf.write("_No configs found in answers._\n\n")
+        return
+
+    # Per-config overall accuracy (used for point-biserial later).
+    per_config_acc: dict[str, float] = {}
+    for name, rows in by_config.items():
+        if not rows:
+            per_config_acc[name] = float("nan")
+        else:
+            per_config_acc[name] = sum(1 for r in rows if r.get("is_correct")) / len(rows)
+
+    # Group answers by question_id; track per-(question, config) correctness.
+    # outcomes[qid] is a dict {config_name -> 0/1}.
+    outcomes: dict[str, dict[str, int]] = {}
+    correct_letter: dict[str, str] = {}
+    for r in answers:
+        qid = r.get("question_id")
+        if qid is None:
+            continue
+        qid = str(qid)
+        cfg = r.get("model_name") or "unknown"
+        outcomes.setdefault(qid, {})[cfg] = 1 if r.get("is_correct") else 0
+        # Capture a parsed_answer for floor sample reporting (any one is fine).
+        if qid not in correct_letter and r.get("is_correct") and r.get("parsed_answer"):
+            correct_letter[qid] = str(r.get("parsed_answer")).strip()
+
+    # Per-question correct-count (across configs).
+    per_q_correct: dict[str, int] = {qid: sum(d.values()) for qid, d in outcomes.items()}
+    # Per-question mean accuracy = correct / observed_configs (avoid division by 0).
+    per_q_mean: dict[str, float] = {}
+    for qid, d in outcomes.items():
+        if not d:
+            per_q_mean[qid] = float("nan")
+        else:
+            per_q_mean[qid] = sum(d.values()) / len(d)
+
+    total_questions = len(outcomes)
+
+    # ---------- 9a. Per-question accuracy distribution ----------
+    buf.write(f"### 9a. Per-Question Accuracy Distribution\n\n")
+    buf.write(
+        f"Histogram of how many questions were answered correctly by exactly k configs"
+        f" (out of N = {n_configs}).\n\n"
+    )
+    buf.write(f"| k correct out of {n_configs} | # questions | % of corpus |\n")
+    buf.write("|---:|---:|---:|\n")
+    for k in range(n_configs + 1):
+        n_k = sum(1 for c in per_q_correct.values() if c == k)
+        pct = (100.0 * n_k / total_questions) if total_questions > 0 else 0.0
+        buf.write(f"| {k} | {n_k} | {pct:.1f}% |\n")
+    buf.write("\n")
+
+    # ---------- 9b. Ceiling and floor item counts ----------
+    buf.write("### 9b. Ceiling and Floor Items\n\n")
+    ceiling_threshold = math.ceil(n_configs * 15.0 / 16.0)
+    ceiling_qids = sorted(
+        [qid for qid, c in per_q_correct.items() if c >= ceiling_threshold]
+    )
+    floor_qids = sorted([qid for qid, c in per_q_correct.items() if c == 0])
+
+    buf.write(
+        f"- **Ceiling items** (correct by >= {ceiling_threshold} of {n_configs} configs): "
+        f"{len(ceiling_qids)} items.\n"
+    )
+    if ceiling_qids:
+        sample = ceiling_qids[:5]
+        buf.write("  Sample question_ids: " + ", ".join(f"`{q}`" for q in sample) + "\n")
+    buf.write(
+        f"- **Floor items** (correct by 0 of {n_configs} configs): "
+        f"{len(floor_qids)} items.\n"
+    )
+    if floor_qids:
+        sample = floor_qids[:5]
+        formatted = []
+        for q in sample:
+            letter = correct_letter.get(q, "?")
+            formatted.append(f"`{q}` (correct=`{letter}`)" if letter != "?" else f"`{q}`")
+        buf.write("  Sample question_ids: " + ", ".join(formatted) + "\n")
+    buf.write("\n")
+
+    # ---------- 9c. Hardest and easiest items ----------
+    buf.write("### 9c. Hardest and Easiest Items\n\n")
+    sorted_by_acc = sorted(per_q_mean.items(), key=lambda kv: (kv[1], kv[0]))
+    hardest = sorted_by_acc[:10]
+    easiest = list(reversed(sorted_by_acc[-10:]))
+
+    buf.write("**Top 10 hardest** (lowest mean accuracy first):\n\n")
+    buf.write("| question_id | mean accuracy |\n|---|---:|\n")
+    for qid, mean_acc in hardest:
+        buf.write(f"| `{qid}` | {mean_acc:.1%} |\n")
+    buf.write("\n")
+
+    buf.write("**Top 10 easiest** (highest mean accuracy first):\n\n")
+    buf.write("| question_id | mean accuracy |\n|---|---:|\n")
+    for qid, mean_acc in easiest:
+        buf.write(f"| `{qid}` | {mean_acc:.1%} |\n")
+    buf.write("\n")
+
+    # ---------- 9d. Item discrimination (point-biserial) ----------
+    buf.write("### 9d. Item Discrimination (Point-Biserial)\n\n")
+    buf.write(
+        "For each question we correlate the per-config 0/1 outcome vector with each"
+        " config's overall accuracy. Lower / negative `rpb` flags items that"
+        " behave inconsistently with overall config skill — paper-quality QA"
+        " candidates.\n\n"
+    )
+
+    # Per-config accuracy aligned to config_names ordering.
+    y = np.array([per_config_acc.get(name, float("nan")) for name in config_names], dtype=float)
+    sigma_y = float(np.nanstd(y))
+
+    rpb_results: list[tuple[str, float, float]] = []  # (qid, mean_acc, rpb)
+    for qid, d in outcomes.items():
+        x = np.array([d.get(name, 0) for name in config_names], dtype=float)
+        x_sum = x.sum()
+        if x_sum == 0 or x_sum == len(x):
+            continue  # no variance
+        if sigma_y <= 0:
+            continue
+        mean_y_correct = y[x == 1].mean()
+        mean_y_incorrect = y[x == 0].mean()
+        p = x_sum / len(x)
+        q_ = 1.0 - p
+        rpb = float((mean_y_correct - mean_y_incorrect) * np.sqrt(p * q_) / sigma_y)
+        rpb_results.append((qid, per_q_mean[qid], rpb))
+
+    if not rpb_results:
+        buf.write("_No items with variance across configs; discrimination not computed._\n\n")
+        return
+
+    rpb_results.sort(key=lambda t: (t[2], t[0]))
+    worst = rpb_results[:10]
+    buf.write(
+        "**Top 10 worst-discriminating items** (lowest / most-negative `rpb` first):\n\n"
+    )
+    buf.write("| question_id | mean accuracy | rpb |\n|---|---:|---:|\n")
+    for qid, mean_acc, rpb in worst:
+        buf.write(f"| `{qid}` | {mean_acc:.1%} | {rpb:+.3f} |\n")
+    buf.write("\n")
+
+
+def _section_cost_efficiency(buf: StringIO, answers: list[dict]) -> None:
+    """Section 10: Cost-efficiency — cost per correct answer per config.
+
+    Uses ``effective_cost`` (OR-authoritative when present, else local).  Configs
+    with zero correct answers render '—' and sort to the bottom.
+    """
+    configs = _get_eval_configs()
+    config_map = {c.name: c for c in configs} if configs else {}
+
+    by_config: dict[str, list[dict]] = {}
+    for r in answers:
+        mn = r.get("model_name") or "unknown"
+        by_config.setdefault(mn, []).append(r)
+
+    buf.write("## 10. Cost-Efficiency\n\n")
+    buf.write(
+        "Cost per correct answer = effective_cost / correct_count. Lower is better.\n"
+        "\"effective\" cost prefers OR-authoritative when present, else locally computed.\n\n"
+    )
+    buf.write("| Slot | Config | Correct | Effective cost | Cost / correct |\n")
+    buf.write("|---:|---|---:|---|---|\n")
+
+    rows_for_table: list[tuple[Any, str, int, float, float | None]] = []
+    for name, rows in by_config.items():
+        cfg = config_map.get(name)
+        slot = cfg.slot if cfg else "—"
+        correct = sum(1 for r in rows if r.get("is_correct"))
+        eff_cost = sum(c for c in (effective_cost(r) for r in rows) if c is not None)
+        per_correct = (eff_cost / correct) if correct > 0 else None
+        rows_for_table.append((slot, name, correct, eff_cost, per_correct))
+
+    # Sort: ascending by per_correct; rows with None (zero correct) go to bottom.
+    def _sort_key(row):
+        slot, name, correct, eff_cost, per_correct = row
+        if per_correct is None:
+            return (1, 0.0, name)
+        return (0, per_correct, name)
+
+    rows_for_table.sort(key=_sort_key)
+
+    for slot, name, correct, eff_cost, per_correct in rows_for_table:
+        if per_correct is None:
+            per_correct_str = "—"
+        else:
+            per_correct_str = f"${per_correct:.4f}"
+        buf.write(
+            f"| {slot} | {name} | {correct} | {fmt_cost(eff_cost or None)} "
+            f"| {per_correct_str} |\n"
+        )
+
+    buf.write("\n")
+
+
 def _section_cost_ledger(buf: StringIO, answers: list[dict]) -> None:
     """Section 6: Cost & wall ledger.
 
@@ -1093,6 +1308,8 @@ def render_report(tag: str, output_path: str | None = None) -> str:
     _section_cost_ledger(buf, answers)
     _section_cb_split(buf, answers)
     _section_difficulty(buf, answers)
+    _section_item_analysis(buf, answers)
+    _section_cost_efficiency(buf, answers)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     buf.write(f"\n---\n_Generated at {ts} by OenoBench report renderer._\n")

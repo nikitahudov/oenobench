@@ -590,6 +590,225 @@ class TestSectionDifficulty:
         assert len(table_lines) == 4
 
 
+# ---------------------------------------------------------------------------
+# test_section_item_analysis_distribution_sums
+# ---------------------------------------------------------------------------
+
+
+class TestSectionItemAnalysis:
+    """Tests for Section 9 — item analysis."""
+
+    def _synth_answers(
+        self,
+        n_questions: int = 100,
+        n_configs: int = 16,
+    ) -> list[dict]:
+        """Build a deterministic synthetic answers list.
+
+        Question q (0..n_questions-1) is answered correctly by config c
+        (0..n_configs-1) iff (q + c) % n_configs <  c_threshold(q).  We use
+        ``c_threshold = (q % (n_configs + 1))`` so that every k-bucket is
+        exercised (q with threshold 0 -> 0 correct, q with threshold n_configs
+        -> all configs correct).
+        """
+        rows: list[dict] = []
+        for q in range(n_questions):
+            threshold = q % (n_configs + 1)
+            for c in range(n_configs):
+                # Configs 0..threshold-1 mark this question correct;
+                # configs threshold..n_configs-1 mark it incorrect.
+                is_correct = c < threshold
+                rows.append({
+                    "question_id": f"q{q:03d}",
+                    "model_name": f"cfg{c:02d}",
+                    "is_correct": is_correct,
+                    "parsed_answer": "A" if is_correct else "B",
+                    "cost_usd": 0.001,
+                    "or_cost_usd": None,
+                    "domain": "wine_regions",
+                })
+        return rows
+
+    def _parse_9a_histogram(self, md: str, n_configs: int) -> dict[int, int]:
+        """Parse the 9a histogram from rendered markdown.
+
+        Returns {k: count_of_questions} for k = 0..n_configs.
+        """
+        from io import StringIO as _S
+        # Locate the section.
+        idx = md.find("### 9a.")
+        assert idx != -1, "9a section not found in rendered markdown"
+        end = md.find("### 9b.", idx)
+        block = md[idx:end] if end != -1 else md[idx:]
+
+        result: dict[int, int] = {}
+        for line in block.splitlines():
+            line = line.strip()
+            if not line.startswith("|"):
+                continue
+            # Skip header / separator rows.
+            if "k correct" in line or set(line.replace("|", "").strip()) <= {"-", ":", " "}:
+                continue
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            if len(cells) < 3:
+                continue
+            try:
+                k = int(cells[0])
+                cnt = int(cells[1])
+            except ValueError:
+                continue
+            result[k] = cnt
+        return result
+
+    def test_section_item_analysis_distribution_sums(self):
+        """9a histogram counts must sum to total question count."""
+        from io import StringIO
+        from src.evaluation.report import _section_item_analysis
+
+        n_questions = 100
+        n_configs = 16
+        answers = self._synth_answers(n_questions=n_questions, n_configs=n_configs)
+
+        buf = StringIO()
+        _section_item_analysis(buf, answers)
+        md = buf.getvalue()
+
+        # Spot-check headers.
+        assert "## 9. Item Analysis" in md
+        assert "### 9a." in md
+        assert "### 9b." in md
+        assert "### 9c." in md
+        assert "### 9d." in md
+
+        histogram = self._parse_9a_histogram(md, n_configs=n_configs)
+        # All k from 0..n_configs must be present.
+        for k in range(n_configs + 1):
+            assert k in histogram, f"k={k} missing from 9a histogram"
+
+        # Sum across all buckets must equal the question count.
+        assert sum(histogram.values()) == n_questions
+
+    def test_section_item_analysis_handles_empty(self):
+        """No answers should produce a graceful skip message."""
+        from io import StringIO
+        from src.evaluation.report import _section_item_analysis
+
+        buf = StringIO()
+        _section_item_analysis(buf, [])
+        md = buf.getvalue()
+        assert "## 9. Item Analysis" in md
+        assert "No answers" in md or "no answers" in md.lower()
+
+
+# ---------------------------------------------------------------------------
+# test_section_cost_efficiency_orders_by_efficiency
+# ---------------------------------------------------------------------------
+
+
+class TestSectionCostEfficiency:
+    """Tests for Section 10 — cost efficiency."""
+
+    def _parse_efficiency_rows(self, md: str) -> list[tuple[str, str]]:
+        """Parse Section 10 rows; return list of (config_name, cost_per_correct_str)."""
+        idx = md.find("## 10. Cost-Efficiency")
+        assert idx != -1, "Section 10 header not found"
+        block = md[idx:]
+        # Stop at next section if any.
+        next_section = block.find("\n## ", 1)
+        if next_section != -1:
+            block = block[:next_section]
+
+        rows: list[tuple[str, str]] = []
+        for line in block.splitlines():
+            line = line.strip()
+            if not line.startswith("|"):
+                continue
+            if "Slot" in line and "Config" in line:
+                continue
+            if set(line.replace("|", "").strip()) <= {"-", ":", " "}:
+                continue
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            if len(cells) < 5:
+                continue
+            # cells: slot, config, correct, effective_cost, cost_per_correct
+            rows.append((cells[1], cells[4]))
+        return rows
+
+    def test_section_cost_efficiency_orders_by_efficiency(self):
+        """Configs should appear in ascending cost-per-correct order."""
+        from io import StringIO
+        from src.evaluation.report import _section_cost_efficiency
+
+        # Build 3 configs with known cost-per-correct values:
+        #   cfg-cheap   -> 10 questions, 5 correct, $1.00 total -> $0.20 per correct
+        #   cfg-medium  -> 10 questions, 4 correct, $2.00 total -> $0.50 per correct
+        #   cfg-pricey  -> 10 questions, 2 correct, $4.00 total -> $2.00 per correct
+        plans = [
+            ("cfg-pricey", 10, 2, 4.00),
+            ("cfg-cheap", 10, 5, 1.00),
+            ("cfg-medium", 10, 4, 2.00),
+        ]
+        answers: list[dict] = []
+        for name, n_q, n_correct, total_cost in plans:
+            per_call_cost = total_cost / n_q
+            for i in range(n_q):
+                answers.append({
+                    "question_id": f"{name}-q{i:02d}",
+                    "model_name": name,
+                    "is_correct": i < n_correct,
+                    "parsed_answer": "A",
+                    "cost_usd": per_call_cost,
+                    "or_cost_usd": None,
+                    "domain": "wine_regions",
+                })
+
+        buf = StringIO()
+        _section_cost_efficiency(buf, answers)
+        md = buf.getvalue()
+
+        rows = self._parse_efficiency_rows(md)
+        assert len(rows) == 3
+        config_order = [r[0] for r in rows]
+        assert config_order == ["cfg-cheap", "cfg-medium", "cfg-pricey"]
+
+    def test_section_cost_efficiency_zero_correct_sorts_to_bottom(self):
+        """Configs with 0 correct answers should render '—' and sort last."""
+        from io import StringIO
+        from src.evaluation.report import _section_cost_efficiency
+
+        plans = [
+            # name, n_questions, n_correct, total_cost
+            ("cfg-zero", 10, 0, 0.50),
+            ("cfg-some", 10, 5, 1.00),  # $0.20 per correct
+        ]
+        answers: list[dict] = []
+        for name, n_q, n_correct, total_cost in plans:
+            per_call_cost = total_cost / n_q
+            for i in range(n_q):
+                answers.append({
+                    "question_id": f"{name}-q{i:02d}",
+                    "model_name": name,
+                    "is_correct": i < n_correct,
+                    "parsed_answer": "A",
+                    "cost_usd": per_call_cost,
+                    "or_cost_usd": None,
+                    "domain": "wine_regions",
+                })
+
+        buf = StringIO()
+        _section_cost_efficiency(buf, answers)
+        md = buf.getvalue()
+
+        rows = self._parse_efficiency_rows(md)
+        assert len(rows) == 2
+        # Zero-correct row must be last.
+        assert rows[-1][0] == "cfg-zero"
+        assert rows[-1][1] == "—"
+        # First row must be cfg-some with a price.
+        assert rows[0][0] == "cfg-some"
+        assert rows[0][1].startswith("$")
+
+
 @pytest.mark.integration
 @pytest.mark.skipif(
     os.environ.get("OENOBENCH_EVAL_TESTS_DB") != "1",
