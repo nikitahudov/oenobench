@@ -44,41 +44,52 @@ from src.utils.db import get_pg
 
 # Audit tags this script may apply / clean. Removed via array_remove on every
 # run so repeated invocations stay idempotent.
+#
+# Naming note (2026-05-03): B2 and C4 produce findings that the audit pipeline
+# stores with severity='fail' for historical reasons, but they are NOT real
+# question-quality fails — they're calibration signals (B2: low-difficulty
+# closed-book solvability; C4: difficulty mislabel). The release_v1.2 ship
+# policy keeps these questions; B2 is documented in the datasheet and C4 is
+# resolved by relabelling the question's difficulty column to C4's
+# rated_difficulty. So we route B2 / C4 fails into a NEW
+# `audit_calibration_warning` bucket, not `audit_fail_critical`.
 AUDIT_TAGS = (
     "audit_clean",
     "audit_warn_only",
+    "audit_calibration_warning",
     "audit_fail_review",
     "audit_fail_critical",
     "audit_no_signal",
 )
 
-# FAIL on any of these (with the L1/L2 condition for B2) → critical.
-# B3 (ubiquity-grape × region-answer ambiguity) added 2026-05-03 after the
-# release_v1_1_smart human-review showed 9/45 (20%) ambiguity fails — the
-# audit_ubiquity_full.py script writes these findings under agent_id
-# B3_UbiquityRisk; treat as drop-candidate critical.
+# FAIL on any of these → drop candidate (audit_fail_critical).
 CRITICAL_FAIL_AGENTS = {
     "B1_TriJudgeAnswer",
     "A3_FactEcho",
     "C2_CategoryLeak",
     "B3_UbiquityRisk",
 }
-B2_AGENT = "B2_ClosedBookSolvability"
+
+# FAIL on any of these → calibration warning (kept; informational only).
+# B2 and C4 are not real question-quality fails. B2 has well-documented low
+# κ with humans (κ ≈ 0.007 on `needs_source` rubric); C4 difficulty
+# disagreements are addressed by relabelling, not by dropping.
+CALIBRATION_AGENTS = {
+    "B2_ClosedBookSolvability",
+    "C4_DifficultyAudit",
+}
+
 A1_AGENT = "A1_LexicalHygiene"
 
 # Population-level (no question_id) — handled separately, not per-Q.
 POPULATION_AGENTS = {"A2_BiasStats", "A4_TemplateFingerprint",
                      "D1_SelfPreference", "D3_SkewAudit"}
 
-# Recommended-action copy per critical defect group (cited in the report).
+# Recommended-action copy per defect group (cited in the report).
 ACTION_COPY = {
     "B1_TriJudgeAnswer": (
-        "Drop from corpus if precision threshold passes. Tri-judge consensus "
-        "disagrees with the keyed answer — likely wrong-key or unfaithful to source."
-    ),
-    "B2_ClosedBookSolvability_L12": (
-        "Drop from corpus if precision threshold passes. Question solvable from "
-        "world knowledge alone at low difficulty — does not test source comprehension."
+        "Drop from corpus. Tri-judge consensus disagrees with the keyed "
+        "answer — likely wrong-key or unfaithful to source."
     ),
     "A3_FactEcho": (
         "Drop from corpus. Question text overlaps source verbatim (LCS≥0.65) — "
@@ -98,6 +109,19 @@ ACTION_COPY = {
     "A1_LexicalHygiene": (
         "Manual review (light defect). Vague phrasing ('iconic', 'acclaimed') — "
         "salvageable with a regex pass + paraphrase, but does not invalidate the question."
+    ),
+    "B2_ClosedBookSolvability": (
+        "Calibration signal (KEEP). LLM-judge panel solved the question without "
+        "the source fact, but historical Cohen's κ vs human reviewers is ~0.007 "
+        "on this rubric — judges over-report leakage by ~5×. We keep the "
+        "question and disclose the closed-book finding in the datasheet."
+    ),
+    "C4_DifficultyAudit": (
+        "Calibration signal (KEEP, with relabel). Gemini-Pro re-rated the "
+        "difficulty and disagreed with the assigned label by ≥2 levels. We "
+        "keep the question and update its `difficulty` column to the C4 "
+        "rated_difficulty (or the human suggested_difficulty when available "
+        "from the gold review). Public question_id keeps its original L-suffix."
     ),
 }
 
@@ -122,17 +146,19 @@ def _classify(findings_for_q: list[dict], difficulty: str) -> str:
     if pass_count + warn_count + fail_count == 0:
         return "audit_no_signal"
 
-    # Critical FAILs (drop candidates)
-    has_b1 = "B1_TriJudgeAnswer" in fail_agents
-    has_a3 = "A3_FactEcho" in fail_agents
-    has_c2 = "C2_CategoryLeak" in fail_agents
-    has_b3 = "B3_UbiquityRisk" in fail_agents
-    has_b2 = B2_AGENT in fail_agents
-    is_low_diff = difficulty in ("1", "2")
-    if has_b1 or has_a3 or has_c2 or has_b3 or (has_b2 and is_low_diff):
+    # Critical FAILs (drop candidates) — wins priority
+    if fail_agents & CRITICAL_FAIL_AGENTS:
         return "audit_fail_critical"
 
-    # Light FAIL (A1 only) or any non-critical FAIL → manual review bucket
+    # A1-only fail → light defect, manual review (kept by ship policy)
+    if A1_AGENT in fail_agents:
+        return "audit_fail_review"
+
+    # B2 / C4 calibration signals (kept; informational only)
+    if fail_agents & CALIBRATION_AGENTS:
+        return "audit_calibration_warning"
+
+    # Some other (rare) fail we didn't explicitly bucket → review
     if fail_count > 0:
         return "audit_fail_review"
 
@@ -241,7 +267,7 @@ def _render_report(
     """Emit the actionable Markdown report."""
     tag_counts = Counter(classification.values())
 
-    # Per-defect groups
+    # Per-defect groups (one bucket per agent that emits per-question FAIL)
     fail_by_agent: dict[str, list[str]] = defaultdict(list)
     for f in findings:
         if (f["severity"] or "").lower() != "fail":
@@ -249,14 +275,7 @@ def _render_report(
         qid = f.get("question_id")
         if not qid:
             continue
-        agent = f["agent_id"]
-        # B2 special: only L1/L2 fails are critical
-        if agent == B2_AGENT:
-            qrow = questions.get(str(qid)) or {}
-            if str(qrow.get("difficulty", "")) in ("1", "2"):
-                fail_by_agent["B2_ClosedBookSolvability_L12"].append(str(qid))
-        else:
-            fail_by_agent[agent].append(str(qid))
+        fail_by_agent[f["agent_id"]].append(str(qid))
 
     def _action(group: str) -> str:
         return ACTION_COPY.get(group, "Investigate; no auto-action.")
@@ -279,8 +298,9 @@ def _render_report(
     short_action = {
         "audit_clean": "Keep",
         "audit_warn_only": "Keep; flag in datasheet",
+        "audit_calibration_warning": "Keep; B2/C4 calibration signal disclosed in datasheet (C4 mislabel resolved by relabel)",
         "audit_fail_review": "Manual review (A1 vague-phrasing)",
-        "audit_fail_critical": "Drop candidates (pending precision check)",
+        "audit_fail_critical": "Drop candidate (B1/A3/C2/B3 critical FAIL)",
         "audit_no_signal": "Re-run subset (audit signal incomplete)",
     }
     for tag in AUDIT_TAGS:
@@ -293,11 +313,12 @@ def _render_report(
     lines.append("")
     GROUP_ORDER = (
         "B1_TriJudgeAnswer",
-        "B2_ClosedBookSolvability_L12",
         "A3_FactEcho",
         "C2_CategoryLeak",
         "B3_UbiquityRisk",
         "A1_LexicalHygiene",
+        "B2_ClosedBookSolvability",   # calibration signal — KEPT
+        "C4_DifficultyAudit",         # calibration signal — KEPT (relabel applied)
     )
     for group in GROUP_ORDER:
         qids = fail_by_agent.get(group, [])
@@ -434,7 +455,34 @@ def main(tag: str, run_id: str | None, out: str, dry_run: bool):
     )
     rows = cur.fetchall()
     questions: dict[str, dict] = {r["uuid"]: dict(r) for r in rows}
+    in_tag_uuids: set[str] = set(questions.keys())
     click.echo(f"Found {len(questions)} questions in tag")
+
+    # Phase 2j: ALSO fetch metadata for finding-flagged questions that are
+    # NOT in the current tag (e.g. questions dropped from release_v1.1 →
+    # release_v1.2). These are needed for SAMPLE RENDERING in the per-defect
+    # report sections only — they MUST NOT be classified into the audit-tag
+    # buckets. Track them via `in_tag_uuids` and only iterate that set when
+    # classifying / applying tags.
+    finding_qids = {str(f["question_id"]) for f in findings if f.get("question_id")}
+    missing = finding_qids - in_tag_uuids
+    if missing:
+        cur.execute(
+            """
+            SELECT q.id::text AS uuid, q.question_id AS public_qid,
+                   q.difficulty::text AS difficulty,
+                   q.question_text,
+                   gm.generation_method
+            FROM public.questions q
+            LEFT JOIN generation_metadata gm ON gm.question_id = q.id
+            WHERE q.id::text = ANY(%s)
+            """,
+            (list(missing),),
+        )
+        for r in cur.fetchall():
+            questions[r["uuid"]] = dict(r)
+        click.echo(f"  + {len(missing)} out-of-tag rows fetched for sample rendering only "
+                   f"(NOT classified)")
 
     # Group findings per question
     findings_by_q: dict[str, list[dict]] = defaultdict(list)
@@ -443,9 +491,12 @@ def main(tag: str, run_id: str | None, out: str, dry_run: bool):
         if qid:
             findings_by_q[str(qid)].append(f)
 
-    # Classify
+    # Classify — ONLY questions actually in the active tag. Out-of-tag rows
+    # (dropped from release_v1.1 → release_v1.2) are present in `questions`
+    # only for sample-UUID rendering in the per-defect groups.
     classification: dict[str, str] = {}
-    for qid, q in questions.items():
+    for qid in in_tag_uuids:
+        q = questions[qid]
         classification[qid] = _classify(findings_by_q.get(qid, []), q.get("difficulty", ""))
 
     # Apply (or dry-run print)
@@ -456,10 +507,11 @@ def main(tag: str, run_id: str | None, out: str, dry_run: bool):
         click.echo(f"  {tag_name:25s} {counts.get(tag_name, 0):>5}")
     click.echo("")
 
-    # Render report (always — even on dry-run)
+    # Render report (always — even on dry-run). corpus_size reflects in-tag
+    # only; per-defect samples may include out-of-tag rows for visibility.
     _render_report(
         Path(out), run_id=run_id, corpus_tag=tag,
-        corpus_size=len(questions),
+        corpus_size=len(in_tag_uuids),
         classification=classification,
         findings=findings,
         questions=questions,

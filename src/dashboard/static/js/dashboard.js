@@ -214,6 +214,14 @@ function updateQuestions(data) {
     document.getElementById("q-draft").textContent = formatNumber(data.by_status.draft || 0);
     document.getElementById("q-cb-reserve").textContent = formatNumber(data.by_status.cb_reserve || 0);
 
+    // Tag label / badge
+    if (data.tag) {
+        const badge = document.getElementById("q-tag-badge");
+        const label = document.getElementById("q-tag-label");
+        if (badge) badge.textContent = data.tag;
+        if (label) label.textContent = data.tag;
+    }
+
     const stratItems = data.by_strategy.map(s => ({label: s.strategy, count: s.count}));
     renderHorizontalBars("strategy-bars", stratItems, it => formatDomain(it.label));
 
@@ -232,6 +240,18 @@ function updateQuestions(data) {
                 <span class="difficulty-pct">${pct}%</span>
             </div>`;
     }
+
+    // Audit-tag rollup (release_v1.2 verdicts)
+    const buckets = data.audit_buckets || {};
+    const setBucket = (id, key) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = formatNumber(buckets[key] || 0);
+    };
+    setBucket("audit-clean", "audit_clean");
+    setBucket("audit-warn-only", "audit_warn_only");
+    setBucket("audit-calibration-warning", "audit_calibration_warning");
+    setBucket("audit-fail-review", "audit_fail_review");
+    setBucket("audit-fail-critical", "audit_fail_critical");
 }
 
 /* ── Human Review ───────────────────────────────────────────────────────── */

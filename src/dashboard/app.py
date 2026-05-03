@@ -50,9 +50,9 @@ PROJECT_PHASES = [
         "id": 2,
         "name": "Question Generation",
         "status": "complete",
-        "target": "release_v1 corpus",
+        "target": "release_v1.2 corpus",
         "actual": None,
-        "details": "5 generation strategies (fact-to-question, template, comparative, scenario synthesis, distractor mining) with multi-model prompts (Claude / GPT-5 / Gemini 2.5 / Llama / template). Build hit substantive-fact ceiling at ~2,535 release_v1 questions across all 6 domains.",
+        "details": "5 generation strategies (fact-to-question, template, comparative, scenario synthesis, distractor mining) with multi-model prompts (Claude / GPT-5 / Gemini 2.5 / Llama / template). release_v1 build (Phase 2j) capped at ~2,535 questions due to substantive-fact ceiling; release_v1.1 added the 1,062 sample-DB rows + cb_reserve promotion + dedup (3,670). release_v1.2 final corpus (3,329) after audit drops + difficulty relabel.",
         "sub_tasks": [
             {"name": "Prompt engineering + 5 strategies (Phase 2 \u2192 2g)", "status": "complete"},
             {"name": "Closed-book gate v2 + cb_reserve (Phase 2g.6)", "status": "complete"},
@@ -60,31 +60,33 @@ PROJECT_PHASES = [
             {"name": "Yield recovery: parse retries + dead-cell skip (Phase 2g.15)", "status": "complete"},
             {"name": "Template quality push v14c (Phase 2g.16)", "status": "complete"},
             {"name": "release_v1 build (Phase 2j)", "status": "complete"},
+            {"name": "release_v1.1 assembly (cb_reserve + sample-DB merge + dedup)", "status": "complete"},
+            {"name": "release_v1.2 audit drops + difficulty relabel", "status": "complete"},
         ],
     },
     {
         "id": 3,
         "name": "AI Validation",
         "status": "complete",
-        "target": "9-agent audit framework",
+        "target": "9-agent audit on release_v1.2",
         "actual": None,
-        "details": "Multi-team audit: Team A (lexical hygiene, bias stats, fact echo, template fingerprint), Team B (tri-judge answer consensus + closed-book solvability), Team C (category leak), Team D (self-preference, skew). Iterative audit_pilot v1\u2192v16 with Go/No-Go gates.",
+        "details": "Multi-team audit: Team A (lexical hygiene, bias stats, fact echo, template fingerprint), Team B (tri-judge answer consensus + closed-book solvability), Team C (category leak, difficulty audit), Team D (self-preference, skew). Plus B3_UbiquityRisk static check for ubiquitous-grape \u00d7 region-answer ambiguity. Run completed 2026-05-03 (~$76 cost, 5h 22m wall). 341 questions dropped (FAIL on A1/A3/B1/C2/B3); 1,259 difficulties relabelled via C4 + 7 human overrides. B2 + C4 fails kept as calibration signals (disclosed in datasheet).",
     },
     {
         "id": 4,
         "name": "Human Review",
         "status": "in_progress",
-        "target": "Multi-expert review on release_v1",
+        "target": "Smart sample on release_v1.1",
         "actual": None,
-        "details": "Web app on port 5556 \u2014 reviewers self-register, score 10 rubrics (pass/warn/fail) plus overall verdict, suggested-answer override, and notes. IRR-aware assignment ensures every question is reviewed by \u22652 reviewers when available, supporting Cohen's \u03ba reliability statistics.",
+        "details": "Web app on port 5556 \u2014 reviewers self-register, score 8 rubrics (pass/warn/fail) plus overall verdict, suggested-answer/difficulty override, and notes. release_v1_1_smart batch (45 Qs: 25 stratified + 20 critical-FAIL spot check + 5 borderline) drove the audit drop policy and seeded 7 difficulty overrides into release_v1.2.",
     },
     {
         "id": 5,
         "name": "Evaluation & Analysis",
         "status": "in_progress",
-        "target": "16-config OpenRouter slate",
+        "target": "16-config OpenRouter slate on release_v1.2",
         "actual": None,
-        "details": "Sample-DB eval shipped 2026-05-02 against the 1,062-question `sample` schema. 14 model configs, 16,572 LLM calls, ~$31 spend, 28-min wall. Final eval against release_v1 + reasoning-stratified subset pending. SPS analysis to follow.",
+        "details": "Sample-DB eval shipped 2026-05-02 against the 1,062-question `sample` schema. 14 model configs, 16,572 LLM calls, ~$31 spend, 28-min wall. Final eval against release_v1.2 (3,329 Qs) + reasoning-stratified subset pending. SPS analysis to follow.",
     },
     {
         "id": 6,
@@ -161,15 +163,28 @@ def api_project():
     except Exception:
         total_questions = 0
 
-    try:
-        rows = _pg_query("SELECT count(*) AS cnt FROM questions WHERE 'release_v1' = ANY(tags)")
-        release_v1_count = rows[0]["cnt"]
-    except Exception:
-        release_v1_count = 0
+    # Phase 2j: report against release_v1.2 (the post-audit final corpus).
+    # Fall back through release_v1.1 → release_v1 if the .2 tag is missing
+    # (e.g. on a snapshot DB pre-audit).
+    release_v1_count = 0
+    release_v1_tag = "release_v1.2"
+    for tag in ("release_v1.2", "release_v1.1", "release_v1"):
+        try:
+            rows = _pg_query(
+                "SELECT count(*) AS cnt FROM questions WHERE %s = ANY(tags)",
+                (tag,),
+            )
+            n = rows[0]["cnt"]
+            if n > 0:
+                release_v1_count = n
+                release_v1_tag = tag
+                break
+        except Exception:
+            continue
 
     phases = copy.deepcopy(PROJECT_PHASES)
     phases[0]["actual"] = f"{total_facts:,} facts"
-    phases[1]["actual"] = f"{release_v1_count:,} questions"
+    phases[1]["actual"] = f"{release_v1_count:,} questions ({release_v1_tag})"
 
     days_remaining = (DEADLINE - datetime.now(timezone.utc)).days
 
@@ -179,7 +194,8 @@ def api_project():
             "total_facts": total_facts,
             "total_questions": total_questions,
             "release_v1_count": release_v1_count,
-            "target_questions": release_v1_count or 2535,
+            "release_v1_tag": release_v1_tag,
+            "target_questions": release_v1_count or 3329,
             "days_until_deadline": max(days_remaining, 0),
             "deadline": DEADLINE.date().isoformat(),
         },
@@ -409,10 +425,28 @@ def api_health():
 @app.route("/api/questions")
 @require_auth
 def api_questions():
-    """release_v1 corpus breakdown — per-strategy, per-domain, status counts."""
+    """release_v1.2 corpus breakdown — per-strategy, per-domain, per-difficulty,
+    plus the audit-tag rollup (clean / warn-only / calibration-warning /
+    fail-review / fail-critical). Falls back to release_v1.1 then release_v1
+    if the .2 tag is missing on this DB snapshot.
+    """
+    # Resolve the active tag (matches /api/health logic)
+    active_tag = "release_v1.2"
+    for tag in ("release_v1.2", "release_v1.1", "release_v1"):
+        try:
+            rows = _pg_query(
+                "SELECT count(*) AS cnt FROM questions WHERE %s = ANY(tags)", (tag,),
+            )
+            if rows[0]["cnt"] > 0:
+                active_tag = tag
+                break
+        except Exception:
+            continue
+
     try:
         status_rows = _pg_query(
-            "SELECT status, count(*) AS cnt FROM questions WHERE 'release_v1' = ANY(tags) GROUP BY status"
+            "SELECT status, count(*) AS cnt FROM questions WHERE %s = ANY(tags) GROUP BY status",
+            (active_tag,),
         )
         by_status = {r["status"]: r["cnt"] for r in status_rows}
     except Exception:
@@ -422,7 +456,8 @@ def api_questions():
         strat_rows = _pg_query(
             "SELECT gm.generation_method AS strategy, count(*) AS cnt "
             "FROM questions q JOIN generation_metadata gm ON gm.question_id = q.id "
-            "WHERE 'release_v1' = ANY(q.tags) GROUP BY gm.generation_method ORDER BY cnt DESC"
+            "WHERE %s = ANY(q.tags) GROUP BY gm.generation_method ORDER BY cnt DESC",
+            (active_tag,),
         )
         by_strategy = [{"strategy": r["strategy"], "count": r["cnt"]} for r in strat_rows]
     except Exception:
@@ -431,7 +466,8 @@ def api_questions():
     try:
         domain_rows = _pg_query(
             "SELECT domain, count(*) AS cnt FROM questions "
-            "WHERE 'release_v1' = ANY(tags) GROUP BY domain"
+            "WHERE %s = ANY(tags) GROUP BY domain",
+            (active_tag,),
         )
         domain_counts = {r["domain"]: r["cnt"] for r in domain_rows}
     except Exception:
@@ -440,11 +476,31 @@ def api_questions():
     try:
         diff_rows = _pg_query(
             "SELECT difficulty::text AS difficulty, count(*) AS cnt FROM questions "
-            "WHERE 'release_v1' = ANY(tags) GROUP BY difficulty ORDER BY difficulty"
+            "WHERE %s = ANY(tags) GROUP BY difficulty ORDER BY difficulty",
+            (active_tag,),
         )
         by_difficulty = [{"level": r["difficulty"], "count": r["cnt"]} for r in diff_rows]
     except Exception:
         by_difficulty = []
+
+    # Audit-tag rollup (release_v1.2 verdicts: clean / warn / calibration / review / critical)
+    audit_buckets: dict[str, int] = {}
+    try:
+        for label in (
+            "audit_clean",
+            "audit_warn_only",
+            "audit_calibration_warning",
+            "audit_fail_review",
+            "audit_fail_critical",
+        ):
+            r = _pg_query(
+                "SELECT count(*) AS cnt FROM questions "
+                "WHERE %s = ANY(tags) AND %s = ANY(tags)",
+                (active_tag, label),
+            )
+            audit_buckets[label] = r[0]["cnt"]
+    except Exception:
+        audit_buckets = {}
 
     by_domain = []
     total = sum(domain_counts.values())
@@ -457,12 +513,13 @@ def api_questions():
         })
 
     return jsonify({
-        "tag": "release_v1",
+        "tag": active_tag,
         "total": sum(by_status.values()),
         "by_status": by_status,
         "by_strategy": by_strategy,
         "by_domain": by_domain,
         "by_difficulty": by_difficulty,
+        "audit_buckets": audit_buckets,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 

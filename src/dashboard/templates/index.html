@@ -79,13 +79,13 @@
             <div id="source-distribution" class="source-bar-chart"></div>
         </section>
 
-        <!-- Section 3: Question Generation (release_v1) -->
+        <!-- Section 3: Question Generation (release_v1.2) -->
         <section class="card full-width">
-            <h2>Question Generation <span class="badge badge-complete">release_v1</span></h2>
+            <h2>Question Generation <span class="badge badge-complete" id="q-tag-badge">release_v1.2</span></h2>
             <div class="summary-row" id="questions-summary">
                 <div class="stat-box">
                     <span class="stat-value" id="q-total">--</span>
-                    <span class="stat-label">release_v1 Questions</span>
+                    <span class="stat-label">Questions in <span id="q-tag-label">release_v1.2</span></span>
                 </div>
                 <div class="stat-box">
                     <span class="stat-value" id="q-draft">--</span>
@@ -108,8 +108,32 @@
                 </div>
             </div>
 
-            <h3>By Difficulty</h3>
+            <h3>By Difficulty (post-relabel)</h3>
             <div id="difficulty-row" class="difficulty-row"></div>
+
+            <h3>Audit verdicts</h3>
+            <div class="summary-row" id="audit-buckets-row">
+                <div class="stat-box">
+                    <span class="stat-value" id="audit-clean">--</span>
+                    <span class="stat-label">audit_clean</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-value" id="audit-warn-only">--</span>
+                    <span class="stat-label">audit_warn_only</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-value" id="audit-calibration-warning">--</span>
+                    <span class="stat-label">calibration warnings (B2/C4)</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-value" id="audit-fail-review">--</span>
+                    <span class="stat-label">fail_review</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-value" id="audit-fail-critical">--</span>
+                    <span class="stat-label">fail_critical</span>
+                </div>
+            </div>
         </section>
 
         <!-- Section 4: Human Review -->

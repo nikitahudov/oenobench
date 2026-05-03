@@ -2520,3 +2520,131 @@ no in-flight review data was disrupted. The `release_v1_pilot`
 batch (100 questions) is intact and now scored against the 8-rubric
 set going forward.
 
+
+
+## 2026-05-03 — Phase 2j: release_v1.2 SHIPPED (audit + drops + difficulty relabel)
+
+### What was done
+
+The release_v1.1 corpus (3,670 questions, assembled 2026-05-03 from
+release_v1 + sample-DB merge + cb_reserve promotion + dedup) was audited
+end-to-end with the 9-agent framework, then filtered to a final
+**release_v1.2** submission corpus of **3,329 questions**.
+
+### Audit run
+
+- run_id: `2ba38269-5e66-44aa-aaaf-010dc7ef19d4`
+- Wall: 5h 22m. Recorded cost: $75.79.
+- Teams: A (static — A1/A2/A3/A4) + B (tri-judge — B1/B2) + C (C2/C4) + D (D1/D3)
+- Plus corpus-wide **B3_UbiquityRisk** static check (`scripts/audit_ubiquity_full.py`)
+- Findings table populated with 23,488 rows under this run_id
+
+### Mid-flight infrastructure fix: parallel Team B + C4
+
+Team B's outer loop and the C4 difficulty-audit loop were sequential.
+Sequential projection at 3,670 Qs: Team B ~25 hours, C4 ~6 hours —
+infeasible for the 24h NeurIPS deadline. Refactored both to
+ThreadPoolExecutor-based parallel dispatch, gated on a new
+`OENOBENCH_AUDIT_MAX_WORKERS` env var (default 1 — sequential preserved
+for legacy callers). Set to 8 for this run; brought combined Team B + C4
+wall from ~31h sequential to ~3.5h parallel. 143 qa tests still pass.
+
+### Drop policy
+
+Untag from release_v1.1 if any FAIL on {A1, A3, B1, C2, B3}. **Keep B2
+and C4 fails** as calibration signals — B2 has historically low κ with
+humans (κ ≈ 0.007 on `needs_source` rubric, per
+`docs/GOLD_CALIBRATION_ANALYSIS.md`); C4 difficulty mislabel is fixable
+via relabel rather than drop.
+
+Drop attribution (per-agent, with overlap):
+
+| Agent | Distinct Qs failing |
+|---|---:|
+| A1 (vague phrasing) | 60 |
+| A3 (verbatim copy) | 63 |
+| B1 (wrong answer key) | 47 |
+| C2 (wine-category leak) | 9 |
+| B3 (ubiquity-grape × region) | 183 |
+| **Distinct dropped** | **341** |
+
+(21 questions failed on multiple drop-agents.) The B3_UbiquityRisk audit
+was the largest contributor; it caught the same defect class that the
+release_v1_1_smart human gold-sheet review identified at 9/45 = 20%
+ambiguity rate — a class of question where the stem mentions an
+internationally-grown grape and the correct answer is a region-class
+entity, making any reasonable distractor also defensible.
+
+### Difficulty relabel
+
+C4_DifficultyAudit FAIL findings (delta ≥ 2 from assigned label) plus
+human `suggested_difficulty` from the smart-sample review drove a
+1,259-question difficulty-column update inside the same Postgres
+transaction that applied the drops:
+
+- 1,252 use C4's `rated_difficulty`
+- 7 use human `suggested_difficulty` (wins over C4 when both present)
+- C4 vs human cross-check: 8/8 spot-checked cases agreed within ±1
+
+Per-difficulty distribution before / after relabel (release_v1.2 only):
+
+| Level | Pre | Post | Δ |
+|---|---:|---:|---:|
+| L1 | 1,261 | 694 | -567 |
+| L2 | 1,559 | 927 | -632 |
+| L3 | 218 | 698 | +480 |
+| L4 | 291 | 1,010 | +719 |
+
+Corpus is now **51% L3+L4** (was 14% pre-relabel) — the audit revealed
+systematic under-rating in the original generator labels, calibrated by
+Gemini Pro re-rating + human spot-check overrides.
+
+Note: the public `question_id` (e.g. `WB-REG-0042-L3`) keeps its
+original L-suffix; only `questions.difficulty` was updated. Eval
+consumers read from the column. Provenance preserved via per-row tags
+`audit_difficulty_relabeled_c4_fail` / `audit_difficulty_relabeled_human_override`.
+
+### Audit-tag rollup (release_v1.2)
+
+Following user direction to soften the language ("B2/C4 are not real
+fails, they are calibration warnings"), `tag_audit_actions.py` was
+updated to use a new `audit_calibration_warning` bucket for B2 + C4
+fails. The full taxonomy on the 3,329 surviving questions:
+
+| Tag | Count | % |
+|---|---:|---:|
+| `audit_clean` | 68 | 2.0% |
+| `audit_warn_only` | 1,063 | 31.9% |
+| `audit_calibration_warning` | 2,198 | 66.0% |
+| `audit_fail_review` | 0 | 0.0% |
+| `audit_fail_critical` | 0 | 0.0% |
+
+The 2,198 calibration warnings are the kept B2/C4 fails. They are NOT
+question-quality defects; they are informational signals disclosed in
+the dataset datasheet. C4's underlying signal (difficulty mislabel) was
+resolved by the relabel pass.
+
+### Tools shipped
+
+- `scripts/audit_ubiquity_full.py` — corpus-wide B3 audit (curated +
+  data-driven ubiquity grape set × region-class entity match)
+- `scripts/tag_audit_actions.py` — per-question audit-verdict tagging +
+  `docs/RELEASE_V1_1_AUDIT_ACTIONS.md` report
+- `scripts/build_smart_review_sheet.py` — composes the
+  `release_v1_1_smart` 50-question smart sample (25 stratified + 20
+  critical-FAIL spot check + 5 borderline-WARN) for the human review
+- `OENOBENCH_AUDIT_MAX_WORKERS` env var on Team B + C4 for parallel
+  dispatch
+
+### Final state
+
+- Corpus: 3,329 questions tagged `release_v1.2`, all status=draft
+- Per-strategy: FTQ 1,940, distractor 412, template 389, scenario 327,
+  comparative 261
+- Per-domain: wine_regions 1,108, grape_varieties 766, producers 515,
+  viticulture 502, wine_business 250, winemaking 188
+- Original tags preserved: `release_v1`, `release_v1.1`, `audit_pilot_*`,
+  per-strategy
+
+Phase 5 evaluation (16-config OpenRouter slate × 3,329 Qs) and final
+datasheet authoring are the remaining items before NeurIPS submission.
