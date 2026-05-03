@@ -53,7 +53,16 @@ AUDIT_TAGS = (
 )
 
 # FAIL on any of these (with the L1/L2 condition for B2) → critical.
-CRITICAL_FAIL_AGENTS = {"B1_TriJudgeAnswer", "A3_FactEcho", "C2_CategoryLeak"}
+# B3 (ubiquity-grape × region-answer ambiguity) added 2026-05-03 after the
+# release_v1_1_smart human-review showed 9/45 (20%) ambiguity fails — the
+# audit_ubiquity_full.py script writes these findings under agent_id
+# B3_UbiquityRisk; treat as drop-candidate critical.
+CRITICAL_FAIL_AGENTS = {
+    "B1_TriJudgeAnswer",
+    "A3_FactEcho",
+    "C2_CategoryLeak",
+    "B3_UbiquityRisk",
+}
 B2_AGENT = "B2_ClosedBookSolvability"
 A1_AGENT = "A1_LexicalHygiene"
 
@@ -78,6 +87,13 @@ ACTION_COPY = {
     "C2_CategoryLeak": (
         "Drop from corpus. Distractor's wine category mismatches correct answer's "
         "(red vs white, sparkling vs still) — easy elimination defeats the question."
+    ),
+    "B3_UbiquityRisk": (
+        "Drop from corpus. Question stem mentions an internationally-grown grape "
+        "(Cabernet/Pinot Noir/Chardonnay/Merlot/Sauvignon Blanc/Syrah/Riesling/etc.) "
+        "and the correct answer is a region-class entity — multiple regions plausibly "
+        "grow the grape, so the answer is ambiguous. Confirmed via human gold review "
+        "(9/45 = 20% ambiguity rate in release_v1_1_smart sample)."
     ),
     "A1_LexicalHygiene": (
         "Manual review (light defect). Vague phrasing ('iconic', 'acclaimed') — "
@@ -110,9 +126,10 @@ def _classify(findings_for_q: list[dict], difficulty: str) -> str:
     has_b1 = "B1_TriJudgeAnswer" in fail_agents
     has_a3 = "A3_FactEcho" in fail_agents
     has_c2 = "C2_CategoryLeak" in fail_agents
+    has_b3 = "B3_UbiquityRisk" in fail_agents
     has_b2 = B2_AGENT in fail_agents
     is_low_diff = difficulty in ("1", "2")
-    if has_b1 or has_a3 or has_c2 or (has_b2 and is_low_diff):
+    if has_b1 or has_a3 or has_c2 or has_b3 or (has_b2 and is_low_diff):
         return "audit_fail_critical"
 
     # Light FAIL (A1 only) or any non-critical FAIL → manual review bucket
@@ -279,6 +296,7 @@ def _render_report(
         "B2_ClosedBookSolvability_L12",
         "A3_FactEcho",
         "C2_CategoryLeak",
+        "B3_UbiquityRisk",
         "A1_LexicalHygiene",
     )
     for group in GROUP_ORDER:

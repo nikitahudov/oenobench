@@ -3,16 +3,16 @@
 - **Audit run_id**: `2ba38269-5e66-44aa-aaaf-010dc7ef19d4`
 - **Corpus tag**: `release_v1.1`
 - **Corpus size**: 3670
-- **Generated**: 2026-05-03T19:16:08+00:00
+- **Generated**: 2026-05-03T20:10:12+00:00
 
 ## 1 · Categorisation summary
 
 | Tag | Count | % | Recommended action |
 |---|---:|---:|---|
-| `audit_clean` | 78 | 2.1% | Keep |
-| `audit_warn_only` | 1131 | 30.8% | Keep; flag in datasheet |
-| `audit_fail_review` | 920 | 25.1% | Manual review (A1 vague-phrasing) |
-| `audit_fail_critical` | 1541 | 42.0% | Drop candidates (pending precision check) |
+| `audit_clean` | 68 | 1.9% | Keep |
+| `audit_warn_only` | 1063 | 29.0% | Keep; flag in datasheet |
+| `audit_fail_review` | 886 | 24.1% | Manual review (A1 vague-phrasing) |
+| `audit_fail_critical` | 1653 | 45.0% | Drop candidates (pending precision check) |
 | `audit_no_signal` | 0 | 0.0% | Re-run subset (audit signal incomplete) |
 
 ## 2 · Per-defect groups (FAIL findings)
@@ -61,6 +61,17 @@ Sample UUIDs:
 - `7ae554c5-f6a4-4d05-8e05-b3bf645b57ff` · WB-GRP-0955-L2 · L1 · Within the Nuits-Saint-Georges AOC in Burgundy, which two grape varieties serve as the principal cultivars for red and w…
 - `bcc5f292-9a26-4239-aebe-104d3d318278` · WB-GRP-0971-L2 · L2 · A Champagne grower based in Dizy farms 23 hectares spread across villages including Hautvillers, Aÿ, Mareuil-sur-Aÿ, Cru…
 
+### B3_UbiquityRisk — 183 questions
+
+**Recommended action**: Drop from corpus. Question stem mentions an internationally-grown grape (Cabernet/Pinot Noir/Chardonnay/Merlot/Sauvignon Blanc/Syrah/Riesling/etc.) and the correct answer is a region-class entity — multiple regions plausibly grow the grape, so the answer is ambiguous. Confirmed via human gold review (9/45 = 20% ambiguity rate in release_v1_1_smart sample).
+
+Sample UUIDs:
+- `031e4e85-0637-4286-8a68-d448f8cdd907` · WB-REG-0690-L3 · L1 · Which Argentine wine region was designated in 1993 as the country's first official appellation, setting a precedent for …
+- `087d859c-5988-405d-bca7-889a02ae7976` · WB-GRP-1073-L2 · L2 · Wines made from Pinot noir in a French region located across the river valley from Burgundy tend to exhibit a lighter bo…
+- `095d1faf-6073-427b-8580-eac62a13a5c1` · WB-GRP-0720-L3 · L3 · If a wine merchant wants to source genuine Cabernet Sauvignon-based wines, which of the following regions would be the m…
+- `0a874369-5e69-4639-bb95-2a10ab7be47f` · WB-REG-1166-L2 · L2 · A Lombardy DOCG sparkling wine produced by the traditional method permits a blend of Chardonnay and Pinot Nero, with Pin…
+- `0b50c57b-ba47-451c-b73b-955ec2230e06` · WB-GRP-1149-L2 · L2 · Which grape variety is generally cultivated with such wide spacing between plants that multiple different grapes, such a…
+
 ### A1_LexicalHygiene — 60 questions
 
 **Recommended action**: Manual review (light defect). Vague phrasing ('iconic', 'acclaimed') — salvageable with a regex pass + paraphrase, but does not invalidate the question.
@@ -81,19 +92,19 @@ Sample UUIDs:
 | Action | Resulting corpus size |
 |---|---:|
 | Keep all | 3670 |
-| Drop `audit_fail_critical` | 2129 |
-| Drop `audit_fail_critical` + `audit_no_signal` | 2129 |
-| Drop `audit_fail_critical` + `audit_fail_review` | 1209 |
+| Drop `audit_fail_critical` | 2017 |
+| Drop `audit_fail_critical` + `audit_no_signal` | 2017 |
+| Drop `audit_fail_critical` + `audit_fail_review` | 1131 |
 
 ## 4 · Per-strategy fail-rate table
 
 | Strategy | Q in tag | Fail findings | Warn findings | Pass findings |
 |---|---:|---:|---:|---:|
-| comparative | 308 | 248 | 537 | 1194 |
-| distractor_mining | 486 | 334 | 952 | 1860 |
-| fact_to_question | 2098 | 1737 | 3143 | 8343 |
-| scenario_synthesis | 345 | 278 | 757 | 1302 |
-| template | 433 | 385 | 499 | 1725 |
+| comparative | 308 | 276 | 537 | 1194 |
+| distractor_mining | 486 | 371 | 952 | 1860 |
+| fact_to_question | 2098 | 1817 | 3143 | 8343 |
+| scenario_synthesis | 345 | 282 | 757 | 1302 |
+| template | 433 | 419 | 499 | 1725 |
 
 ## 5 · Corpus-aggregate signals (A2 / A4 / D1 / D3)
 
