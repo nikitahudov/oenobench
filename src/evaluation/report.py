@@ -638,6 +638,90 @@ def _section_sps(buf: StringIO, answers: list[dict]) -> None:
     buf.write("\n")
 
 
+def _section_sps_matrix(buf: StringIO, answers: list[dict]) -> None:
+    """Section 4b: SPS family matrix.
+
+    Renders a G × G grid of accuracy% (N) where rows are evaluator families
+    and columns are generator families.  Diagonal cells are own-family (SPS)
+    accuracy; off-diagonal cells are cross-family.
+
+    Family ordering is fixed at [anthropic, openai, google, meta, qwen] —
+    the five families that authored questions in Phase 2 and that have at
+    least one ``EvalConfig`` with ``is_generator_family=True``.
+    """
+    configs = _get_eval_configs()
+
+    buf.write("## 4b. Self-Preference Family Matrix\n\n")
+    buf.write(
+        "Cells are accuracy% (N). Rows are evaluator families; columns are generator\n"
+        "families. Diagonal cells are own-family (SPS) accuracy; off-diagonal cells are\n"
+        "cross-family.\n\n"
+    )
+
+    if not configs:
+        buf.write(
+            "_SPS matrix skipped: EVAL_CONFIGS not available._\n\n"
+        )
+        return
+
+    has_generator = any(r.get("generator") is not None for r in answers)
+    if not has_generator:
+        buf.write(
+            "_SPS matrix skipped: generator-family link not in schema "
+            "(no generator column joined from generation_metadata)._\n\n"
+        )
+        return
+
+    # Fixed family ordering — the 5 families that generated Phase-2 questions.
+    families: list[str] = ["anthropic", "openai", "google", "meta", "qwen"]
+
+    # Build map: model_name -> family from EVAL_CONFIGS (only generator-families).
+    model_to_family: dict[str, str] = {}
+    for c in configs:
+        fam = getattr(c, "family", None)
+        if getattr(c, "is_generator_family", False) and fam in families:
+            model_to_family[c.name] = fam
+
+    # Stamp each row with evaluator_family and generator_family so we can pivot.
+    stamped: list[dict[str, Any]] = []
+    for r in answers:
+        ev_fam = model_to_family.get(r.get("model_name") or "")
+        gen_fam = GENERATOR_TO_FAMILY.get(str(r.get("generator"))) if r.get("generator") else None
+        if ev_fam is None or gen_fam is None:
+            continue
+        stamped.append({
+            "evaluator_family": ev_fam,
+            "generator_family": gen_fam,
+            "is_correct": r.get("is_correct"),
+        })
+
+    pivot = pivot_accuracy(
+        stamped,
+        row_key="evaluator_family",
+        col_key="generator_family",
+        row_order=families,
+        col_order=families,
+    )
+
+    # Header row: blank corner + generator family columns.
+    header_cells = " | ".join(families)
+    buf.write(f"| Eval ↓ / Gen → | {header_cells} |\n")
+    buf.write("|---|" + "---:|" * len(families) + "\n")
+
+    for ev_fam in families:
+        cells = []
+        for gen_fam in families:
+            correct, total = pivot.get((ev_fam, gen_fam), (0, 0))
+            if total == 0:
+                cells.append("— (0)")
+            else:
+                acc = correct / total
+                cells.append(f"{acc:.1%} ({total})")
+        buf.write(f"| **{ev_fam}** | " + " | ".join(cells) + " |\n")
+
+    buf.write("\n")
+
+
 def _section_reasoning_deltas(buf: StringIO, answers: list[dict]) -> None:
     """Section 5: Reasoning-effect deltas."""
     configs = _get_eval_configs()
@@ -836,6 +920,7 @@ def render_report(tag: str, output_path: str | None = None) -> str:
     _section_config_domain(buf, answers)
     _section_config_strategy(buf, answers)
     _section_sps(buf, answers)
+    _section_sps_matrix(buf, answers)
     _section_reasoning_deltas(buf, answers)
     _section_cost_ledger(buf, answers)
 

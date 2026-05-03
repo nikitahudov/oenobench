@@ -198,6 +198,136 @@ class TestStrategyPivot:
 
 
 # ---------------------------------------------------------------------------
+# test_section_sps_matrix_diagonal_n_match
+# ---------------------------------------------------------------------------
+
+
+class TestSectionSpsMatrix:
+    """
+    Construct a synthetic ``answers`` list with known (model_name, generator)
+    pairs across all 5 families.  After rendering Section 4b, parse the
+    markdown and assert that each diagonal cell's N equals the count we
+    constructed and that the row/column ordering is the canonical
+    [anthropic, openai, google, meta, qwen].
+    """
+
+    # Map evaluator family -> a slate config name in that family with
+    # is_generator_family=True.  These exist in EVAL_CONFIGS post-Foundation.
+    EV_MODEL_BY_FAMILY = {
+        "anthropic": "claude-opus-4.7",      # slot 1
+        "openai":    "gpt-5",                # slot 3
+        "google":    "gemini-2.5-pro",       # slot 5
+        "meta":      "llama-3.3-70b",        # slot 7
+        "qwen":      "qwen-2.5-72b",         # slot 10
+    }
+
+    # The DB enum value that maps via GENERATOR_TO_FAMILY back to each family.
+    GEN_ENUM_BY_FAMILY = {
+        "anthropic": "claude",
+        "openai":    "chatgpt",
+        "google":    "gemini",
+        "meta":      "llama",
+        "qwen":      "qwen",
+    }
+
+    # Diagonal cell N targets — distinct values so we can verify each cell
+    # came from the correct (evaluator, generator) bucket.
+    DIAGONAL_N = {
+        "anthropic": 7,
+        "openai":    9,
+        "google":    11,
+        "meta":      13,
+        "qwen":      5,
+    }
+
+    def _build_synthetic_answers(self) -> list[dict]:
+        """Build answers with known counts in each diagonal cell.
+
+        For simplicity we fill ONLY the diagonal — off-diagonal cells will
+        render as ``— (0)``.  The diagonal counts are the load-bearing thing
+        we assert on.
+        """
+        rows: list[dict] = []
+        for fam, n in self.DIAGONAL_N.items():
+            for i in range(n):
+                rows.append({
+                    "model_name": self.EV_MODEL_BY_FAMILY[fam],
+                    "generator":  self.GEN_ENUM_BY_FAMILY[fam],
+                    # 1 correct out of n -> deterministic, non-zero accuracy.
+                    "is_correct": (i == 0),
+                })
+        return rows
+
+    def test_section_sps_matrix_diagonal_n_match(self):
+        from io import StringIO
+
+        from src.evaluation.report import _section_sps_matrix
+
+        answers = self._build_synthetic_answers()
+        buf = StringIO()
+        _section_sps_matrix(buf, answers)
+        out = buf.getvalue()
+
+        # Header is present.
+        assert "## 4b. Self-Preference Family Matrix" in out
+
+        families = ["anthropic", "openai", "google", "meta", "qwen"]
+
+        # Header row contains all five families in canonical order.
+        # The header line looks like:
+        #   | Eval ↓ / Gen → | anthropic | openai | google | meta | qwen |
+        header_lines = [ln for ln in out.splitlines() if "Eval" in ln and "Gen" in ln]
+        assert len(header_lines) == 1, (
+            f"expected exactly one header row, got {header_lines}"
+        )
+        header = header_lines[0]
+        # The five family names must appear in this exact order in the header.
+        positions = [header.find(f) for f in families]
+        assert all(p > 0 for p in positions), f"missing family in header: {header}"
+        assert positions == sorted(positions), (
+            f"column order is not [anthropic, openai, google, meta, qwen]: {header}"
+        )
+
+        # Body rows: one per evaluator family, in the canonical order.
+        body_lines = [
+            ln for ln in out.splitlines()
+            if ln.startswith("| **") and "**" in ln[3:]
+        ]
+        assert len(body_lines) == len(families), (
+            f"expected {len(families)} body rows, got {len(body_lines)}: {body_lines}"
+        )
+        for ln, expected_fam in zip(body_lines, families):
+            assert f"**{expected_fam}**" in ln, (
+                f"expected row for '{expected_fam}', got: {ln}"
+            )
+
+        # Each diagonal cell's N must equal the constructed count.
+        # Diagonal cell text on row=fam is "{acc:.1%} ({n})" and only the
+        # diagonal cell has a non-zero N (off-diagonal stays "— (0)").
+        for ln, ev_fam in zip(body_lines, families):
+            expected_n = self.DIAGONAL_N[ev_fam]
+            # Split the markdown row on "|" and trim.
+            parts = [p.strip() for p in ln.split("|")]
+            # parts[0] == '' (leading), parts[1] == '**fam**',
+            # parts[2..6] == the 5 data cells.
+            diag_idx = families.index(ev_fam)
+            cell = parts[2 + diag_idx]
+            assert f"({expected_n})" in cell, (
+                f"row '{ev_fam}': diagonal cell expected N={expected_n}, "
+                f"got cell '{cell}' (full row: {ln})"
+            )
+            # Off-diagonal cells should be "— (0)" since we didn't fill them.
+            for off_idx, off_fam in enumerate(families):
+                if off_idx == diag_idx:
+                    continue
+                off_cell = parts[2 + off_idx]
+                assert off_cell == "— (0)", (
+                    f"row '{ev_fam}', col '{off_fam}': expected '— (0)', "
+                    f"got '{off_cell}'"
+                )
+
+
+# ---------------------------------------------------------------------------
 # test_render_basic — integration test (gated by env var)
 # ---------------------------------------------------------------------------
 
