@@ -65,6 +65,11 @@ def load_questions(corpus: str = "sample", limit: int | None = None) -> list[Eva
     # For the sample schema we can join generation_metadata directly.
     # For the public schema the metadata is also in public.generation_metadata.
     # Both schemas use the same join pattern; we just prefix with the schema.
+    # Filter out rows with NULL options or NULL/empty correct_answer — these are
+    # stub/legacy rows that are not answerable as MCQ.  Public corpus contains
+    # 153 such "stub question N" rows accidentally left over from earlier
+    # pipeline development; they have question_type=multiple_choice but no
+    # options column populated, which would crash _parse_options below.
     sql = f"""
         SELECT
             q.id::text          AS id,
@@ -77,6 +82,9 @@ def load_questions(corpus: str = "sample", limit: int | None = None) -> list[Eva
         FROM {schema}.questions q
         LEFT JOIN {schema}.generation_metadata gm
                ON gm.question_id = q.id
+        WHERE q.options IS NOT NULL
+          AND q.correct_answer IS NOT NULL
+          AND q.correct_answer <> ''
         ORDER BY q.id
     """
     if limit is not None:

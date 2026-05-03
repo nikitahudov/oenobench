@@ -73,7 +73,7 @@ GENERATOR_TO_FAMILY = {
     "chatgpt": "openai",
     "gemini": "google",
     "llama": "meta",
-    "qwen": "alibaba",
+    "qwen": "qwen",
     "template_only": None,
     "human_authored": None,
     "gpt4": "openai",
@@ -256,18 +256,16 @@ def _resolve_run(conn, tag: str) -> dict[str, Any]:
 def _load_answers(conn, run_id: str, corpus_schema: str) -> list[dict[str, Any]]:
     """
     Load all evaluation_answers for run_id, joined to {corpus_schema}.questions
-    for domain and generation_method (strategy).
-    Also joins sample.generation_metadata to obtain the generator enum for SPS.
+    for domain, tags, difficulty, and generation_method (strategy).
+    Also joins {corpus_schema}.generation_metadata to obtain the generator enum
+    for SPS.  Both ``sample`` and ``public`` schemas expose the same relevant
+    columns, so the join is unconditional.
     """
-    genmeta_join = ""
-    genmeta_select = "NULL::text AS generator"
-    strategy_select = "NULL::text AS strategy"
-    if corpus_schema == "sample":
-        genmeta_join = (
-            f"LEFT JOIN {corpus_schema}.generation_metadata gm ON gm.question_id = q.id"
-        )
-        genmeta_select = "gm.generator::text AS generator"
-        strategy_select = "gm.generation_method::text AS strategy"
+    genmeta_join = (
+        f"LEFT JOIN {corpus_schema}.generation_metadata gm ON gm.question_id = q.id"
+    )
+    genmeta_select = "gm.generator::text AS generator"
+    strategy_select = "gm.generation_method::text AS strategy"
 
     sql = f"""
         SELECT
@@ -288,6 +286,8 @@ def _load_answers(conn, run_id: str, corpus_schema: str) -> list[dict[str, Any]]
             a.reasoning_config,
             a.provider_used,
             q.domain::text AS domain,
+            q.tags,
+            q.difficulty::text AS difficulty,
             {strategy_select},
             {genmeta_select}
         FROM evaluation_answers a

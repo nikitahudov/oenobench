@@ -68,14 +68,14 @@ EVAL_CONFIGS: list[EvalConfig] = [
                provider_order=["DeepInfra", "Novita"], concurrency=20,
                logit_bias_supported=True,
                family="deepseek"),
-    # 10. Qwen 2.5 72B
+    # 10. Qwen 2.5 72B (SPS generator — Qwen authored ~20.5% of public corpus)
     EvalConfig(10, "qwen-2.5-72b", "qwen/qwen-2.5-72b-instruct",
                provider_order=["DeepInfra", "Novita"], concurrency=20,
-               family="qwen"),
-    # 11. Qwen 2.5 7B
+               family="qwen", is_generator_family=True),
+    # 11. Qwen 2.5 7B (SPS generator — Qwen authored ~20.5% of public corpus)
     EvalConfig(11, "qwen-2.5-7b", "qwen/qwen-2.5-7b-instruct",
                provider_order=["Together", "AtlasCloud"], concurrency=40,
-               family="qwen"),
+               family="qwen", is_generator_family=True),
     # 12. Mistral Large 2411
     EvalConfig(12, "mistral-large-2411", "mistralai/mistral-large-2411",
                provider_order=["Mistral"], concurrency=40,

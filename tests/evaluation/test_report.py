@@ -202,6 +202,107 @@ class TestStrategyPivot:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# test_load_answers_joins_genmeta_for_public_schema
+# ---------------------------------------------------------------------------
+
+
+class TestLoadAnswersSchema:
+    """
+    Verify that ``_load_answers`` builds the same column set for both the
+    ``sample`` and ``public`` corpus schemas, and that the SQL contains the
+    expected joins / projections.  We monkeypatch the cursor's ``execute`` to
+    capture the SQL string without hitting the database.
+    """
+
+    class _FakeCursor:
+        def __init__(self):
+            self.captured_sql: str | None = None
+            self.captured_params: tuple | None = None
+
+        def execute(self, sql, params=None):
+            self.captured_sql = sql
+            self.captured_params = params
+
+        def fetchall(self):
+            return []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    class _FakeConn:
+        def __init__(self):
+            self.cursor_obj = TestLoadAnswersSchema._FakeCursor()
+
+        def cursor(self):
+            return self.cursor_obj
+
+    def _captured_sql(self, schema: str) -> str:
+        from src.evaluation.report import _load_answers
+
+        conn = self._FakeConn()
+        rows = _load_answers(conn, run_id="00000000-0000-0000-0000-000000000000",
+                             corpus_schema=schema)
+        assert rows == []
+        sql = conn.cursor_obj.captured_sql
+        assert sql is not None
+        return sql
+
+    def test_public_schema_joins_genmeta(self):
+        sql = self._captured_sql("public")
+        assert "LEFT JOIN public.generation_metadata gm ON gm.question_id = q.id" in sql
+        assert "gm.generator::text AS generator" in sql
+        assert "gm.generation_method::text AS strategy" in sql
+        assert "q.tags" in sql
+        assert "q.difficulty::text AS difficulty" in sql
+        # Should not contain a NULL placeholder for generator anymore.
+        assert "NULL::text AS generator" not in sql
+
+    def test_sample_schema_joins_genmeta(self):
+        sql = self._captured_sql("sample")
+        assert "LEFT JOIN sample.generation_metadata gm ON gm.question_id = q.id" in sql
+        assert "gm.generator::text AS generator" in sql
+        assert "gm.generation_method::text AS strategy" in sql
+        assert "q.tags" in sql
+        assert "q.difficulty::text AS difficulty" in sql
+
+    def test_both_schemas_select_identical_columns(self):
+        """
+        Sanity-check that the SELECT clause is structurally identical for the
+        two corpus schemas (modulo the schema-qualified table refs).
+        """
+        sample_sql = self._captured_sql("sample")
+        public_sql = self._captured_sql("public")
+        # Strip the schema name to get a schema-agnostic comparison.
+        normalised_sample = sample_sql.replace("sample.", "")
+        normalised_public = public_sql.replace("public.", "")
+        assert normalised_sample == normalised_public
+
+
+# ---------------------------------------------------------------------------
+# test_qwen_family_mapping
+# ---------------------------------------------------------------------------
+
+
+class TestQwenFamilyMapping:
+    def test_generator_to_family_maps_qwen_to_qwen(self):
+        from src.evaluation.report import GENERATOR_TO_FAMILY
+        assert GENERATOR_TO_FAMILY["qwen"] == "qwen"
+
+    def test_qwen_72b_is_generator_family(self):
+        from src.evaluation.configs import by_slot
+        assert by_slot(10).is_generator_family is True
+        assert by_slot(10).family == "qwen"
+
+    def test_qwen_7b_is_generator_family(self):
+        from src.evaluation.configs import by_slot
+        assert by_slot(11).is_generator_family is True
+        assert by_slot(11).family == "qwen"
+
+
 @pytest.mark.integration
 @pytest.mark.skipif(
     os.environ.get("OENOBENCH_EVAL_TESTS_DB") != "1",
