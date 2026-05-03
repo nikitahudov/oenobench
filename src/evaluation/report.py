@@ -357,7 +357,7 @@ def _section_per_config_summary(buf: StringIO, answers: list[dict]) -> None:
 
     # Determine ordering: if configs available, use slot order; else alphabetical
     if configs:
-        order = [c.name for c in configs if c.name in by_config]
+        order = [c.model_id for c in configs if c.model_id in by_config]
         # append any unexpected names
         for name in sorted(by_config):
             if name not in order:
@@ -377,7 +377,7 @@ def _section_per_config_summary(buf: StringIO, answers: list[dict]) -> None:
 
     config_map: dict[str, Any] = {}
     if configs:
-        config_map = {c.name: c for c in configs}
+        config_map = {c.model_id: c for c in configs}
 
     for name in order:
         rows = by_config[name]
@@ -412,8 +412,9 @@ def _section_per_config_summary(buf: StringIO, answers: list[dict]) -> None:
         # Use effective cost (OR-authoritative when available, local otherwise).
         cost = sum(c for c in (effective_cost(r) for r in rows) if c is not None)
 
+        display = cfg.name if cfg else name
         buf.write(
-            f"| {slot} | {name} | {family} | {reasoning} "
+            f"| {slot} | {display} | {family} | {reasoning} "
             f"| {accuracy_str} | {parse_str} "
             f"| {p50} | {p95} "
             f"| {fmt_tokens(in_tok or None)} "
@@ -447,7 +448,7 @@ def _section_config_domain(buf: StringIO, answers: list[dict]) -> None:
         by_config.setdefault(mn, []).append(r)
 
     if configs:
-        order = [c.name for c in configs if c.name in by_config]
+        order = [c.model_id for c in configs if c.model_id in by_config]
         for name in sorted(by_config):
             if name not in order:
                 order.append(name)
@@ -463,6 +464,7 @@ def _section_config_domain(buf: StringIO, answers: list[dict]) -> None:
 
     all_domain_correct: dict[str, int] = {d: 0 for d in DOMAINS}
     all_domain_total: dict[str, int] = {d: 0 for d in DOMAINS}
+    display_map = {c.model_id: c.name for c in configs} if configs else {}
 
     for name in order:
         cells = []
@@ -471,7 +473,7 @@ def _section_config_domain(buf: StringIO, answers: list[dict]) -> None:
             all_domain_correct[d] += correct
             all_domain_total[d] += total
             cells.append(fmt_pct(correct, total))
-        buf.write(f"| {name} | " + " | ".join(cells) + " |\n")
+        buf.write(f"| {display_map.get(name, name)} | " + " | ".join(cells) + " |\n")
 
     # "all" row
     all_cells = [
@@ -491,7 +493,7 @@ def _section_config_strategy(buf: StringIO, answers: list[dict]) -> None:
         by_config.setdefault(mn, []).append(r)
 
     if configs:
-        order = [c.name for c in configs if c.name in by_config]
+        order = [c.model_id for c in configs if c.model_id in by_config]
         for name in sorted(by_config):
             if name not in order:
                 order.append(name)
@@ -507,6 +509,7 @@ def _section_config_strategy(buf: StringIO, answers: list[dict]) -> None:
 
     all_strat_correct: dict[str, int] = {s: 0 for s in STRATEGIES}
     all_strat_total: dict[str, int] = {s: 0 for s in STRATEGIES}
+    display_map = {c.model_id: c.name for c in configs} if configs else {}
 
     for name in order:
         cells = []
@@ -515,7 +518,7 @@ def _section_config_strategy(buf: StringIO, answers: list[dict]) -> None:
             all_strat_correct[s] += correct
             all_strat_total[s] += total
             cells.append(fmt_pct(correct, total))
-        buf.write(f"| {name} | " + " | ".join(cells) + " |\n")
+        buf.write(f"| {display_map.get(name, name)} | " + " | ".join(cells) + " |\n")
 
     # "all" row
     all_cells = [
@@ -577,7 +580,7 @@ def _section_sps(buf: StringIO, answers: list[dict]) -> None:
         mn = r.get("model_name") or "unknown"
         by_config.setdefault(mn, []).append(r)
 
-    config_map = {c.name: c for c in configs}
+    config_map = {c.model_id: c for c in configs}
 
     buf.write(
         "Bootstrap 95% CI via 1000 resamples. "
@@ -640,7 +643,8 @@ def _section_sps(buf: StringIO, answers: list[dict]) -> None:
             delta_str = "—"
             ci_str = "—"
 
-        buf.write(f"| {name} | {fam} | {own_str} | {other_str} | {delta_str} | {ci_str} |\n")
+        display = cfg.name if cfg else name
+        buf.write(f"| {display} | {fam} | {own_str} | {other_str} | {delta_str} | {ci_str} |\n")
 
     if not any_sps_computed:
         buf.write("| — | — | — | — | — | No own-family questions found |\n")
@@ -685,12 +689,13 @@ def _section_sps_matrix(buf: StringIO, answers: list[dict]) -> None:
     # Fixed family ordering — the 5 families that generated Phase-2 questions.
     families: list[str] = ["anthropic", "openai", "google", "meta", "qwen"]
 
-    # Build map: model_name -> family from EVAL_CONFIGS (only generator-families).
+    # Build map: model_id (DB-stored model_name) -> family from EVAL_CONFIGS
+    # (only generator-families).
     model_to_family: dict[str, str] = {}
     for c in configs:
         fam = getattr(c, "family", None)
         if getattr(c, "is_generator_family", False) and fam in families:
-            model_to_family[c.name] = fam
+            model_to_family[c.model_id] = fam
 
     # Stamp each row with evaluator_family and generator_family so we can pivot.
     stamped: list[dict[str, Any]] = []
@@ -745,7 +750,7 @@ def _section_reasoning_deltas(buf: StringIO, answers: list[dict]) -> None:
         )
         return
 
-    config_map = {c.name: c for c in configs}
+    config_map = {c.model_id: c for c in configs}
     slot_map = {c.slot: c for c in configs}
 
     # Define pairs (thinking_slot, standard_slot, label)
@@ -992,7 +997,7 @@ def _section_cost_efficiency(buf: StringIO, answers: list[dict]) -> None:
     with zero correct answers render '—' and sort to the bottom.
     """
     configs = _get_eval_configs()
-    config_map = {c.name: c for c in configs} if configs else {}
+    config_map = {c.model_id: c for c in configs} if configs else {}
 
     by_config: dict[str, list[dict]] = {}
     for r in answers:
@@ -1011,10 +1016,11 @@ def _section_cost_efficiency(buf: StringIO, answers: list[dict]) -> None:
     for name, rows in by_config.items():
         cfg = config_map.get(name)
         slot = cfg.slot if cfg else "—"
+        display = cfg.name if cfg else name
         correct = sum(1 for r in rows if r.get("is_correct"))
         eff_cost = sum(c for c in (effective_cost(r) for r in rows) if c is not None)
         per_correct = (eff_cost / correct) if correct > 0 else None
-        rows_for_table.append((slot, name, correct, eff_cost, per_correct))
+        rows_for_table.append((slot, display, correct, eff_cost, per_correct))
 
     # Sort: ascending by per_correct; rows with None (zero correct) go to bottom.
     def _sort_key(row):
@@ -1053,14 +1059,14 @@ def _section_cost_ledger(buf: StringIO, answers: list[dict]) -> None:
         by_config.setdefault(mn, []).append(r)
 
     if configs:
-        order = [c.name for c in configs if c.name in by_config]
+        order = [c.model_id for c in configs if c.model_id in by_config]
         for name in sorted(by_config):
             if name not in order:
                 order.append(name)
     else:
         order = sorted(by_config)
 
-    config_map = {c.name: c for c in configs} if configs else {}
+    config_map = {c.model_id: c for c in configs} if configs else {}
 
     buf.write("## 6. Cost & Wall Ledger\n\n")
     buf.write("| Slot | Config | Questions | Cost (effective) | Effective wall (est.) |\n")
@@ -1099,7 +1105,8 @@ def _section_cost_ledger(buf: StringIO, answers: list[dict]) -> None:
         else:
             wall_str = "—"
 
-        buf.write(f"| {slot} | {name} | {n_q} | {fmt_cost(eff_cost or None)} | {wall_str} |\n")
+        display = cfg.name if cfg else name
+        buf.write(f"| {slot} | {display} | {n_q} | {fmt_cost(eff_cost or None)} | {wall_str} |\n")
 
     buf.write(f"| | **Local cost (computed)** | | **{fmt_cost(grand_local or None)}** | |\n")
     or_label = f"OR cost (authoritative, {grand_or_rows:,} rows)"
@@ -1125,14 +1132,14 @@ def _section_cb_split(buf: StringIO, answers: list[dict]) -> None:
         by_config.setdefault(mn, []).append(r)
 
     if configs:
-        order = [c.name for c in configs if c.name in by_config]
+        order = [c.model_id for c in configs if c.model_id in by_config]
         for name in sorted(by_config):
             if name not in order:
                 order.append(name)
     else:
         order = sorted(by_config)
 
-    config_map = {c.name: c for c in configs} if configs else {}
+    config_map = {c.model_id: c for c in configs} if configs else {}
 
     buf.write(
         "| Slot | Config | n CB-fail | acc CB-fail | n CB-pass | acc CB-pass | δ | 95% CI |\n"
@@ -1200,8 +1207,9 @@ def _section_cb_split(buf: StringIO, answers: list[dict]) -> None:
             delta_str = "—"
             ci_str = "—"
 
+        display = cfg.name if cfg else name
         buf.write(
-            f"| {slot} | {name} | {n_fail} | {fail_str} | {n_pass} | {pass_str} "
+            f"| {slot} | {display} | {n_fail} | {fail_str} | {n_pass} | {pass_str} "
             f"| {delta_str} | {ci_str} |\n"
         )
 
@@ -1227,7 +1235,7 @@ def _section_difficulty(buf: StringIO, answers: list[dict]) -> None:
         by_config.setdefault(mn, []).append(r)
 
     if configs:
-        order = [c.name for c in configs if c.name in by_config]
+        order = [c.model_id for c in configs if c.model_id in by_config]
         for name in sorted(by_config):
             if name not in order:
                 order.append(name)
@@ -1248,6 +1256,7 @@ def _section_difficulty(buf: StringIO, answers: list[dict]) -> None:
 
     all_diff_correct: dict[str, int] = {d: 0 for d in DIFFICULTY_LEVELS}
     all_diff_total: dict[str, int] = {d: 0 for d in DIFFICULTY_LEVELS}
+    display_map = {c.model_id: c.name for c in configs} if configs else {}
 
     for name in order:
         cells = []
@@ -1256,7 +1265,7 @@ def _section_difficulty(buf: StringIO, answers: list[dict]) -> None:
             all_diff_correct[d] += correct
             all_diff_total[d] += total
             cells.append(fmt_pct(correct, total))
-        buf.write(f"| {name} | " + " | ".join(cells) + " |\n")
+        buf.write(f"| {display_map.get(name, name)} | " + " | ".join(cells) + " |\n")
 
     all_cells = [
         fmt_pct(all_diff_correct[d], all_diff_total[d]) for d in DIFFICULTY_LEVELS

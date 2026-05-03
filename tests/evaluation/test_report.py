@@ -211,14 +211,15 @@ class TestSectionSpsMatrix:
     [anthropic, openai, google, meta, qwen].
     """
 
-    # Map evaluator family -> a slate config name in that family with
-    # is_generator_family=True.  These exist in EVAL_CONFIGS post-Foundation.
+    # Map evaluator family -> the OR model_id that the eval harness writes
+    # into evaluation_answers.model_name (post-fix, the report keys by
+    # model_id, not the slate friendly name).  These match EVAL_CONFIGS.
     EV_MODEL_BY_FAMILY = {
-        "anthropic": "claude-opus-4.7",      # slot 1
-        "openai":    "gpt-5",                # slot 3
-        "google":    "gemini-2.5-pro",       # slot 5
-        "meta":      "llama-3.3-70b",        # slot 7
-        "qwen":      "qwen-2.5-72b",         # slot 10
+        "anthropic": "anthropic/claude-opus-4.7",        # slot 1
+        "openai":    "openai/gpt-5",                     # slot 3
+        "google":    "google/gemini-2.5-pro",            # slot 5
+        "meta":      "meta-llama/llama-3.3-70b-instruct",# slot 7
+        "qwen":      "qwen/qwen-2.5-72b-instruct",       # slot 10
     }
 
     # The DB enum value that maps via GENERATOR_TO_FAMILY back to each family.
