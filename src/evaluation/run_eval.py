@@ -563,6 +563,17 @@ def _evaluate_config(
     help="Which questions schema to read from.",
 )
 @click.option(
+    "--release",
+    type=str,
+    default=None,
+    help=(
+        "Public-corpus release pin.  Defaults to v1.2 (3,329 questions tagged "
+        "release_v1.2 with status='draft').  Pass --release=all to load the "
+        "full public table (NOT recommended for the official eval).  Ignored "
+        "when --corpus=sample."
+    ),
+)
+@click.option(
     "--max-questions",
     type=int,
     default=None,
@@ -589,6 +600,7 @@ def _evaluate_config(
 def main(
     tag: str,
     corpus: str,
+    release: str | None,
     max_questions: int | None,
     configs_str: str | None,
     resume: bool,
@@ -633,9 +645,19 @@ def main(
     else:
         selected_configs = list(EVAL_CONFIGS)
 
-    # Load questions.
-    questions = load_questions(corpus=corpus, limit=max_questions)
-    logger.info("Loaded {} questions from {}.questions", len(questions), corpus)
+    # Load questions.  release_v1.2 (default for public) pins to the official
+    # 3,329-question NeurIPS submission set; release="all" or sample corpus
+    # bypass the tag filter.
+    questions = load_questions(corpus=corpus, limit=max_questions, release=release)
+    if corpus == "public":
+        from src.evaluation._corpus_loader import DEFAULT_PUBLIC_RELEASE
+        effective_release = release if release is not None else DEFAULT_PUBLIC_RELEASE
+        logger.info(
+            "Loaded {} questions from public.questions (release={})",
+            len(questions), effective_release,
+        )
+    else:
+        logger.info("Loaded {} questions from {}.questions", len(questions), corpus)
 
     if dry_run:
         click.echo(f"\n=== DRY RUN PLAN ===")

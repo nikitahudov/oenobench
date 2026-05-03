@@ -28,9 +28,19 @@ from typing import Any
 import click
 import numpy as np
 
+from src.evaluation.cb_split import CLOSED_BOOK_TAG
+
 # ---------------------------------------------------------------------------
 # Formatting helpers (pure, importable by tests)
 # ---------------------------------------------------------------------------
+
+DIFFICULTY_LEVELS = ["1", "2", "3", "4"]
+DIFFICULTY_LABELS = {
+    "1": "1 (easy)",
+    "2": "2",
+    "3": "3",
+    "4": "4 (hardest)",
+}
 
 DOMAINS = [
     "wine_regions",
@@ -107,6 +117,41 @@ def effective_cost(row: dict[str, Any]) -> float | None:
     if local is not None:
         return float(local)
     return None
+
+
+def _row_compound_key(row: dict) -> str:
+    """Bucket key for one evaluation_answers row that disambiguates
+    reasoning twins (same model_id, different reasoning_config).
+    Format: model_name#<canonical-json-of-reasoning_config> when
+    reasoning_config is non-empty; bare model_name otherwise.
+    """
+    mn = row.get("model_name") or "unknown"
+    rc = row.get("reasoning_config")
+    if rc is None or rc == {} or rc == "":
+        return mn
+    if isinstance(rc, str):
+        # Defensive — DB returns dict via psycopg2 jsonb adaptor, but if a
+        # caller hands us a string, normalise.
+        try:
+            import json as _json
+            rc = _json.loads(rc)
+        except Exception:
+            return f"{mn}#{rc}"
+    import json as _json
+    return f"{mn}#{_json.dumps(rc, sort_keys=True)}"
+
+
+def _config_compound_key(c) -> str:
+    """Bucket key for an EvalConfig that matches _row_compound_key
+    on rows the harness wrote for that config."""
+    import json as _json
+    if c.reasoning_mode is None:
+        return c.model_id
+    if c.reasoning_mode == "explicit_budget":
+        d = {"max_tokens": int(c.reasoning_budget or 512)}
+    else:  # "effort"
+        d = {"effort": c.reasoning_effort or "medium"}
+    return f"{c.model_id}#{_json.dumps(d, sort_keys=True)}"
 
 
 def fmt_ms(ms: float | None) -> str:
@@ -339,15 +384,15 @@ def _section_per_config_summary(buf: StringIO, answers: list[dict]) -> None:
     """Section 1: Per-config summary table (16 rows)."""
     configs = _get_eval_configs()
 
-    # Group answers by model_name
+    # Group answers by compound key (model_name + reasoning_config) so that
+    # reasoning twins (same model_id, different reasoning_config) stay separate.
     by_config: dict[str, list[dict]] = {}
     for r in answers:
-        mn = r.get("model_name") or "unknown"
-        by_config.setdefault(mn, []).append(r)
+        by_config.setdefault(_row_compound_key(r), []).append(r)
 
     # Determine ordering: if configs available, use slot order; else alphabetical
     if configs:
-        order = [c.name for c in configs if c.name in by_config]
+        order = [_config_compound_key(c) for c in configs if _config_compound_key(c) in by_config]
         # append any unexpected names
         for name in sorted(by_config):
             if name not in order:
@@ -367,7 +412,7 @@ def _section_per_config_summary(buf: StringIO, answers: list[dict]) -> None:
 
     config_map: dict[str, Any] = {}
     if configs:
-        config_map = {c.name: c for c in configs}
+        config_map = {_config_compound_key(c): c for c in configs}
 
     for name in order:
         rows = by_config[name]
@@ -402,8 +447,9 @@ def _section_per_config_summary(buf: StringIO, answers: list[dict]) -> None:
         # Use effective cost (OR-authoritative when available, local otherwise).
         cost = sum(c for c in (effective_cost(r) for r in rows) if c is not None)
 
+        display = cfg.name if cfg else name
         buf.write(
-            f"| {slot} | {name} | {family} | {reasoning} "
+            f"| {slot} | {display} | {family} | {reasoning} "
             f"| {accuracy_str} | {parse_str} "
             f"| {p50} | {p95} "
             f"| {fmt_tokens(in_tok or None)} "
@@ -433,18 +479,20 @@ def _section_config_domain(buf: StringIO, answers: list[dict]) -> None:
 
     by_config: dict[str, list[dict]] = {}
     for r in answers:
-        mn = r.get("model_name") or "unknown"
-        by_config.setdefault(mn, []).append(r)
+        by_config.setdefault(_row_compound_key(r), []).append(r)
 
     if configs:
-        order = [c.name for c in configs if c.name in by_config]
+        order = [_config_compound_key(c) for c in configs if _config_compound_key(c) in by_config]
         for name in sorted(by_config):
             if name not in order:
                 order.append(name)
     else:
         order = sorted(by_config)
 
-    pivot = pivot_accuracy(answers, "model_name", "domain", order, DOMAINS)
+    # Stamp each row with its compound key so the generic pivot helper can
+    # bucket reasoning twins separately.
+    stamped_rows = [{**r, "_compound_key": _row_compound_key(r)} for r in answers]
+    pivot = pivot_accuracy(stamped_rows, "_compound_key", "domain", order, DOMAINS)
 
     buf.write("## 2. Per-Config × Per-Domain Accuracy (%)\n\n")
     domain_headers = " | ".join(DOMAIN_LABELS.get(d, d) for d in DOMAINS)
@@ -453,6 +501,7 @@ def _section_config_domain(buf: StringIO, answers: list[dict]) -> None:
 
     all_domain_correct: dict[str, int] = {d: 0 for d in DOMAINS}
     all_domain_total: dict[str, int] = {d: 0 for d in DOMAINS}
+    display_map = {_config_compound_key(c): c.name for c in configs} if configs else {}
 
     for name in order:
         cells = []
@@ -461,7 +510,7 @@ def _section_config_domain(buf: StringIO, answers: list[dict]) -> None:
             all_domain_correct[d] += correct
             all_domain_total[d] += total
             cells.append(fmt_pct(correct, total))
-        buf.write(f"| {name} | " + " | ".join(cells) + " |\n")
+        buf.write(f"| {display_map.get(name, name)} | " + " | ".join(cells) + " |\n")
 
     # "all" row
     all_cells = [
@@ -477,18 +526,18 @@ def _section_config_strategy(buf: StringIO, answers: list[dict]) -> None:
 
     by_config: dict[str, list[dict]] = {}
     for r in answers:
-        mn = r.get("model_name") or "unknown"
-        by_config.setdefault(mn, []).append(r)
+        by_config.setdefault(_row_compound_key(r), []).append(r)
 
     if configs:
-        order = [c.name for c in configs if c.name in by_config]
+        order = [_config_compound_key(c) for c in configs if _config_compound_key(c) in by_config]
         for name in sorted(by_config):
             if name not in order:
                 order.append(name)
     else:
         order = sorted(by_config)
 
-    pivot = pivot_accuracy(answers, "model_name", "strategy", order, STRATEGIES)
+    stamped_rows = [{**r, "_compound_key": _row_compound_key(r)} for r in answers]
+    pivot = pivot_accuracy(stamped_rows, "_compound_key", "strategy", order, STRATEGIES)
 
     buf.write("## 3. Per-Config × Per-Strategy Accuracy (%)\n\n")
     strat_headers = " | ".join(STRATEGY_LABELS.get(s, s) for s in STRATEGIES)
@@ -497,6 +546,7 @@ def _section_config_strategy(buf: StringIO, answers: list[dict]) -> None:
 
     all_strat_correct: dict[str, int] = {s: 0 for s in STRATEGIES}
     all_strat_total: dict[str, int] = {s: 0 for s in STRATEGIES}
+    display_map = {_config_compound_key(c): c.name for c in configs} if configs else {}
 
     for name in order:
         cells = []
@@ -505,7 +555,7 @@ def _section_config_strategy(buf: StringIO, answers: list[dict]) -> None:
             all_strat_correct[s] += correct
             all_strat_total[s] += total
             cells.append(fmt_pct(correct, total))
-        buf.write(f"| {name} | " + " | ".join(cells) + " |\n")
+        buf.write(f"| {display_map.get(name, name)} | " + " | ".join(cells) + " |\n")
 
     # "all" row
     all_cells = [
@@ -561,13 +611,12 @@ def _section_sps(buf: StringIO, answers: list[dict]) -> None:
     else:
         generator_family_configs = generator_families
 
-    # Group answers by config
+    # Group answers by compound config key (disambiguate reasoning twins).
     by_config: dict[str, list[dict]] = {}
     for r in answers:
-        mn = r.get("model_name") or "unknown"
-        by_config.setdefault(mn, []).append(r)
+        by_config.setdefault(_row_compound_key(r), []).append(r)
 
-    config_map = {c.name: c for c in configs}
+    config_map = {_config_compound_key(c): c for c in configs}
 
     buf.write(
         "Bootstrap 95% CI via 1000 resamples. "
@@ -630,10 +679,96 @@ def _section_sps(buf: StringIO, answers: list[dict]) -> None:
             delta_str = "—"
             ci_str = "—"
 
-        buf.write(f"| {name} | {fam} | {own_str} | {other_str} | {delta_str} | {ci_str} |\n")
+        display = cfg.name if cfg else name
+        buf.write(f"| {display} | {fam} | {own_str} | {other_str} | {delta_str} | {ci_str} |\n")
 
     if not any_sps_computed:
         buf.write("| — | — | — | — | — | No own-family questions found |\n")
+
+    buf.write("\n")
+
+
+def _section_sps_matrix(buf: StringIO, answers: list[dict]) -> None:
+    """Section 4b: SPS family matrix.
+
+    Renders a G × G grid of accuracy% (N) where rows are evaluator families
+    and columns are generator families.  Diagonal cells are own-family (SPS)
+    accuracy; off-diagonal cells are cross-family.
+
+    Family ordering is fixed at [anthropic, openai, google, meta, qwen] —
+    the five families that authored questions in Phase 2 and that have at
+    least one ``EvalConfig`` with ``is_generator_family=True``.
+    """
+    configs = _get_eval_configs()
+
+    buf.write("## 4b. Self-Preference Family Matrix\n\n")
+    buf.write(
+        "Cells are accuracy% (N). Rows are evaluator families; columns are generator\n"
+        "families. Diagonal cells are own-family (SPS) accuracy; off-diagonal cells are\n"
+        "cross-family.\n\n"
+    )
+
+    if not configs:
+        buf.write(
+            "_SPS matrix skipped: EVAL_CONFIGS not available._\n\n"
+        )
+        return
+
+    has_generator = any(r.get("generator") is not None for r in answers)
+    if not has_generator:
+        buf.write(
+            "_SPS matrix skipped: generator-family link not in schema "
+            "(no generator column joined from generation_metadata)._\n\n"
+        )
+        return
+
+    # Fixed family ordering — the 5 families that generated Phase-2 questions.
+    families: list[str] = ["anthropic", "openai", "google", "meta", "qwen"]
+
+    # Build map: model_id (DB-stored model_name) -> family from EVAL_CONFIGS
+    # (only generator-families).
+    model_to_family: dict[str, str] = {}
+    for c in configs:
+        fam = getattr(c, "family", None)
+        if getattr(c, "is_generator_family", False) and fam in families:
+            model_to_family[c.model_id] = fam
+
+    # Stamp each row with evaluator_family and generator_family so we can pivot.
+    stamped: list[dict[str, Any]] = []
+    for r in answers:
+        ev_fam = model_to_family.get(r.get("model_name") or "")
+        gen_fam = GENERATOR_TO_FAMILY.get(str(r.get("generator"))) if r.get("generator") else None
+        if ev_fam is None or gen_fam is None:
+            continue
+        stamped.append({
+            "evaluator_family": ev_fam,
+            "generator_family": gen_fam,
+            "is_correct": r.get("is_correct"),
+        })
+
+    pivot = pivot_accuracy(
+        stamped,
+        row_key="evaluator_family",
+        col_key="generator_family",
+        row_order=families,
+        col_order=families,
+    )
+
+    # Header row: blank corner + generator family columns.
+    header_cells = " | ".join(families)
+    buf.write(f"| Eval ↓ / Gen → | {header_cells} |\n")
+    buf.write("|---|" + "---:|" * len(families) + "\n")
+
+    for ev_fam in families:
+        cells = []
+        for gen_fam in families:
+            correct, total = pivot.get((ev_fam, gen_fam), (0, 0))
+            if total == 0:
+                cells.append("— (0)")
+            else:
+                acc = correct / total
+                cells.append(f"{acc:.1%} ({total})")
+        buf.write(f"| **{ev_fam}** | " + " | ".join(cells) + " |\n")
 
     buf.write("\n")
 
@@ -651,7 +786,6 @@ def _section_reasoning_deltas(buf: StringIO, answers: list[dict]) -> None:
         )
         return
 
-    config_map = {c.name: c for c in configs}
     slot_map = {c.slot: c for c in configs}
 
     # Define pairs (thinking_slot, standard_slot, label)
@@ -662,11 +796,10 @@ def _section_reasoning_deltas(buf: StringIO, answers: list[dict]) -> None:
         (15, 9, "DeepSeek-R1 vs DeepSeek-V3"),
     ]
 
-    # Group answers by model_name
+    # Group answers by compound config key (disambiguates reasoning twins).
     by_config: dict[str, list[dict]] = {}
     for r in answers:
-        mn = r.get("model_name") or "unknown"
-        by_config.setdefault(mn, []).append(r)
+        by_config.setdefault(_row_compound_key(r), []).append(r)
 
     buf.write(
         "Bootstrap 95% CI via 1000 resamples. "
@@ -682,8 +815,8 @@ def _section_reasoning_deltas(buf: StringIO, answers: list[dict]) -> None:
             buf.write(f"| {label} | slot {think_slot} | slot {std_slot} | — | — | — | config not in registry |\n")
             continue
 
-        think_rows_raw = by_config.get(think_cfg.name, [])
-        std_rows_raw = by_config.get(std_cfg.name, [])
+        think_rows_raw = by_config.get(_config_compound_key(think_cfg), [])
+        std_rows_raw = by_config.get(_config_compound_key(std_cfg), [])
 
         if not think_rows_raw and not std_rows_raw:
             buf.write(f"| {label} | {think_cfg.name} | {std_cfg.name} | — | — | — | no data |\n")
@@ -729,6 +862,221 @@ def _section_reasoning_deltas(buf: StringIO, answers: list[dict]) -> None:
     buf.write("\n")
 
 
+def _section_item_analysis(buf: StringIO, answers: list[dict]) -> None:
+    """Section 9: Item analysis — per-question accuracy distribution, ceiling/floor,
+    hardest/easiest, and item discrimination (point-biserial).
+
+    Pure aggregation over ``answers``.  No new LLM calls, no new joins.
+    """
+    buf.write("## 9. Item Analysis\n\n")
+
+    if not answers:
+        buf.write("_No answers found for this run._\n\n")
+        return
+
+    # Group answers by compound config key to determine n_configs and
+    # per-config accuracy.  Compound key disambiguates reasoning twins.
+    by_config: dict[str, list[dict]] = {}
+    for r in answers:
+        by_config.setdefault(_row_compound_key(r), []).append(r)
+
+    config_names = sorted(by_config.keys())
+    n_configs = len(config_names)
+    if n_configs == 0:
+        buf.write("_No configs found in answers._\n\n")
+        return
+
+    # Per-config overall accuracy (used for point-biserial later).
+    per_config_acc: dict[str, float] = {}
+    for name, rows in by_config.items():
+        if not rows:
+            per_config_acc[name] = float("nan")
+        else:
+            per_config_acc[name] = sum(1 for r in rows if r.get("is_correct")) / len(rows)
+
+    # Group answers by question_id; track per-(question, config) correctness.
+    # outcomes[qid] is a dict {config_name -> 0/1}.
+    outcomes: dict[str, dict[str, int]] = {}
+    correct_letter: dict[str, str] = {}
+    for r in answers:
+        qid = r.get("question_id")
+        if qid is None:
+            continue
+        qid = str(qid)
+        cfg = _row_compound_key(r)
+        outcomes.setdefault(qid, {})[cfg] = 1 if r.get("is_correct") else 0
+        # Capture a parsed_answer for floor sample reporting (any one is fine).
+        if qid not in correct_letter and r.get("is_correct") and r.get("parsed_answer"):
+            correct_letter[qid] = str(r.get("parsed_answer")).strip()
+
+    # Per-question correct-count (across configs).
+    per_q_correct: dict[str, int] = {qid: sum(d.values()) for qid, d in outcomes.items()}
+    # Per-question mean accuracy = correct / observed_configs (avoid division by 0).
+    per_q_mean: dict[str, float] = {}
+    for qid, d in outcomes.items():
+        if not d:
+            per_q_mean[qid] = float("nan")
+        else:
+            per_q_mean[qid] = sum(d.values()) / len(d)
+
+    total_questions = len(outcomes)
+
+    # ---------- 9a. Per-question accuracy distribution ----------
+    buf.write(f"### 9a. Per-Question Accuracy Distribution\n\n")
+    buf.write(
+        f"Histogram of how many questions were answered correctly by exactly k configs"
+        f" (out of N = {n_configs}).\n\n"
+    )
+    buf.write(f"| k correct out of {n_configs} | # questions | % of corpus |\n")
+    buf.write("|---:|---:|---:|\n")
+    for k in range(n_configs + 1):
+        n_k = sum(1 for c in per_q_correct.values() if c == k)
+        pct = (100.0 * n_k / total_questions) if total_questions > 0 else 0.0
+        buf.write(f"| {k} | {n_k} | {pct:.1f}% |\n")
+    buf.write("\n")
+
+    # ---------- 9b. Ceiling and floor item counts ----------
+    buf.write("### 9b. Ceiling and Floor Items\n\n")
+    ceiling_threshold = math.ceil(n_configs * 15.0 / 16.0)
+    ceiling_qids = sorted(
+        [qid for qid, c in per_q_correct.items() if c >= ceiling_threshold]
+    )
+    floor_qids = sorted([qid for qid, c in per_q_correct.items() if c == 0])
+
+    buf.write(
+        f"- **Ceiling items** (correct by >= {ceiling_threshold} of {n_configs} configs): "
+        f"{len(ceiling_qids)} items.\n"
+    )
+    if ceiling_qids:
+        sample = ceiling_qids[:5]
+        buf.write("  Sample question_ids: " + ", ".join(f"`{q}`" for q in sample) + "\n")
+    buf.write(
+        f"- **Floor items** (correct by 0 of {n_configs} configs): "
+        f"{len(floor_qids)} items.\n"
+    )
+    if floor_qids:
+        sample = floor_qids[:5]
+        formatted = []
+        for q in sample:
+            letter = correct_letter.get(q, "?")
+            formatted.append(f"`{q}` (correct=`{letter}`)" if letter != "?" else f"`{q}`")
+        buf.write("  Sample question_ids: " + ", ".join(formatted) + "\n")
+    buf.write("\n")
+
+    # ---------- 9c. Hardest and easiest items ----------
+    buf.write("### 9c. Hardest and Easiest Items\n\n")
+    sorted_by_acc = sorted(per_q_mean.items(), key=lambda kv: (kv[1], kv[0]))
+    hardest = sorted_by_acc[:10]
+    easiest = list(reversed(sorted_by_acc[-10:]))
+
+    buf.write("**Top 10 hardest** (lowest mean accuracy first):\n\n")
+    buf.write("| question_id | mean accuracy |\n|---|---:|\n")
+    for qid, mean_acc in hardest:
+        buf.write(f"| `{qid}` | {mean_acc:.1%} |\n")
+    buf.write("\n")
+
+    buf.write("**Top 10 easiest** (highest mean accuracy first):\n\n")
+    buf.write("| question_id | mean accuracy |\n|---|---:|\n")
+    for qid, mean_acc in easiest:
+        buf.write(f"| `{qid}` | {mean_acc:.1%} |\n")
+    buf.write("\n")
+
+    # ---------- 9d. Item discrimination (point-biserial) ----------
+    buf.write("### 9d. Item Discrimination (Point-Biserial)\n\n")
+    buf.write(
+        "For each question we correlate the per-config 0/1 outcome vector with each"
+        " config's overall accuracy. Lower / negative `rpb` flags items that"
+        " behave inconsistently with overall config skill — paper-quality QA"
+        " candidates.\n\n"
+    )
+
+    # Per-config accuracy aligned to config_names ordering.
+    y = np.array([per_config_acc.get(name, float("nan")) for name in config_names], dtype=float)
+    sigma_y = float(np.nanstd(y))
+
+    rpb_results: list[tuple[str, float, float]] = []  # (qid, mean_acc, rpb)
+    for qid, d in outcomes.items():
+        x = np.array([d.get(name, 0) for name in config_names], dtype=float)
+        x_sum = x.sum()
+        if x_sum == 0 or x_sum == len(x):
+            continue  # no variance
+        if sigma_y <= 0:
+            continue
+        mean_y_correct = y[x == 1].mean()
+        mean_y_incorrect = y[x == 0].mean()
+        p = x_sum / len(x)
+        q_ = 1.0 - p
+        rpb = float((mean_y_correct - mean_y_incorrect) * np.sqrt(p * q_) / sigma_y)
+        rpb_results.append((qid, per_q_mean[qid], rpb))
+
+    if not rpb_results:
+        buf.write("_No items with variance across configs; discrimination not computed._\n\n")
+        return
+
+    rpb_results.sort(key=lambda t: (t[2], t[0]))
+    worst = rpb_results[:10]
+    buf.write(
+        "**Top 10 worst-discriminating items** (lowest / most-negative `rpb` first):\n\n"
+    )
+    buf.write("| question_id | mean accuracy | rpb |\n|---|---:|---:|\n")
+    for qid, mean_acc, rpb in worst:
+        buf.write(f"| `{qid}` | {mean_acc:.1%} | {rpb:+.3f} |\n")
+    buf.write("\n")
+
+
+def _section_cost_efficiency(buf: StringIO, answers: list[dict]) -> None:
+    """Section 10: Cost-efficiency — cost per correct answer per config.
+
+    Uses ``effective_cost`` (OR-authoritative when present, else local).  Configs
+    with zero correct answers render '—' and sort to the bottom.
+    """
+    configs = _get_eval_configs()
+    config_map = {_config_compound_key(c): c for c in configs} if configs else {}
+
+    by_config: dict[str, list[dict]] = {}
+    for r in answers:
+        by_config.setdefault(_row_compound_key(r), []).append(r)
+
+    buf.write("## 10. Cost-Efficiency\n\n")
+    buf.write(
+        "Cost per correct answer = effective_cost / correct_count. Lower is better.\n"
+        "\"effective\" cost prefers OR-authoritative when present, else locally computed.\n\n"
+    )
+    buf.write("| Slot | Config | Correct | Effective cost | Cost / correct |\n")
+    buf.write("|---:|---|---:|---|---|\n")
+
+    rows_for_table: list[tuple[Any, str, int, float, float | None]] = []
+    for name, rows in by_config.items():
+        cfg = config_map.get(name)
+        slot = cfg.slot if cfg else "—"
+        display = cfg.name if cfg else name
+        correct = sum(1 for r in rows if r.get("is_correct"))
+        eff_cost = sum(c for c in (effective_cost(r) for r in rows) if c is not None)
+        per_correct = (eff_cost / correct) if correct > 0 else None
+        rows_for_table.append((slot, display, correct, eff_cost, per_correct))
+
+    # Sort: ascending by per_correct; rows with None (zero correct) go to bottom.
+    def _sort_key(row):
+        slot, name, correct, eff_cost, per_correct = row
+        if per_correct is None:
+            return (1, 0.0, name)
+        return (0, per_correct, name)
+
+    rows_for_table.sort(key=_sort_key)
+
+    for slot, name, correct, eff_cost, per_correct in rows_for_table:
+        if per_correct is None:
+            per_correct_str = "—"
+        else:
+            per_correct_str = f"${per_correct:.4f}"
+        buf.write(
+            f"| {slot} | {name} | {correct} | {fmt_cost(eff_cost or None)} "
+            f"| {per_correct_str} |\n"
+        )
+
+    buf.write("\n")
+
+
 def _section_cost_ledger(buf: StringIO, answers: list[dict]) -> None:
     """Section 6: Cost & wall ledger.
 
@@ -740,18 +1088,17 @@ def _section_cost_ledger(buf: StringIO, answers: list[dict]) -> None:
 
     by_config: dict[str, list[dict]] = {}
     for r in answers:
-        mn = r.get("model_name") or "unknown"
-        by_config.setdefault(mn, []).append(r)
+        by_config.setdefault(_row_compound_key(r), []).append(r)
 
     if configs:
-        order = [c.name for c in configs if c.name in by_config]
+        order = [_config_compound_key(c) for c in configs if _config_compound_key(c) in by_config]
         for name in sorted(by_config):
             if name not in order:
                 order.append(name)
     else:
         order = sorted(by_config)
 
-    config_map = {c.name: c for c in configs} if configs else {}
+    config_map = {_config_compound_key(c): c for c in configs} if configs else {}
 
     buf.write("## 6. Cost & Wall Ledger\n\n")
     buf.write("| Slot | Config | Questions | Cost (effective) | Effective wall (est.) |\n")
@@ -790,11 +1137,171 @@ def _section_cost_ledger(buf: StringIO, answers: list[dict]) -> None:
         else:
             wall_str = "—"
 
-        buf.write(f"| {slot} | {name} | {n_q} | {fmt_cost(eff_cost or None)} | {wall_str} |\n")
+        display = cfg.name if cfg else name
+        buf.write(f"| {slot} | {display} | {n_q} | {fmt_cost(eff_cost or None)} | {wall_str} |\n")
 
     buf.write(f"| | **Local cost (computed)** | | **{fmt_cost(grand_local or None)}** | |\n")
     or_label = f"OR cost (authoritative, {grand_or_rows:,} rows)"
     buf.write(f"| | **{or_label}** | | **{fmt_cost(grand_or or None)}** | |\n")
+    buf.write("\n")
+
+
+def _section_cb_split(buf: StringIO, answers: list[dict]) -> None:
+    """Section 7: Per-config CB-fail vs CB-pass accuracy with bootstrap CI on δ."""
+    configs = _get_eval_configs()
+
+    buf.write("## 7. Closed-Book vs Contextual Accuracy\n\n")
+    buf.write(
+        "CB-fail = questions tagged `closed_book_solvable` (parametric wine knowledge).\n"
+        "CB-pass = the rest (contextual wine reasoning). δ = acc(CB-fail) − acc(CB-pass);\n"
+        "positive means the model leans on memorised wine facts; negative means it does\n"
+        "better when it has to reason from the question.\n\n"
+    )
+
+    by_config: dict[str, list[dict]] = {}
+    for r in answers:
+        by_config.setdefault(_row_compound_key(r), []).append(r)
+
+    if configs:
+        order = [_config_compound_key(c) for c in configs if _config_compound_key(c) in by_config]
+        for name in sorted(by_config):
+            if name not in order:
+                order.append(name)
+    else:
+        order = sorted(by_config)
+
+    config_map = {_config_compound_key(c): c for c in configs} if configs else {}
+
+    buf.write(
+        "| Slot | Config | n CB-fail | acc CB-fail | n CB-pass | acc CB-pass | δ | 95% CI |\n"
+    )
+    buf.write("|---:|---|---:|---:|---:|---:|---:|---|\n")
+
+    deltas: list[float] = []
+
+    for name in order:
+        rows = by_config[name]
+        cfg = config_map.get(name)
+        slot = cfg.slot if cfg else "—"
+
+        cb_fail = np.array(
+            [
+                1 if r.get("is_correct") else 0
+                for r in rows
+                if r.get("tags") and CLOSED_BOOK_TAG in r["tags"]
+            ],
+            dtype=float,
+        )
+        cb_pass = np.array(
+            [
+                1 if r.get("is_correct") else 0
+                for r in rows
+                if not (r.get("tags") and CLOSED_BOOK_TAG in r["tags"])
+            ],
+            dtype=float,
+        )
+
+        n_fail = len(cb_fail)
+        n_pass = len(cb_pass)
+
+        if n_fail > 0:
+            fail_mean, _, _ = bootstrap_ci(cb_fail)
+            fail_str = f"{fail_mean:.1%}"
+        else:
+            fail_mean = float("nan")
+            fail_str = "—"
+
+        if n_pass > 0:
+            pass_mean, _, _ = bootstrap_ci(cb_pass)
+            pass_str = f"{pass_mean:.1%}"
+        else:
+            pass_mean = float("nan")
+            pass_str = "—"
+
+        if n_fail > 0 and n_pass > 0:
+            delta = fail_mean - pass_mean
+            rng = np.random.default_rng(42)
+            n_boot = 1000
+            fail_boots = np.array(
+                [rng.choice(cb_fail, size=n_fail, replace=True).mean() for _ in range(n_boot)]
+            )
+            pass_boots = np.array(
+                [rng.choice(cb_pass, size=n_pass, replace=True).mean() for _ in range(n_boot)]
+            )
+            delta_boots = fail_boots - pass_boots
+            ci_lo = float(np.percentile(delta_boots, 2.5))
+            ci_hi = float(np.percentile(delta_boots, 97.5))
+            delta_str = f"{delta:+.1%}"
+            ci_str = f"[{ci_lo:+.1%}, {ci_hi:+.1%}]"
+            deltas.append(delta)
+        else:
+            delta_str = "—"
+            ci_str = "—"
+
+        display = cfg.name if cfg else name
+        buf.write(
+            f"| {slot} | {display} | {n_fail} | {fail_str} | {n_pass} | {pass_str} "
+            f"| {delta_str} | {ci_str} |\n"
+        )
+
+    if deltas:
+        mean_delta = sum(deltas) / len(deltas)
+        mean_delta_str = f"{mean_delta:+.1%}"
+    else:
+        mean_delta_str = "—"
+
+    buf.write(
+        f"| | **all configs (mean δ)** | | | | | **{mean_delta_str}** | |\n"
+    )
+    buf.write("\n")
+
+
+def _section_difficulty(buf: StringIO, answers: list[dict]) -> None:
+    """Section 8: Per-config × per-difficulty accuracy grid."""
+    configs = _get_eval_configs()
+
+    by_config: dict[str, list[dict]] = {}
+    for r in answers:
+        by_config.setdefault(_row_compound_key(r), []).append(r)
+
+    if configs:
+        order = [_config_compound_key(c) for c in configs if _config_compound_key(c) in by_config]
+        for name in sorted(by_config):
+            if name not in order:
+                order.append(name)
+    else:
+        order = sorted(by_config)
+
+    stamped_rows = [{**r, "_compound_key": _row_compound_key(r)} for r in answers]
+    pivot = pivot_accuracy(
+        stamped_rows, "_compound_key", "difficulty", order, DIFFICULTY_LEVELS
+    )
+
+    buf.write("## 8. Per-Config × Per-Difficulty Accuracy (%)\n\n")
+    buf.write(
+        "Difficulty 1 (easy) → 4 (hardest). Cells are accuracy on each difficulty tier.\n\n"
+    )
+    diff_headers = " | ".join(DIFFICULTY_LABELS[d] for d in DIFFICULTY_LEVELS)
+    buf.write(f"| Config | {diff_headers} |\n")
+    buf.write("|" + "---|" * (len(DIFFICULTY_LEVELS) + 1) + "\n")
+
+    all_diff_correct: dict[str, int] = {d: 0 for d in DIFFICULTY_LEVELS}
+    all_diff_total: dict[str, int] = {d: 0 for d in DIFFICULTY_LEVELS}
+    display_map = {_config_compound_key(c): c.name for c in configs} if configs else {}
+
+    for name in order:
+        cells = []
+        for d in DIFFICULTY_LEVELS:
+            correct, total = pivot.get((name, d), (0, 0))
+            all_diff_correct[d] += correct
+            all_diff_total[d] += total
+            cells.append(fmt_pct(correct, total))
+        buf.write(f"| {display_map.get(name, name)} | " + " | ".join(cells) + " |\n")
+
+    all_cells = [
+        fmt_pct(all_diff_correct[d], all_diff_total[d]) for d in DIFFICULTY_LEVELS
+    ]
+    buf.write(f"| **all** | " + " | ".join(all_cells) + " |\n")
     buf.write("\n")
 
 
@@ -836,8 +1343,13 @@ def render_report(tag: str, output_path: str | None = None) -> str:
     _section_config_domain(buf, answers)
     _section_config_strategy(buf, answers)
     _section_sps(buf, answers)
+    _section_sps_matrix(buf, answers)
     _section_reasoning_deltas(buf, answers)
     _section_cost_ledger(buf, answers)
+    _section_cb_split(buf, answers)
+    _section_difficulty(buf, answers)
+    _section_item_analysis(buf, answers)
+    _section_cost_efficiency(buf, answers)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     buf.write(f"\n---\n_Generated at {ts} by OenoBench report renderer._\n")
