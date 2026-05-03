@@ -1,14 +1,89 @@
 # OenoBench — Current Status & Progress
 
-**Last updated:** May 3, 2026 (Phase 4 human review web app shipped; release_v1 build still capped at 2,146 by fact-pool ceiling)
-**Project phase:** Phase 2j — release_v1 build complete. 6,500-target run capped at **2,146 draft + 389 cb_reserve = 2,535 release_v1 questions** (33% of target draft, 39% with cb_reserve) due to substantive-fact-pool exhaustion. Per-strategy: FTQ 1,292 (sampler exhausted), distractor 389, template 260 (max_passes), comparative 114, scenario 91. Per-domain: wine_regions 730, grape_varieties 508, producers 355, viticulture 281, wine_business 181, winemaking **91 (severe under-representation)**. Cost: **$125 actual** OpenRouter spend, 13,660 LLM calls. Wall: ~3.5h cumulative across 4 launches with mid-flight bug fixes. 746/746 tests pass on main.
+**Last updated:** May 3, 2026 (release_v1 final after scenario + comparative type-aware re-runs; **2,261 draft + 389 cb_reserve = 2,650**)
+**Project phase:** Phase 2j — release_v1 build complete after two targeted re-runs. Final corpus: **2,261 draft + 389 cb_reserve = 2,650 release_v1 questions** (35% draft / 41% with cb_reserve of the 6,500 ask). Two strategies were re-run after the initial build with type-aware redesigns: **scenario_synthesis 91 → 150** (+59, type-aware persona prompts) and **comparative 114 → 170** (+56, loose-pair sampler + type-aware comparison_type + softened cross-country skip). Per-strategy: FTQ 1,292 (sampler exhausted), distractor 389, template 260, comparative 170, scenario 150. Per-domain: wine_regions 783, grape_varieties 546, producers 360, viticulture 300, wine_business 181, winemaking **91 (still severe under-representation — fact-pool bound)**. Cost: ~$160 cumulative OpenRouter spend across all release_v1 work. 771/771 tests pass on main.
 **Target venue:** NeurIPS 2026 Datasets & Benchmarks Track (~May 15, 2026 deadline)
 
 ## Latest cliff notes (start here next session)
 
-- **Phase 2j release_v1 build shipped (2026-05-03):** 6,500-target run completed
-  with corpus tag `release_v1`. Final state: **2,146 draft + 389 cb_reserve =
-  2,535 questions** (33% draft / 39% incl. cb_reserve of the 6,500 ask). Build
+- **Phase 2j release_v1 — type-aware re-runs shipped (2026-05-03):** After
+  the original build hit 2,146/6,500 with 91 scenario + 114 comparative
+  questions, two targeted re-runs were dispatched via parallel agent teams:
+
+  | Strategy | Before | After | Δ | Wall | Approach |
+  |---|---:|---:|---:|---:|---|
+  | scenario_synthesis | 91 | **150** | +59 | 36 min | type-aware prompt + DOMAIN_TO_SCENARIO_TYPES (commit `3fbe2d6`) |
+  | comparative | 114 | **170** | +56 | ~3h (2 passes) | loose-pair sampler + DOMAIN_TO_COMPARISON_TYPES + softened cross-country skip (commit `e0fc429`) |
+
+  Both used `--strategies <name>` + `--resume` to preserve existing rows.
+  Stopped manually at user's direction during pass 3 of comparative
+  (yields had collapsed to +4/pass — pass 1 was +51, pass 2 was +4).
+
+  Final release_v1 corpus state:
+  | Strategy | Draft | cb_reserve | Total |
+  |---|---:|---:|---:|
+  | fact_to_question | 1,292 | 389 | 1,681 |
+  | distractor_mining | 389 | 0 | 389 |
+  | template | 260 | 0 | 260 |
+  | **comparative** | **170** | 0 | **170** |
+  | **scenario_synthesis** | **150** | 0 | **150** |
+  | **TOTAL** | **2,261** | **389** | **2,650** |
+
+  Per-domain final (draft only):
+  | Domain | Count | Plan share at 6,500 |
+  |---|---:|---:|
+  | wine_regions | 783 | ~2,275 (35%) |
+  | grape_varieties | 546 | ~780 (12%) |
+  | producers | 360 | ~520 (8%) |
+  | viticulture | 300 | ~975 (15%) |
+  | wine_business | 181 | ~650 (10%) |
+  | winemaking | **91** | ~1,300 (20%) — STILL severely under |
+
+  Key learning: the type-aware redesigns work as intended — the scenario
+  question content is now appropriately distributed across personas
+  (winemaker / viticulturist / sommelier / business / service) and the
+  comparative loose-pair sampler unlocks new pair shapes. But the
+  underlying **substantive-fact pool** (especially in winemaking and
+  wine_business) is the binding ceiling. The original release_v1 build
+  consumed most usable entity-tagged facts; even loose-fallback pair
+  sampling yields 0 keeps for those small domains because the unused
+  fact pool is exhausted.
+
+  Code shipped during these re-runs (all on `main`):
+  - Scenario:
+    * `_prompts.py` — SCENARIO_TEMPLATE made type-aware with per-persona
+      blocks; iconic-skip rule made type-conditional (strict for
+      winemaking/viticulture, looser for tasting/business/service)
+    * `orchestrator.py` — `DOMAIN_TO_SCENARIO_TYPES` map + cell-explosion
+      in `_dispatch_llm_strategy` for scenario_synthesis (~50 cells/pass
+      vs 30 legacy)
+    * `--strategies` flag on `generate-all` for single-strategy re-runs
+  - Comparative:
+    * `_fact_sampler.py` — `sample_fact_pairs` rewritten with: entity-type
+      whitelist 4 → 13 types, length floor 40 → 30, new cross-country
+      same-subdomain JOIN arm, loose-fallback pass when strict
+      candidates underflow, `_pair_strictness` telemetry
+    * `_prompts.py` — COMPARATIVE_TEMPLATE softened (cross-country pairs
+      allowed when fact-anchored on both sides); type-conditional
+      iconic-skip mirroring scenario
+    * `orchestrator.py` — `DOMAIN_TO_COMPARISON_TYPES` map + cell-explosion
+      for comparative (~65 cells/pass vs 30 legacy); `_run_strategy`
+      forwards `comparison_type` kwarg
+
+  **Open decisions for next session:**
+  - Accept the **2,650 release_v1 + 1,062 sample_v2** = 3,712 NeurIPS
+    submission corpus
+  - Or promote 389 cb_reserve via manual review → 2,650 + 389 = 3,039
+    release-only (4,101 with sample DB)
+  - Audit phase 2 NOT yet run on release_v1 — gated on user gold-sheet
+    review and corpus-size decision
+  - winemaking + wine_business expansion (new scrapers) remains the only
+    path to materially more questions in those domains; multi-day lift
+    not feasible before 2026-05-04 deadline
+
+- **Phase 2j initial release_v1 build (2026-05-02 → 2026-05-03):** Original
+  6,500-target run completed at **2,146 draft + 389 cb_reserve = 2,535
+  questions**. Build
   hit a hard ceiling from the substantive-fact pool — multi-pass and tag-scoped
   count fixes maximised what could be extracted, but the underlying fact corpus
   cannot support 6,500 release questions without expansion.
