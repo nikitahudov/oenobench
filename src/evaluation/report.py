@@ -28,9 +28,19 @@ from typing import Any
 import click
 import numpy as np
 
+from src.evaluation.cb_split import CLOSED_BOOK_TAG
+
 # ---------------------------------------------------------------------------
 # Formatting helpers (pure, importable by tests)
 # ---------------------------------------------------------------------------
+
+DIFFICULTY_LEVELS = ["1", "2", "3", "4"]
+DIFFICULTY_LABELS = {
+    "1": "1 (easy)",
+    "2": "2",
+    "3": "3",
+    "4": "4 (hardest)",
+}
 
 DOMAINS = [
     "wine_regions",
@@ -882,6 +892,164 @@ def _section_cost_ledger(buf: StringIO, answers: list[dict]) -> None:
     buf.write("\n")
 
 
+def _section_cb_split(buf: StringIO, answers: list[dict]) -> None:
+    """Section 7: Per-config CB-fail vs CB-pass accuracy with bootstrap CI on δ."""
+    configs = _get_eval_configs()
+
+    buf.write("## 7. Closed-Book vs Contextual Accuracy\n\n")
+    buf.write(
+        "CB-fail = questions tagged `closed_book_solvable` (parametric wine knowledge).\n"
+        "CB-pass = the rest (contextual wine reasoning). δ = acc(CB-fail) − acc(CB-pass);\n"
+        "positive means the model leans on memorised wine facts; negative means it does\n"
+        "better when it has to reason from the question.\n\n"
+    )
+
+    by_config: dict[str, list[dict]] = {}
+    for r in answers:
+        mn = r.get("model_name") or "unknown"
+        by_config.setdefault(mn, []).append(r)
+
+    if configs:
+        order = [c.name for c in configs if c.name in by_config]
+        for name in sorted(by_config):
+            if name not in order:
+                order.append(name)
+    else:
+        order = sorted(by_config)
+
+    config_map = {c.name: c for c in configs} if configs else {}
+
+    buf.write(
+        "| Slot | Config | n CB-fail | acc CB-fail | n CB-pass | acc CB-pass | δ | 95% CI |\n"
+    )
+    buf.write("|---:|---|---:|---:|---:|---:|---:|---|\n")
+
+    deltas: list[float] = []
+
+    for name in order:
+        rows = by_config[name]
+        cfg = config_map.get(name)
+        slot = cfg.slot if cfg else "—"
+
+        cb_fail = np.array(
+            [
+                1 if r.get("is_correct") else 0
+                for r in rows
+                if r.get("tags") and CLOSED_BOOK_TAG in r["tags"]
+            ],
+            dtype=float,
+        )
+        cb_pass = np.array(
+            [
+                1 if r.get("is_correct") else 0
+                for r in rows
+                if not (r.get("tags") and CLOSED_BOOK_TAG in r["tags"])
+            ],
+            dtype=float,
+        )
+
+        n_fail = len(cb_fail)
+        n_pass = len(cb_pass)
+
+        if n_fail > 0:
+            fail_mean, _, _ = bootstrap_ci(cb_fail)
+            fail_str = f"{fail_mean:.1%}"
+        else:
+            fail_mean = float("nan")
+            fail_str = "—"
+
+        if n_pass > 0:
+            pass_mean, _, _ = bootstrap_ci(cb_pass)
+            pass_str = f"{pass_mean:.1%}"
+        else:
+            pass_mean = float("nan")
+            pass_str = "—"
+
+        if n_fail > 0 and n_pass > 0:
+            delta = fail_mean - pass_mean
+            rng = np.random.default_rng(42)
+            n_boot = 1000
+            fail_boots = np.array(
+                [rng.choice(cb_fail, size=n_fail, replace=True).mean() for _ in range(n_boot)]
+            )
+            pass_boots = np.array(
+                [rng.choice(cb_pass, size=n_pass, replace=True).mean() for _ in range(n_boot)]
+            )
+            delta_boots = fail_boots - pass_boots
+            ci_lo = float(np.percentile(delta_boots, 2.5))
+            ci_hi = float(np.percentile(delta_boots, 97.5))
+            delta_str = f"{delta:+.1%}"
+            ci_str = f"[{ci_lo:+.1%}, {ci_hi:+.1%}]"
+            deltas.append(delta)
+        else:
+            delta_str = "—"
+            ci_str = "—"
+
+        buf.write(
+            f"| {slot} | {name} | {n_fail} | {fail_str} | {n_pass} | {pass_str} "
+            f"| {delta_str} | {ci_str} |\n"
+        )
+
+    if deltas:
+        mean_delta = sum(deltas) / len(deltas)
+        mean_delta_str = f"{mean_delta:+.1%}"
+    else:
+        mean_delta_str = "—"
+
+    buf.write(
+        f"| | **all configs (mean δ)** | | | | | **{mean_delta_str}** | |\n"
+    )
+    buf.write("\n")
+
+
+def _section_difficulty(buf: StringIO, answers: list[dict]) -> None:
+    """Section 8: Per-config × per-difficulty accuracy grid."""
+    configs = _get_eval_configs()
+
+    by_config: dict[str, list[dict]] = {}
+    for r in answers:
+        mn = r.get("model_name") or "unknown"
+        by_config.setdefault(mn, []).append(r)
+
+    if configs:
+        order = [c.name for c in configs if c.name in by_config]
+        for name in sorted(by_config):
+            if name not in order:
+                order.append(name)
+    else:
+        order = sorted(by_config)
+
+    pivot = pivot_accuracy(
+        answers, "model_name", "difficulty", order, DIFFICULTY_LEVELS
+    )
+
+    buf.write("## 8. Per-Config × Per-Difficulty Accuracy (%)\n\n")
+    buf.write(
+        "Difficulty 1 (easy) → 4 (hardest). Cells are accuracy on each difficulty tier.\n\n"
+    )
+    diff_headers = " | ".join(DIFFICULTY_LABELS[d] for d in DIFFICULTY_LEVELS)
+    buf.write(f"| Config | {diff_headers} |\n")
+    buf.write("|" + "---|" * (len(DIFFICULTY_LEVELS) + 1) + "\n")
+
+    all_diff_correct: dict[str, int] = {d: 0 for d in DIFFICULTY_LEVELS}
+    all_diff_total: dict[str, int] = {d: 0 for d in DIFFICULTY_LEVELS}
+
+    for name in order:
+        cells = []
+        for d in DIFFICULTY_LEVELS:
+            correct, total = pivot.get((name, d), (0, 0))
+            all_diff_correct[d] += correct
+            all_diff_total[d] += total
+            cells.append(fmt_pct(correct, total))
+        buf.write(f"| {name} | " + " | ".join(cells) + " |\n")
+
+    all_cells = [
+        fmt_pct(all_diff_correct[d], all_diff_total[d]) for d in DIFFICULTY_LEVELS
+    ]
+    buf.write(f"| **all** | " + " | ".join(all_cells) + " |\n")
+    buf.write("\n")
+
+
 # ---------------------------------------------------------------------------
 # Main render function (importable by tests)
 # ---------------------------------------------------------------------------
@@ -923,6 +1091,8 @@ def render_report(tag: str, output_path: str | None = None) -> str:
     _section_sps_matrix(buf, answers)
     _section_reasoning_deltas(buf, answers)
     _section_cost_ledger(buf, answers)
+    _section_cb_split(buf, answers)
+    _section_difficulty(buf, answers)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     buf.write(f"\n---\n_Generated at {ts} by OenoBench report renderer._\n")
