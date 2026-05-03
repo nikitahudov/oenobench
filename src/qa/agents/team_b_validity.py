@@ -8,15 +8,46 @@ If too many judges get the keyed answer anyway, the question leaks or is
 trivially solvable from world knowledge.
 
 Judges: Claude Opus 4.7, ChatGPT 5.4, Gemini 3.1 Pro.
+
+Phase 2j: outer loop is parallelisable via ``OENOBENCH_AUDIT_MAX_WORKERS``
+(default 1 — sequential, the legacy behaviour). With max_workers>=2, each
+question is processed in its own thread and findings are written via the
+caller-supplied `write_finding_fn` (which must be thread-safe; the
+orchestrator's writer + the Phase 2j thread-local psycopg2 conns satisfy
+that). At 3,670 questions, max_workers=8 brings the Team B wall time
+from ~25h sequential to ~3-4h.
 """
 
 from __future__ import annotations
+
+import concurrent.futures as cf
+import os
 
 import orjson
 from loguru import logger
 
 from src.qa._findings import SEVERITY_FAIL, SEVERITY_PASS, SEVERITY_WARN
 from src.qa._judges import JUDGE_PANEL, judge_open_and_closed
+
+
+def _resolve_max_workers() -> int:
+    """Return the per-question worker count for Team B.
+
+    Reads ``OENOBENCH_AUDIT_MAX_WORKERS`` (positive int). Defaults to 1
+    so the legacy sequential path is unchanged when the env var is unset.
+    """
+    raw = os.environ.get("OENOBENCH_AUDIT_MAX_WORKERS", "").strip()
+    if not raw:
+        return 1
+    try:
+        n = int(raw)
+        return max(1, n)
+    except ValueError:
+        logger.warning(
+            "OENOBENCH_AUDIT_MAX_WORKERS={!r} is not an int; falling back to 1",
+            raw,
+        )
+        return 1
 
 B1_ID = "B1_TriJudgeAnswer"
 B1_VERSION = "v1.0.0"
@@ -84,6 +115,7 @@ def run_team_b(
     """
     findings: list[dict] = []
     total = len(questions)
+    workers = _resolve_max_workers()
 
     def _emit(f: dict) -> None:
         if write_finding_fn:
@@ -91,14 +123,19 @@ def run_team_b(
         else:
             findings.append(f)
 
-    for idx, q in enumerate(questions, 1):
+    # Phase 2j: process one question's B1 + B2 work and return its finding
+    # dicts. Hoisted out of the for-loop so the parallel path can submit
+    # this to a ThreadPoolExecutor; sequential path calls it directly. The
+    # function is closure-pure with respect to ``run_id``, ``judges``, and
+    # ``skip_existing_checker``; it never touches `findings` / `_emit`.
+    def _process_one(q: dict) -> list[dict]:
         qid = q["uuid"]
         if skip_existing_checker and skip_existing_checker(qid, B1_ID) and skip_existing_checker(qid, B2_ID):
-            continue
+            return []
 
         options = _coerce_options(q)
         if not options:
-            _emit({
+            return [{
                 "run_id": run_id,
                 "question_id": qid,
                 "agent_id": B1_ID,
@@ -108,8 +145,7 @@ def run_team_b(
                 "payload": {"skipped": "non-MC question (no options)"},
                 "llm_calls": 0,
                 "cost_usd": 0.0,
-            })
-            continue
+            }]
 
         claimed_key = (q.get("correct_answer") or "").strip().upper()[:1]
         source_text = _concat_source_facts(q)
@@ -124,7 +160,7 @@ def run_team_b(
             )
         except Exception as exc:  # pragma: no cover — defensive
             logger.error("Team B call failed for {}: {}", qid, exc)
-            _emit({
+            return [{
                 "run_id": run_id,
                 "question_id": qid,
                 "agent_id": B1_ID,
@@ -134,8 +170,9 @@ def run_team_b(
                 "payload": {"error": str(exc)},
                 "llm_calls": 0,
                 "cost_usd": 0.0,
-            })
-            continue
+            }]
+
+        local: list[dict] = []
 
         # ─── B1 — open-book / fact support / cross-judge agreement ────────────
         # Judges are NOT shown the claimed key. We compute "majority_matches_key"
@@ -155,7 +192,7 @@ def run_team_b(
         elif disagreement:
             b1_severity = SEVERITY_WARN
 
-        _emit({
+        local.append({
             "run_id": run_id,
             "question_id": qid,
             "agent_id": B1_ID,
@@ -235,7 +272,7 @@ def run_team_b(
             else:
                 b2_severity = SEVERITY_PASS
 
-        _emit({
+        local.append({
             "run_id": run_id,
             "question_id": qid,
             "agent_id": B2_ID,
@@ -260,9 +297,38 @@ def run_team_b(
             "llm_calls": len(result.closed_book),
             "cost_usd": sum(v.cost_usd for v in result.closed_book),
         })
+        return local
 
-        if idx % 10 == 0:
-            logger.info("Team B progress: {}/{}", idx, total)
+    # ─── Dispatch ─────────────────────────────────────────────────────────
+    if workers <= 1:
+        # Legacy sequential path — bit-identical to pre-Phase-2j behaviour.
+        for idx, q in enumerate(questions, 1):
+            for f in _process_one(q):
+                _emit(f)
+            if idx % 10 == 0:
+                logger.info("Team B progress: {}/{}", idx, total)
+    else:
+        # Phase 2j parallel path — outer loop runs `workers` questions in
+        # flight at once. Each thread executes _process_one (which makes
+        # ~8 sequential LLM calls) and the produced findings are persisted
+        # via _emit (which delegates to a thread-safe write_finding_fn).
+        logger.info(
+            "Team B parallel dispatch: {} workers across {} questions",
+            workers, total,
+        )
+        completed = 0
+        with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = {ex.submit(_process_one, q): q for q in questions}
+            for fut in cf.as_completed(futures):
+                try:
+                    for f in fut.result():
+                        _emit(f)
+                except Exception as exc:  # pragma: no cover — defensive
+                    qid = futures[fut].get("uuid", "?")
+                    logger.error("Team B parallel cell {} raised: {}", qid, exc)
+                completed += 1
+                if completed % 25 == 0:
+                    logger.info("Team B progress: {}/{}", completed, total)
 
     if write_finding_fn:
         logger.info("Team B complete: incremental writes finished")

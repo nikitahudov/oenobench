@@ -586,22 +586,38 @@ def run_c4_difficulty_audit(
     findings: list[dict] = []
     total = len(questions)
 
+    # Phase 2j: same parallelisation pattern as Team B —
+    # OENOBENCH_AUDIT_MAX_WORKERS gates the outer loop. Default 1 keeps the
+    # sequential legacy path bit-identical.
+    import concurrent.futures as cf
+    import os
+    raw = os.environ.get("OENOBENCH_AUDIT_MAX_WORKERS", "").strip()
+    try:
+        workers = max(1, int(raw)) if raw else 1
+    except ValueError:
+        workers = 1
+
     def _emit(f: dict) -> None:
         if write_finding_fn:
             write_finding_fn(f)
         else:
             findings.append(f)
 
-    pass_n = warn_n = fail_n = error_n = 0
-    for idx, q in enumerate(questions, 1):
+    def _process_one(q: dict) -> tuple[list[dict], str]:
+        """Return (findings_list, outcome_tag) for stats accounting.
+
+        outcome_tag is one of: 'skip', 'pass', 'warn', 'fail', 'error'.
+        Closure-pure with respect to run_id, judge_model, call_llm_fn, and
+        skip_existing_checker.
+        """
         qid = q["uuid"]
         if skip_existing_checker and skip_existing_checker(qid, C4_ID):
-            continue
+            return [], "skip"
 
         assigned = _coerce_difficulty(q.get("difficulty"))
         options = _options_list(q)
         if assigned is None:
-            _emit({
+            return [{
                 "run_id": run_id,
                 "question_id": qid,
                 "agent_id": C4_ID,
@@ -611,8 +627,7 @@ def run_c4_difficulty_audit(
                 "payload": {"skipped": "no parseable difficulty label"},
                 "llm_calls": 0,
                 "cost_usd": 0.0,
-            })
-            continue
+            }], "pass"
 
         try:
             rated, rationale, meta = call_llm_fn(
@@ -625,7 +640,7 @@ def run_c4_difficulty_audit(
             )
         except Exception as exc:  # pragma: no cover — defensive
             logger.error("C4 call failed for {}: {}", qid, exc)
-            _emit({
+            return [{
                 "run_id": run_id,
                 "question_id": qid,
                 "agent_id": C4_ID,
@@ -635,12 +650,10 @@ def run_c4_difficulty_audit(
                 "payload": {"error": str(exc)},
                 "llm_calls": 0,
                 "cost_usd": 0.0,
-            })
-            error_n += 1
-            continue
+            }], "error"
 
         if rated is None:
-            _emit({
+            return [{
                 "run_id": run_id,
                 "question_id": qid,
                 "agent_id": C4_ID,
@@ -655,22 +668,20 @@ def run_c4_difficulty_audit(
                 },
                 "llm_calls": meta.get("llm_calls", 1),
                 "cost_usd": meta.get("cost_usd", 0.0),
-            })
-            error_n += 1
-            continue
+            }], "error"
 
         delta = abs(rated - assigned)
         if delta == 0:
             severity = SEVERITY_PASS
-            pass_n += 1
+            tag = "pass"
         elif delta == 1:
             severity = SEVERITY_WARN
-            warn_n += 1
+            tag = "warn"
         else:
             severity = SEVERITY_FAIL
-            fail_n += 1
+            tag = "fail"
 
-        _emit({
+        return [{
             "run_id": run_id,
             "question_id": qid,
             "agent_id": C4_ID,
@@ -687,11 +698,56 @@ def run_c4_difficulty_audit(
             },
             "llm_calls": meta.get("llm_calls", 1),
             "cost_usd": meta.get("cost_usd", 0.0),
-        })
+        }], tag
 
-        if idx % 25 == 0:
-            logger.info("C4 progress: {}/{}  (pass={} warn={} fail={} err={})",
-                        idx, total, pass_n, warn_n, fail_n, error_n)
+    pass_n = warn_n = fail_n = error_n = 0
+
+    if workers <= 1:
+        for idx, q in enumerate(questions, 1):
+            fs, tag = _process_one(q)
+            for f in fs:
+                _emit(f)
+            if tag == "pass":
+                pass_n += 1
+            elif tag == "warn":
+                warn_n += 1
+            elif tag == "fail":
+                fail_n += 1
+            elif tag == "error":
+                error_n += 1
+            if idx % 25 == 0:
+                logger.info("C4 progress: {}/{}  (pass={} warn={} fail={} err={})",
+                            idx, total, pass_n, warn_n, fail_n, error_n)
+    else:
+        logger.info(
+            "C4 parallel dispatch: {} workers across {} questions",
+            workers, total,
+        )
+        completed = 0
+        with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = {ex.submit(_process_one, q): q for q in questions}
+            for fut in cf.as_completed(futures):
+                try:
+                    fs, tag = fut.result()
+                    for f in fs:
+                        _emit(f)
+                    if tag == "pass":
+                        pass_n += 1
+                    elif tag == "warn":
+                        warn_n += 1
+                    elif tag == "fail":
+                        fail_n += 1
+                    elif tag == "error":
+                        error_n += 1
+                except Exception as exc:  # pragma: no cover — defensive
+                    qid = futures[fut].get("uuid", "?")
+                    logger.error("C4 parallel cell {} raised: {}", qid, exc)
+                completed += 1
+                if completed % 50 == 0:
+                    logger.info(
+                        "C4 progress: {}/{}  (pass={} warn={} fail={} err={})",
+                        completed, total, pass_n, warn_n, fail_n, error_n,
+                    )
 
     if write_finding_fn:
         logger.info(
