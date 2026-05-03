@@ -19,10 +19,10 @@
     {
         "key": "distractors_plausible",
         "label": "Distractors plausible",
-        "summary": "Are the wrong options plausibly close to the correct answer?",
-        "pass":  "Each distractor is from the same category and could fool a reasonable taker.",
-        "warn":  "One distractor is weak but the question is still non-trivial.",
-        "fail":  "Two or more distractors are obviously wrong on their face."
+        "summary": "Are the wrong options plausibly close, with no category leak?",
+        "pass":  "Each distractor sits in the same wine category as the keyed answer and could fool a reasonable taker.",
+        "warn":  "One distractor is weak or its category leaks the answer, but the question is still non-trivial.",
+        "fail":  "Two or more distractors are obviously wrong, or the categorical split eliminates them on sight."
     },
     {
         "key": "not_ambiguous",
@@ -57,20 +57,12 @@
         "fail":  "Stem is so hedged or florid the answer becomes a matter of interpretation."
     },
     {
-        "key": "difficulty_match",
-        "label": "Difficulty match",
-        "summary": "Does the labelled difficulty match the actual cognitive load?",
-        "pass":  "Label is right (within ±0 levels).",
-        "warn":  "Off by 1 (e.g. labelled L3 but feels L2).",
-        "fail":  "Off by 2 or more (e.g. labelled L4 but a beginner could answer instantly)."
-    },
-    {
-        "key": "cognitive_match",
-        "label": "Cognitive match",
-        "summary": "Does the cognitive class match what the question demands?",
-        "pass":  "Label correctly describes the cognitive demand.",
-        "warn":  "Demand straddles two adjacent classes.",
-        "fail":  "A 'synthesize' label on a pure recall question, or vice versa."
+        "key": "labels_correct",
+        "label": "Labels correct",
+        "summary": "Do the difficulty (1–4) and cognitive labels match the actual demand?",
+        "pass":  "Both labels accurately describe the cognitive load and class of the question.",
+        "warn":  "One axis is off by one level or straddles two adjacent classes.",
+        "fail":  "Either axis is off by ≥2 levels, or fundamentally mismatches (e.g. 'synthesize' label on pure recall)."
     },
     {
         "key": "verbatim_copy",
@@ -79,14 +71,6 @@
         "pass":  "Question paraphrases or transforms the source.",
         "warn":  "A long phrase (≥6 words) is copied but the rest is rewritten.",
         "fail":  "Stem or correct option is essentially a cut-and-paste of the source fact."
-    },
-    {
-        "key": "wine_category_leak",
-        "label": "Wine category leak",
-        "summary": "Do distractors leak the right wine category of the correct answer?",
-        "pass":  "Distractors all sit in the same category as the correct answer — no free elimination.",
-        "warn":  "One distractor's category leaks the answer but you still need wine knowledge.",
-        "fail":  "Categorical split is so obvious the question reduces to 2-3 options."
     }
 ] %}
 
@@ -142,7 +126,7 @@
                 </ol>
 
                 {% if question.source_facts %}
-                <details class="source-facts">
+                <details class="source-facts" open>
                     <summary>Source facts</summary>
                     <pre class="source-block">{{ question.source_facts }}</pre>
                 </details>
@@ -165,16 +149,27 @@
                 <input type="hidden" name="time_spent_seconds" id="time-spent" value="0">
 
                 <article class="card rubric-card">
-                    <h3>Rubric scoring</h3>
+                    <div class="rubric-card-header">
+                        <h3>Rubric scoring</h3>
+                        <button
+                            type="button"
+                            id="toggle-all-tips"
+                            class="btn btn-tertiary"
+                            data-state="closed"
+                            aria-pressed="false"
+                        >Show definitions</button>
+                    </div>
                     <p class="rubric-help">
                         Click <strong>Pass</strong>, <strong>Warn</strong>, <strong>Fail</strong>,
-                        or leave a row unset (<strong>Skip</strong>). Use <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>/<kbd>4</kbd>
-                        on the focused row, <kbd>Tab</kbd> to move, <kbd>Enter</kbd> to submit.
+                        or leave a row unset (<strong>Skip</strong>).
+                        <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>/<kbd>4</kbd> chips on the focused row,
+                        <kbd>Tab</kbd>/<kbd>Shift</kbd>+<kbd>Tab</kbd> move row,
+                        <kbd>V</kbd> opens verdict, <kbd>Enter</kbd> submits, <kbd>Esc</kbd> clears row.
                     </p>
                     <div class="rubric-grid">
                         {% for r in rubrics %}
                         <div
-                            class="rubric-row"
+                            class="rubric-row{% if r.key == 'answer_correct' or r.key == 'labels_correct' %} rubric-row--with-suggest{% endif %}"
                             data-rubric="{{ r.key }}"
                             tabindex="0"
                         >
@@ -205,6 +200,32 @@
                                 <button type="button" class="chip chip-fail" data-rubric="{{ r.key }}" data-value="fail">Fail</button>
                                 <button type="button" class="chip chip-skip" data-rubric="{{ r.key }}" data-value="">Skip</button>
                             </div>
+                            {% if r.key == 'answer_correct' %}
+                            <label class="rubric-suggest">
+                                <span class="rubric-suggest-label">Suggested:</span>
+                                <input
+                                    type="text"
+                                    name="suggested_answer"
+                                    id="suggested-answer"
+                                    maxlength="1"
+                                    pattern="[A-Da-d]"
+                                    placeholder="A–D"
+                                    autocomplete="off"
+                                >
+                            </label>
+                            {% endif %}
+                            {% if r.key == 'labels_correct' %}
+                            <label class="rubric-suggest">
+                                <span class="rubric-suggest-label">Suggested difficulty:</span>
+                                <select name="suggested_difficulty" id="suggested-difficulty">
+                                    <option value="">—</option>
+                                    <option value="1">1</option>
+                                    <option value="2">2</option>
+                                    <option value="3">3</option>
+                                    <option value="4">4</option>
+                                </select>
+                            </label>
+                            {% endif %}
                         </div>
                         {% endfor %}
                     </div>
@@ -215,33 +236,11 @@
                     <div class="verdict-grid">
                         <label class="verdict-field">
                             <span class="verdict-label">Verdict</span>
-                            <select name="overall_verdict" required>
+                            <select name="overall_verdict" id="overall-verdict" required>
                                 <option value="">— select —</option>
                                 <option value="approve">Approve</option>
                                 <option value="revise">Revise</option>
                                 <option value="reject">Reject</option>
-                            </select>
-                        </label>
-
-                        <label class="verdict-field">
-                            <span class="verdict-label">Suggested answer</span>
-                            <input
-                                type="text"
-                                name="suggested_answer"
-                                maxlength="1"
-                                pattern="[A-Da-d]"
-                                placeholder="A–D (optional)"
-                            >
-                        </label>
-
-                        <label class="verdict-field">
-                            <span class="verdict-label">Suggested difficulty</span>
-                            <select name="suggested_difficulty">
-                                <option value="">—</option>
-                                <option value="1">1</option>
-                                <option value="2">2</option>
-                                <option value="3">3</option>
-                                <option value="4">4</option>
                             </select>
                         </label>
                     </div>
@@ -250,14 +249,21 @@
                         <span class="verdict-label">Notes</span>
                         <textarea
                             name="notes"
+                            id="review-notes"
                             rows="3"
                             placeholder="Optional comments — especially helpful when flagging fail."
                         ></textarea>
                     </label>
 
-                    <div class="form-actions">
+                    <div class="form-actions form-actions-sticky">
                         <button type="button" class="btn btn-secondary" id="skip-question">Skip question</button>
-                        <button type="submit" class="btn btn-primary" id="submit-review">Submit</button>
+                        <button
+                            type="submit"
+                            class="btn btn-primary"
+                            id="submit-review"
+                            disabled
+                            title="Pick a verdict to submit"
+                        >Submit</button>
                     </div>
                 </article>
             </form>

@@ -500,11 +500,17 @@ main {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: var(--bg-card);
+    background: rgba(15, 17, 23, 0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     border: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.55rem 0.9rem;
     font-size: 0.82rem;
+    position: sticky;
+    top: 0;
+    z-index: 20;
 }
 
 .review-toolbar .separator {
@@ -539,7 +545,9 @@ main {
 
 .question-card {
     position: sticky;
-    top: 1rem;
+    top: 5rem;
+    max-height: calc(100vh - 6rem);
+    overflow-y: auto;
 }
 
 .question-meta {
@@ -651,6 +659,39 @@ main {
 
 /* ── Rubric grid ────────────────────────────────────────────────────────── */
 
+.rubric-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.rubric-card-header h3 {
+    margin-bottom: 0;
+}
+
+.btn-tertiary {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    padding: 0.3rem 0.7rem;
+    font-size: 0.78rem;
+    border-radius: 4px;
+}
+
+.btn-tertiary:hover {
+    background: var(--bg-input);
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+#toggle-all-tips[data-state="open"] {
+    background: var(--accent-soft);
+    color: var(--text-primary);
+    border-color: var(--accent);
+}
+
 .rubric-help {
     font-size: 0.82rem;
     color: var(--text-secondary);
@@ -676,6 +717,13 @@ main {
     border-radius: 6px;
     padding: 0.55rem 0.7rem;
     transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.rubric-row--with-suggest {
+    grid-template-areas:
+        "name summary chips"
+        "tip tip tip"
+        "suggest suggest suggest";
 }
 
 .rubric-row:focus,
@@ -736,6 +784,8 @@ main {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+    max-width: 60ch;
+    line-height: 1.5;
 }
 
 .tip-line strong { font-weight: 600; }
@@ -794,6 +844,55 @@ main {
     color: #1a1d27;
 }
 
+/* ── Embedded suggestion fields (in rubric rows) ────────────────────────── */
+
+.rubric-suggest {
+    grid-area: suggest;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.4rem;
+    margin-left: 0;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    justify-self: start;
+}
+
+.rubric-suggest-label {
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.rubric-suggest input[type="text"] {
+    width: 56px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    border-radius: 4px;
+    padding: 0.3rem 0.45rem;
+    font-size: 0.85rem;
+    font-family: inherit;
+    text-transform: uppercase;
+    text-align: center;
+}
+
+.rubric-suggest select {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    border-radius: 4px;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.85rem;
+    font-family: inherit;
+}
+
+.rubric-suggest input:focus,
+.rubric-suggest select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
 /* ── Verdict card ───────────────────────────────────────────────────────── */
 
 .verdict-grid {
@@ -822,11 +921,50 @@ main {
     margin-bottom: 0.85rem;
 }
 
+.full-width-field textarea,
+#review-notes {
+    min-height: 4rem;
+    max-height: 18rem;
+    resize: vertical;
+    transition: height 0.15s;
+    overflow-y: auto;
+}
+
 .form-actions {
     display: flex;
     justify-content: flex-end;
     gap: 0.75rem;
     margin-top: 0.5rem;
+    align-items: center;
+}
+
+.form-actions #skip-question {
+    margin-right: auto;
+}
+
+#submit-review {
+    min-width: 7.5rem;
+}
+
+#submit-review:disabled,
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    filter: none;
+}
+
+.form-actions-sticky {
+    position: sticky;
+    bottom: 0;
+    z-index: 15;
+    background: rgba(15, 17, 23, 0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
 }
 
 /* ── Misc / Footer ──────────────────────────────────────────────────────── */
@@ -844,6 +982,17 @@ footer {
 
 /* ── Responsive ─────────────────────────────────────────────────────────── */
 
+@media (max-width: 1099px) and (min-width: 901px) {
+    .review-grid {
+        grid-template-columns: 1fr;
+    }
+    .question-card {
+        position: static;
+        max-height: none;
+        overflow-y: visible;
+    }
+}
+
 @media (max-width: 900px) {
     .layout {
         grid-template-columns: 1fr;
@@ -857,7 +1006,7 @@ footer {
     }
     header { padding: 1rem; }
     header h1 { font-size: 1.15rem; }
-    .question-card { position: static; }
+    .question-card { position: static; max-height: none; overflow-y: visible; }
     .rubric-row {
         grid-template-columns: 1fr;
         grid-template-areas:
@@ -865,6 +1014,14 @@ footer {
             "summary"
             "chips"
             "tip";
+    }
+    .rubric-row--with-suggest {
+        grid-template-areas:
+            "name"
+            "summary"
+            "chips"
+            "tip"
+            "suggest";
     }
     .rubric-chips { justify-content: flex-start; }
 }
