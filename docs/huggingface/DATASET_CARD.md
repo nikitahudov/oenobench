@@ -36,7 +36,7 @@ configs:
 
 # OenoBench (release_v1.2)
 
-A 3,329-question multiple-choice benchmark covering the full breadth of the
+A 3,266-question multiple-choice benchmark covering the full breadth of the
 wine domain — from viticulture and winemaking to wine regions, grape
 varieties, producers, and the wine business. Designed to evaluate the
 factual recall, comparative reasoning, and applied-decision capabilities
@@ -44,7 +44,8 @@ of large language models against expert-vetted, source-anchored knowledge.
 
 - **Paper / repo:** https://github.com/nikitahudov/oenobench
 - **Track:** NeurIPS 2026 Evaluations & Datasets (E&D) — single-blind submission
-- **Version:** `release_v1.2` (post-audit, post difficulty-relabel, 2026-05-03)
+- **Version:** `release_v1.2` (post-audit, post difficulty-relabel,
+  post zero-correct audit, post borderline-review — 2026-05-04)
 
 ---
 
@@ -52,7 +53,7 @@ of large language models against expert-vetted, source-anchored knowledge.
 
 | Metric | Value |
 |---|---:|
-| Total questions | **3,329** |
+| Total questions | **3,266** |
 | Difficulty levels | 4 (post-relabel) |
 | Domains | 6 (wine_regions, grape_varieties, producers, viticulture, winemaking, wine_business) |
 | Question type | multiple choice (4 options) |
@@ -62,46 +63,46 @@ of large language models against expert-vetted, source-anchored knowledge.
 | Generation strategies | 5 (fact_to_question, comparative, scenario_synthesis, distractor_mining, template) |
 | Source facts | 38,104 atomic facts from 35 sources (Wikipedia, Wikidata, USDA, INAO, OIV, UC Davis, …) |
 | Splits | one — `test` (this is an evaluation-only benchmark) |
-| Audit | 9-agent automated audit + 50-question human gold review |
+| Audit | 9-agent automated audit + 50-question gold review + 97-question zero-correct audit + 29-question borderline review |
 
 ### Composition
 
 **By generation strategy**
 | Strategy | Questions |
 |---|---:|
-| fact_to_question | 1,940 |
-| distractor_mining | 412 |
+| fact_to_question | 1,909 |
+| distractor_mining | 405 |
 | template | 389 |
-| scenario_synthesis | 327 |
-| comparative | 261 |
+| scenario_synthesis | 319 |
+| comparative | 244 |
 
 **By generator**
 | Generator | Questions |
 |---|---:|
-| Qwen 3.5 (235B) | 678 |
-| Llama 3.1 (405B) | 654 |
-| Claude Opus 4.7 | 622 |
-| ChatGPT 5.4 | 560 |
-| Gemini 3.1 Pro | 426 |
+| Qwen 3.5 (235B) | 667 |
+| Llama 3.1 (405B) | 629 |
+| Claude Opus 4.7 | 619 |
+| ChatGPT 5.4 | 542 |
+| Gemini 3.1 Pro | 420 |
 | template_only (no LLM) | 389 |
 
 **By domain**
 | Domain | Questions |
 |---|---:|
-| wine_regions | 1,108 |
-| grape_varieties | 766 |
-| producers | 515 |
-| viticulture | 502 |
-| wine_business | 250 |
-| winemaking | 188 |
+| wine_regions | 1,093 |
+| grape_varieties | 739 |
+| producers | 508 |
+| viticulture | 493 |
+| wine_business | 246 |
+| winemaking | 187 |
 
 **By difficulty (post-relabel — see "Difficulty calibration" section)**
 | Level | Questions | % |
 |---|---:|---:|
-| L1 (entry) | 694 | 20.8% |
-| L2 (intermediate) | 927 | 27.8% |
-| L3 (advanced) | 698 | 21.0% |
-| L4 (expert) | 1,010 | 30.3% |
+| L1 (entry) | 693 | 21.2% |
+| L2 (intermediate) | 894 | 27.4% |
+| L3 (advanced) | 678 | 20.8% |
+| L4 (expert) | 1,001 | 30.6% |
 
 ---
 
@@ -111,7 +112,7 @@ of large language models against expert-vetted, source-anchored knowledge.
 from datasets import load_dataset
 
 ds = load_dataset("nikitahudov/oenobench-v1", split="test")
-print(len(ds))           # 3329
+print(len(ds))           # 3266
 print(ds[0]["question_text"])
 print(ds[0]["options"])  # [{"id": "A", "text": "..."}, ...]
 print(ds[0]["correct_answer"])  # "A" / "B" / "C" / "D"
@@ -201,6 +202,8 @@ April 2026 after a provenance audit.
    or relabeled to L1 (under a 50% per-strategy quota).
 4. **Audit** (9 agents): see "Audit" section below.
 5. **Drop policy + difficulty relabel** (Phase 2j): see "Curation" below.
+6. **Post-eval refinement** (Phase 5): zero-correct audit + 29-Q
+   borderline-review pass (see "Curation" below).
 
 Full methodology in `docs/PROCESS_LOG.md` of the GitHub repo.
 
@@ -229,9 +232,9 @@ Each question was evaluated by a multi-agent audit framework (run_id
 
 | Verdict | Count | Meaning |
 |---|---:|---|
-| `audit_clean` | 68 | No FAIL, no WARN |
-| `audit_minor_findings` | 1,063 | One or more WARNs, no FAILs |
-| `audit_calibration_finding` | 2,198 | B2 closed-book or C4 difficulty calibration signal — *not* a question-quality fail |
+| `audit_clean` | 66 | No FAIL, no WARN |
+| `audit_minor_findings` | 1,010 | One or more WARNs, no FAILs |
+| `audit_calibration_finding` | 2,190 | B2 closed-book or C4 difficulty calibration signal — *not* a question-quality fail |
 | `audit_fail_review` | 0 | (questions in this bucket were dropped before v1.2) |
 | `audit_fail_critical` | 0 | (dropped) |
 
@@ -241,9 +244,10 @@ Each question was evaluated by a multi-agent audit framework (run_id
 
 The release_v1.1 audit-time corpus had 3,670 questions. Curation policy:
 
-### Drops — 341 questions removed
+### Drops — 404 questions removed (3 rounds)
 
-A question was untagged from the release if it had at least one FAIL on
+**Round 1 — automated multi-agent audit (341 dropped from release_v1.1).**
+A question was untagged if it had at least one FAIL on
 **A1, A3, B1, C2, or B3**:
 
 | Defect | Distinct Qs |
@@ -255,21 +259,57 @@ A question was untagged from the release if it had at least one FAIL on
 | B3 UbiquityRisk (ubiquity-grape × region answer) | 183 |
 | **Total distinct dropped** | **341** |
 
+**Round 2 — zero-correct audit (54 dropped).**
+After running the 16-config eval slate, all 97 questions where every
+configuration scored 0/16 were manually classified by category. 54 were
+identified as outright corpus defects and dropped:
+
+| Category | Count |
+|---|---:|
+| WRONG_GROUND_TRUTH (key contradicts wine consensus) | 27 |
+| ALL_CORRECT (≥2 options factually true) | 19 |
+| DUP_OPTION (same option text twice) | 6 |
+| EQUIV_OPTIONS (synonyms / different names for one entity) | 2 |
+| **Total** | **54** |
+
+**Round 3 — borderline review (9 dropped).**
+The 29 borderline items from the round-2 audit
+(`SOURCE_FACT_DUBIOUS` 13 + `AMBIGUOUS_WORDING` 16) were imported
+into the human-review web app and scored by the wine domain expert
+on the 8-rubric v2 scheme (`answer_correct`, `distractors_plausible`,
+`not_ambiguous`, `source_faithful`, `needs_source`,
+`no_vague_language`, `labels_correct`, `verbatim_copy`).
+Verdicts: 20 approve, 9 reject — the 9 rejects were dropped:
+
+| Reject pattern | Count |
+|---|---:|
+| Failed `not_ambiguous` | 9/9 |
+| Also failed `answer_correct` | 6/9 |
+| Also failed `source_faithful` + `needs_source` | 1/9 |
+| Also failed `distractors_plausible` | 1/9 |
+
+Cumulative: **3,670 → 3,266** (-404, -11.0%).
+
+The dropped items remain in `public.questions` archived under
+`excluded_post_eval_v1_2_audit` (54) and
+`excluded_post_eval_v1_2_borderline_review` (9) — reversible if a
+future v1.3 corrects the underlying defects.
+
 ### Kept — B2 + C4 (calibration signals, not real fails)
 
-- **B2 ClosedBookSolvability**: ~1,452 questions where an LLM panel
-  solved the question without the source. We **kept** these. Cohen's κ
+- **B2 ClosedBookSolvability**: questions where an LLM panel solved
+  the question without the source. We **kept** these. Cohen's κ
   between B2's signal and human reviewers on the `needs_source` rubric
   is ≈ 0.007 (essentially no agreement) — frontier-LLM judges over-report
   closed-book solvability by ~5× because they know more wine than the
   benchmark target audience. We disclose the B2 finding in the dataset
   but do not treat it as a defect.
-- **C4 DifficultyAudit**: 1,351 questions where Gemini Pro re-rated the
+- **C4 DifficultyAudit**: questions where Gemini Pro re-rated the
   difficulty by delta ≥ 2 from the generator-assigned label. We resolved
   this by **relabelling**, not dropping: the post-relabel `difficulty`
   column is C4's `rated_difficulty` (or the human reviewer's
-  `suggested_difficulty` when available). 1,259 of the 3,329 questions
-  have a relabel applied (1,252 from C4, 7 from human review). The
+  `suggested_difficulty` when available). 1,252 of the 3,266 questions
+  have a relabel applied (1,246 from C4, 6 from human review). The
   public `question_id` (e.g. `WB-REG-0042-L3`) keeps the original
   L-suffix as a stable label; eval consumers must read from the
   `difficulty` column for the post-relabel value.
@@ -279,11 +319,11 @@ post-relabel):
 
 | Level | Pre-relabel | Post-relabel | Δ |
 |---|---:|---:|---:|
-| L1 | 1,261 | 694 | -567 |
-| L2 | 1,559 | 927 | -632 |
-| L3 | 218 | 698 | +480 |
-| L4 | 291 | 1,010 | +719 |
-| L3+L4 share | 14% | **51%** | +37pp |
+| L1 | ~1,239 | 693 | -546 |
+| L2 | ~1,531 | 894 | -637 |
+| L3 | ~213 | 678 | +465 |
+| L4 | ~283 | 1,001 | +718 |
+| L3+L4 share | ~14% | **51%** | +37pp |
 
 ### Human review
 
@@ -295,7 +335,10 @@ verbatim copy). Of the 45 completed reviews:
 - 36 approved, 6 rejected (13%), 3 needs revision
 - 9/45 (20%) flagged ambiguous → drove the **B3_UbiquityRisk** custom audit
 - 14/45 set a `suggested_difficulty` → 7 of those were on questions in
-  the release_v1.2 corpus and overrode C4's rating
+  release_v1.2 and overrode C4's rating
+
+A second 29-question borderline-review batch was scored after the
+post-eval zero-correct audit (see Round 3 above): 20 approve, 9 reject.
 
 Cross-check: in 8/8 spot-checked human suggestions, C4's rating was
 within ±1 of the human's — supporting the C4 relabel choice.
@@ -336,16 +379,17 @@ within ±1 of the human's — supporting the C4 relabel choice.
   systematic blind spots. The D1_SelfPreference audit measured a
   population-level Δ of 0.33 — interpret per-model evaluation results
   alongside D1.
-- **Closed-book solvability** (B2 signal). 2,198 questions carry a B2
+- **Closed-book solvability** (B2 signal). ~2,190 questions carry a B2
   WARN/FAIL meaning an LLM panel solved them without the source. This is
   *not* a defect — frontier LLMs know a lot of wine — but downstream
-  evaluators should be aware that ~66% of the corpus could in principle
+  evaluators should be aware that ~67% of the corpus could in principle
   be answered without reading the source fact.
 - **Ubiquity-grape filter is rule-based.** B3 catches questions where
   ubiquitous international grapes (Cabernet, Pinot Noir, Chardonnay,
   Riesling, …) appear in stems with region-class answers. We caught and
-  dropped 183. Some borderline cases (e.g. data-driven ubiquity threshold)
-  may slip through; please raise an issue if you find one.
+  dropped 183 in round 1 + 9 borderline rejects in round 3. Some
+  borderline cases (e.g. data-driven ubiquity threshold) may slip
+  through; please raise an issue if you find one.
 - **Difficulty re-rating relies on Gemini Pro + 8 human spot checks.** L3
   and L4 levels are now the largest buckets after C4 re-rating. We have
   not independently verified C4's rating against a wine expert at scale;
@@ -396,14 +440,18 @@ See https://creativecommons.org/licenses/by-sa/4.0/ for the full license.
 
 ## Contact / issues
 
-- GitHub: https://github.com/nikitahudov/oenobench
+- GitHub: https://github.com/nikitahudov/openobench
 - Issues / PRs welcome.
 
 ---
 
 ## Changelog
 
-- **release_v1.2** (2026-05-03): post-audit, post-difficulty-relabel.
+- **release_v1.2 (2026-05-04 patch)**: post zero-correct audit + 29-Q
+  borderline review. Dropped 63 additional questions (54 outright
+  defects identified by audit categories + 9 borderline rejects from
+  domain-expert review). 3,329 → 3,266 questions.
+- release_v1.2 (2026-05-03): post-audit, post-difficulty-relabel.
   3,329 questions. 341 dropped on B1/A3/C2/B3/A1 critical fails. 1,259
   difficulty relabels. Three audit verdicts surface in the
   `audit_verdict` column.
