@@ -1,0 +1,86 @@
+\section{Limitations}
+\label{sec:limitations}
+
+\paragraph{Language and cultural scope.} OenoBench is currently
+English-only. The Tier-2 source mix (Wikipedia 34\%, Wikidata 31\%) is
+itself English-skewed, and the corpus inherits a geographic bias toward
+European (especially French, Italian, Spanish) and New-World canonical
+regions. Emerging wine cultures (China, India, much of Eastern Europe)
+are under-represented in absolute counts. Multilingual extension is
+the largest single gap and is the most natural next-version target.
+
+\paragraph{Source skew within domains.} Producer and wine-business
+domains are smaller (515 and 250 questions respectively) than wine
+regions (1{,}108) and grape varieties (766) because authoritative
+producer-level and business-level open data is scarcer than
+appellation-level data. The C4 difficulty re-label
+(Section~\ref{sec:audit}) shifted the corpus toward harder items but
+cannot create coverage that did not exist; the per-domain accuracy
+ceiling on \emph{wine\_business} (\textbf{56.5\% mean across 16 configs},
+vs.\ 79\% on producers) reflects both the hardness of the domain and
+its sparser fact pool.
+
+\paragraph{Snapshot vs.\ moving target.} Wine regulation,
+classifications, and producer ownership change on a multi-year cadence
+(INAO appellation revisions, DOCG promotions, estate sales). The
+released corpus is a snapshot dated 2026-04-01 and will require
+periodic re-extraction; we release the scrapers and provenance
+metadata so this is mechanically reproducible.
+
+\paragraph{Closed-book audit calibration.} The B2 ClosedBookSolvability
+agent shows $\kappa\approx0.007$ with humans on the gold sheet
+(Section~\ref{sec:gold}). Rather than drop the affected questions, we
+keep them with explicit disclosure and report the closed-book vs.\
+contextual contrast in Section~\ref{sec:eval-cb}. Downstream users who
+prefer a strictly source-grounded subset can use the contextual slice;
+those who want pure recall can use the closed-book slice. The
+documentation is a load-bearing part of the dataset, not a footnote.
+
+\paragraph{Self-preference is not fully neutralised.} The Anthropic
+$+9$~pp positive SPS (Section~\ref{sec:eval-sps}) implies the
+multi-model generation strategy did not fully neutralise stylistic
+fingerprints. We disclose per-config SPS as a first-class diagnostic
+rather than removing the affected items, but downstream comparisons
+between Anthropic and other-family models on the full corpus should
+be treated with the SPS in mind.
+
+\section{Ethics and Responsible Use}
+\label{sec:ethics}
+
+\paragraph{Alcohol context.} Wine is an alcoholic beverage. OenoBench
+is a knowledge-evaluation tool, not a consumer-facing product. Models
+that score highly on OenoBench should not be deployed as
+drinking-recommendation systems without separate alignment work
+covering health information, age-gating, and jurisdiction-specific
+advertising rules.
+
+\paragraph{Source licensing.} Tier-1 government sources are public
+records. Tier-2 Wikipedia and Wikidata content is used under
+CC-BY-SA / CC0; OenoBench question texts are derivative works produced
+by paraphrasing facts, not copies of source paragraphs, and are
+released under \textbf{CC-BY-SA-4.0}. Per-fact source URLs are released
+alongside the corpus so downstream users can verify and re-attribute.
+
+\paragraph{Personal data.} The corpus contains entity names of
+producers, winemakers, and historical figures who are public-record
+principals of wine estates. No private individuals are identified. The
+gold-sheet reviewer is identified only by professional credential.
+
+\paragraph{Misuse considerations.} A wine-knowledge benchmark is low
+risk for direct misuse. The closest plausible misuse is using
+high-OenoBench-score models to automate fraudulent product descriptions
+or counterfeit provenance claims. We note this for completeness but do
+not see a benchmark-side mitigation distinct from general
+LLM-deployment safeguards. The construction code's principal misuse
+risk is its application to retargeting toward high-stakes domains
+(medical, legal) without commensurate human-expert review of the
+retargeted source taxonomy; we discuss this scoping concern in
+Section~\ref{sec:future}.
+
+\paragraph{LLM use during construction.} Large language models were
+used as components of the pipeline (question generation, audit
+agents). They were \emph{not} used as sources of factual claims; every
+factual assertion in the corpus traces to a non-LLM source URL with a
+tier-of-authority label. This separation is enforced by the A3
+FactEcho agent (no verbatim source copying) and the closed-book
+pre-screen.

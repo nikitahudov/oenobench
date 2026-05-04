@@ -1,0 +1,130 @@
+\section{Released Artifacts and Reproducibility}
+\label{app:artifacts}
+
+\subsection{Released artifacts}
+
+\begin{itemize}\itemsep -1pt
+  \item \textbf{Dataset (HuggingFace, anonymous review mirror).}
+    Hosted under a redacted handle linked from the OpenReview
+    submission, \texttt{release\_v1.2}, 3{,}266 questions, Parquet
+    test split, \texttt{README.md} datasheet, \texttt{croissant.json}
+    manifest. License: CC-BY-SA-4.0. The camera-ready will swap this
+    URL for the de-anonymised canonical handle.
+  \item \textbf{Code (anonymous review mirror).}
+    Hosted at an \url{https://anonymous.4open.science} URL linked
+    from the OpenReview submission --- full pipeline: 35 scrapers, 5
+    question generators, 14 audit agents, the human review web app,
+    and the monitoring dashboard. Apache 2.0.
+  \item \textbf{Process log.} \texttt{docs/PROCESS\_LOG.md} —
+    chronological lab-notebook of every phase shipped, with sources,
+    methodology, quality-control counts, and decision rationale, in
+    the format prescribed for the methodology sections of this paper.
+  \item \textbf{Audit reports.} \texttt{docs/QUALITY\_AUDIT\_REPORT.md},
+    \texttt{docs/RELEASE\_V1\_2\_AUDIT\_ACTIONS.md},
+    \texttt{docs/GOLD\_CALIBRATION\_ANALYSIS.md},
+    \texttt{data/reports/zero\_correct\_97\_audit.md}.
+  \item \textbf{Eval reports.}
+    \texttt{data/reports/eval\_release\_v1\_2\_full\_cleaned.md} (the
+    16-config × 3{,}266-Q run reported in this paper).
+\end{itemize}
+
+\subsection{Reproducibility scripts}
+
+The construction pipeline is driven by a small number of shell scripts
+in \texttt{scripts/}:
+
+\begin{itemize}\itemsep -1pt
+  \item \texttt{run\_all\_scrapers.sh} — orchestrates the 35 scrapers
+    end-to-end. Each scraper writes a timestamped log to
+    \texttt{data/logs/}.
+  \item \texttt{run\_release\_v1\_build.sh} — full generation pipeline
+    invocation; idempotent and resume-safe via stamped tags.
+  \item \texttt{export\_release\_v1\_2\_to\_parquet.py} — produces the
+    HuggingFace Parquet directly from Postgres; the released file
+    is the byte-identical output of this script.
+  \item \texttt{build\_smart\_review\_sheet.py} — generates a 50-question
+    stratified gold-sheet review batch (random + critical-FAIL +
+    borderline-WARN strata).
+  \item \texttt{tag\_audit\_actions.py} — applies the audit drop /
+    relabel policy to a tagged corpus; this is the script that
+    produced the \texttt{release\_v1.2} state from
+    \texttt{release\_v1.1}.
+\end{itemize}
+
+\subsection{Database schema}
+
+The released schema is initialised by the migrations under
+\texttt{config/postgres/} (six idempotent files, applied in order on
+container startup):
+\texttt{init.sql} (sources, facts, questions, question\_facts,
+generation\_metadata, evaluation\_runs, evaluation\_answers,
+human\_reviews),
+\texttt{002\_audit\_schema.sql} (audit\_runs, audit\_findings,
+audit\_gold\_labels, audit\_severity enum),
+\texttt{003\_sample\_schema.sql} (mirror schema for the Phase~5
+sample-DB eval),
+\texttt{003\_cb\_reserve.sql} (closed-book reserve pool tagging),
+\texttt{004\_eval\_telemetry.sql} (provider, tokens, reasoning\_config,
+latency columns on \texttt{evaluation\_answers}),
+\texttt{005\_or\_cost\_telemetry.sql} (OpenRouter authoritative cost
+columns).
+
+The released schema is documented in code
+(\texttt{config/postgres/}); the load-bearing tables are
+\texttt{sources} (registry), \texttt{facts} (atomic facts grounded by
+source), \texttt{questions} + \texttt{question\_facts} (corpus and
+fact-question links), \texttt{generation\_metadata} (per-question
+generator and strategy), \texttt{audit\_findings} (per-agent
+verdicts), and \texttt{human\_reviews} (gold-sheet ratings).
+
+\subsection{Compute and cost}
+
+The full evaluation reported in Section~\ref{sec:eval} ran in
+\textbf{120 minutes 34 seconds} on a single VM driving 16 OpenRouter
+configurations in parallel. \textbf{Total LLM API spend across the
+entire project was \$783}, paid out-of-pocket to OpenRouter and
+covering all generation pilots, audit cycles, gold-sheet calibration
+runs, and the final 16-config evaluation. No GPU compute was used;
+all model inference was via OpenRouter (a unified API gateway). The
+release artefacts include all per-call telemetry (provider, tokens,
+reasoning configuration, p50/p95 latency, OR-authoritative cost) for
+the full evaluation run; the per-config cost ledger is reproduced
+inline as Table~\ref{tab:cost-ledger-app}.
+
+\begin{table}[h]
+  \centering
+  \footnotesize
+  \caption{Per-config cost ledger for the full 16-config evaluation
+    (3{,}266 questions per config). Effective OpenRouter spend.}
+  \label{tab:cost-ledger-app}
+  \begin{tabular}{lrrr}
+    \toprule
+    Config & Total cost & Correct ans. & Cost / correct \\
+    \midrule
+    llama-3.1-8b               & \$0.01 & 1{,}976 & \$0.0000 \\
+    llama-3.3-70b              & \$0.04 & 2{,}190 & \$0.0000 \\
+    gemini-2.5-flash           & \$0.12 & 2{,}454 & \$0.0000 \\
+    deepseek-v3                & \$0.12 & 2{,}295 & \$0.0001 \\
+    qwen-2.5-7b                & \$0.12 & 1{,}860 & \$0.0001 \\
+    qwen-2.5-72b               & \$0.15 & 2{,}202 & \$0.0001 \\
+    claude-haiku-4.5           & \$0.44 & 1{,}741 & \$0.0003 \\
+    mistral-large-2411         & \$0.87 & 2{,}256 & \$0.0004 \\
+    gpt-5-mini                 & \$2.82 & 2{,}561 & \$0.0011 \\
+    claude-opus-4.7            & \$3.35 & 2{,}647 & \$0.0013 \\
+    claude-opus-4.7-thinking   & \$3.53 & 2{,}645 & \$0.0013 \\
+    deepseek-r1                & \$10.54 & 2{,}517 & \$0.0042 \\
+    o3                         & \$11.80 & 2{,}729 & \$0.0043 \\
+    gemini-2.5-pro-thinking    & \$13.06 & 2{,}698 & \$0.0048 \\
+    gpt-5                      & \$21.90 & 2{,}704 & \$0.0081 \\
+    gemini-2.5-pro             & \$29.47 & 2{,}669 & \$0.0110 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Test status}
+
+771 of 771 unit tests pass on \texttt{main} as of the camera-ready
+build. Tests cover the fact-processing pipeline, the five generation
+strategies, all 14 audit agents, the orchestrator, the closed-book
+gate, the eval harness (slot dispatch, cost computation,
+reasoning-mode prompt assembly), and the review-app endpoints.

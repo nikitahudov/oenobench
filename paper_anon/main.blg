@@ -1,0 +1,48 @@
+This is BibTeX, Version 0.99d (TeX Live 2023/Debian)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: main.aux
+The style file: plainnat.bst
+Database file #1: references.bib
+Warning--can't use both volume and number fields in hodgson2017winereviews
+You've used 21 entries,
+            2773 wiz_defined-function locations,
+            682 strings with 9486 characters,
+and the built_in function-call counts, 11803 in all, are:
+= -- 866
+> -- 1107
+< -- 4
++ -- 372
+- -- 351
+* -- 1034
+:= -- 1892
+add.period$ -- 61
+call.type$ -- 21
+change.case$ -- 173
+chr.to.int$ -- 21
+cite$ -- 43
+duplicate$ -- 473
+empty$ -- 815
+format.name$ -- 375
+if$ -- 2399
+int.to.chr$ -- 1
+int.to.str$ -- 1
+missing$ -- 19
+newline$ -- 111
+num.names$ -- 84
+pop$ -- 414
+preamble$ -- 1
+purify$ -- 152
+quote$ -- 0
+skip$ -- 378
+stack$ -- 0
+substring$ -- 42
+swap$ -- 39
+text.length$ -- 1
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 231
+warning$ -- 1
+while$ -- 63
+width$ -- 0
+write$ -- 258
+(There was 1 warning)

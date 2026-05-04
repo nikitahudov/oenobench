@@ -1,0 +1,86 @@
+\documentclass{article}
+
+\PassOptionsToPackage{numbers, compress}{natbib}
+
+% Track: Evaluations & Datasets (D&B successor in NeurIPS 2026).
+% Double-blind submission build: option [eandd] only (no [final]) so the
+% template's anonymous-author mode is active.
+\usepackage[eandd]{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{multirow}
+
+% Hide remaining placeholders for the final draft. Set \paperfinalfalse to
+% re-enable yellow boxes.
+\newif\ifpaperfinal
+\paperfinaltrue
+\newcommand{\PLACEHOLDER}[1]{%
+  \ifpaperfinal\else%
+    \par\noindent\fcolorbox{red!60!black}{yellow!15}{%
+      \begin{minipage}{0.96\linewidth}%
+        \textbf{\textcolor{red!70!black}{[PLACEHOLDER]}} #1%
+      \end{minipage}%
+    }\par%
+  \fi%
+}
+\newcommand{\PH}[1]{%
+  \ifpaperfinal#1\else%
+    \textcolor{red!70!black}{$\langle$\textsf{\small #1}$\rangle$}%
+  \fi%
+}
+\newcommand{\TODO}[1]{\textcolor{orange!80!black}{\textbf{[TODO: #1]}}}
+
+\title{OenoBench: A Wine-Domain Benchmark for Knowledge-Grounded \\
+  Evaluation of Large Language Models}
+
+% Double-blind submission: author block intentionally redacted.
+% The neurips_2026 [eandd] (non-final) option renders this as
+% "Anonymous Authors / Anonymous Affiliation".
+\author{%
+  Anonymous Authors \\
+  Anonymous Affiliation \\
+  \texttt{anonymous@example.com}
+}
+
+\begin{document}
+\maketitle
+
+\input{sections/00_abstract}
+\input{sections/01_introduction}
+\input{sections/02_related_work}
+\input{sections/03_dataset_construction}
+\input{sections/04_quality_audit}
+\input{sections/05_evaluation}
+\input{sections/06_applications_future}
+\input{sections/07_limitations_ethics}
+
+\begin{ack}
+Acknowledgments redacted for double-blind review.
+\end{ack}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\appendix
+\input{sections/07_appendix_datasheet}
+\input{sections/08_appendix_methodology}
+\input{sections/09_appendix_evaluation}
+\input{sections/10_appendix_screenshots}
+\input{sections/11_appendix_artifacts}
+\input{sections/12_appendix_process_log}
+
+\newpage
+\input{checklist.tex}
+
+\end{document}

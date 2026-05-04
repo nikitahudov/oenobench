@@ -1,0 +1,158 @@
+\begin{thebibliography}{21}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Akhtar et~al.(2024)Akhtar, Benjelloun, Conforti,
+  et~al.]{koehn2024croissant}
+Mubashara Akhtar, Omar Benjelloun, Costanza Conforti, et~al.
+\newblock {Croissant}: A metadata format for {ML}-ready datasets.
+\newblock In \emph{Advances in Neural Information Processing Systems (NeurIPS),
+  Datasets and Benchmarks Track}, 2024.
+
+\bibitem[Chen et~al.(2014)Chen, Chen, Liu, and Ma]{chen2014winerec}
+Li~Chen, Yi-Ching Chen, Yiqun Liu, and Shaoping Ma.
+\newblock Recommending wines based on subjective user ratings.
+\newblock In \emph{Proceedings of the 8th ACM Conference on Recommender Systems
+  (RecSys)}, 2014.
+
+\bibitem[Dodge et~al.(2021)Dodge, Sap, Marasovi{\'c}, Agnew, Ilharco,
+  Groeneveld, Mitchell, and Gardner]{dodge2021documenting}
+Jesse Dodge, Maarten Sap, Ana Marasovi{\'c}, William Agnew, Gabriel Ilharco,
+  Dirk Groeneveld, Margaret Mitchell, and Matt Gardner.
+\newblock Documenting large webtext corpora: A case study on the {Colossal
+  Clean Crawled Corpus}.
+\newblock In \emph{Proceedings of the 2021 Conference on Empirical Methods in
+  Natural Language Processing (EMNLP)}, 2021.
+
+\bibitem[Gebru et~al.(2021)Gebru, Morgenstern, Vecchione, Vaughan, Wallach,
+  Daum{\'e}~III, and Crawford]{gebru2021datasheets}
+Timnit Gebru, Jamie Morgenstern, Briana Vecchione, Jennifer~Wortman Vaughan,
+  Hanna Wallach, Hal Daum{\'e}~III, and Kate Crawford.
+\newblock Datasheets for datasets.
+\newblock \emph{Communications of the ACM}, 64\penalty0 (12), 2021.
+
+\bibitem[Guha et~al.(2023)Guha, Nyarko, Ho, R{\'e}, Chilton,
+  et~al.]{guha2023legalbench}
+Neel Guha, Julian Nyarko, Daniel~E. Ho, Christopher R{\'e}, Adam Chilton,
+  et~al.
+\newblock {LegalBench}: A collaboratively built benchmark for measuring legal
+  reasoning in large language models.
+\newblock In \emph{Advances in Neural Information Processing Systems
+  (NeurIPS)}, 2023.
+
+\bibitem[Hendrycks et~al.(2021)Hendrycks, Burns, Basart, Zou, Mazeika, Song,
+  and Steinhardt]{hendrycks2021mmlu}
+Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn
+  Song, and Jacob Steinhardt.
+\newblock Measuring massive multitask language understanding.
+\newblock In \emph{International Conference on Learning Representations
+  (ICLR)}, 2021.
+
+\bibitem[Hodgson(2008)]{hodgson2017winereviews}
+Robert~T. Hodgson.
+\newblock An examination of judge reliability at a major u.s.\ wine
+  competition.
+\newblock In \emph{Journal of Wine Economics}, volume~3, 2008.
+
+\bibitem[Islam et~al.(2023)Islam, Kannappan, Kiela, Qian, Scherrer, and
+  Vidgen]{islam2023financebench}
+Pranab Islam, Anand Kannappan, Douwe Kiela, Rebecca Qian, Nino Scherrer, and
+  Bertie Vidgen.
+\newblock {FinanceBench}: A new benchmark for financial question answering,
+  2023.
+
+\bibitem[Jin et~al.(2021)Jin, Pan, Oufattole, Weng, Fang, and
+  Szolovits]{jin2021medqa}
+Di~Jin, Eileen Pan, Nassim Oufattole, Wei-Hung Weng, Hanyi Fang, and Peter
+  Szolovits.
+\newblock What disease does this patient have? a large-scale open domain
+  question answering dataset from medical exams.
+\newblock \emph{Applied Sciences}, 11\penalty0 (14), 2021.
+
+\bibitem[Jin et~al.(2019)Jin, Dhingra, Liu, Cohen, and Lu]{jin2019pubmedqa}
+Qiao Jin, Bhuwan Dhingra, Zhengping Liu, William Cohen, and Xinghua Lu.
+\newblock {PubMedQA}: A dataset for biomedical research question answering.
+\newblock In \emph{Proceedings of the 2019 Conference on Empirical Methods in
+  Natural Language Processing (EMNLP)}, 2019.
+
+\bibitem[Lefever et~al.(2018)Lefever, Hendrickx, Croijmans, Majid, and van~den
+  Bosch]{lefever2017winenlp}
+Els Lefever, Iris Hendrickx, Ilja Croijmans, Asifa Majid, and Antal van~den
+  Bosch.
+\newblock A hybrid approach to domain-independent taxonomy learning applied to
+  the wine domain.
+\newblock In \emph{Language Resources and Evaluation (LREC)}, 2018.
+
+\bibitem[Liang et~al.(2023)Liang, Bommasani, Lee, et~al.]{liang2023helm}
+Percy Liang, Rishi Bommasani, Tony Lee, et~al.
+\newblock Holistic evaluation of language models.
+\newblock In \emph{Transactions on Machine Learning Research (TMLR)}, 2023.
+
+\bibitem[Magar and Schwartz(2022)]{magar2022contamination}
+Inbal Magar and Roy Schwartz.
+\newblock Data contamination: From memorization to exploitation.
+\newblock In \emph{Proceedings of the 60th Annual Meeting of the Association
+  for Computational Linguistics (ACL)}, 2022.
+
+\bibitem[Panickssery et~al.(2024)Panickssery, Bowman, and
+  Feng]{panickssery2024selfpref}
+Arjun Panickssery, Samuel~R. Bowman, and Shi Feng.
+\newblock {LLM} evaluators recognize and favor their own generations.
+\newblock In \emph{Advances in Neural Information Processing Systems
+  (NeurIPS)}, 2024.
+
+\bibitem[Phan et~al.(2025)Phan, Gatti, Han, Li, Hu, et~al.]{phan2025hle}
+Long Phan, Alice Gatti, Ziwen Han, Nathaniel Li, Josephina Hu, et~al.
+\newblock Humanity's last exam, 2025.
+
+\bibitem[Rein et~al.(2024)Rein, Hou, Stickland, Petty, Pang, Dirani, Michael,
+  and Bowman]{rein2024gpqa}
+David Rein, Betty~Li Hou, Asa~Cooper Stickland, Jackson Petty, Richard~Yuanzhe
+  Pang, Julien Dirani, Julian Michael, and Samuel~R. Bowman.
+\newblock {GPQA}: A graduate-level google-proof q\&a benchmark.
+\newblock In \emph{Conference on Language Modeling (COLM)}, 2024.
+
+\bibitem[Sainz et~al.(2023)Sainz, Campos, Garc{\'i}a-Ferrero, Etxaniz,
+  de~Lacalle, and Agirre]{sainz2023contamination}
+Oscar Sainz, Jon~Ander Campos, Iker Garc{\'i}a-Ferrero, Julen Etxaniz,
+  Oier~Lopez de~Lacalle, and Eneko Agirre.
+\newblock {NLP} evaluation in trouble: On the need to measure {LLM} data
+  contamination for each benchmark.
+\newblock In \emph{Findings of the Association for Computational Linguistics:
+  EMNLP}, 2023.
+
+\bibitem[Sharma et~al.(2024)Sharma, Tong, Korbak, Duvenaud, Askell, Bowman,
+  et~al.]{sharma2024sycophancy}
+Mrinank Sharma, Meg Tong, Tomasz Korbak, David Duvenaud, Amanda Askell,
+  Samuel~R. Bowman, et~al.
+\newblock Towards understanding sycophancy in language models.
+\newblock In \emph{International Conference on Learning Representations
+  (ICLR)}, 2024.
+
+\bibitem[Srivastava et~al.(2023)]{srivastava2023bigbench}
+Aarohi Srivastava et~al.
+\newblock Beyond the imitation game: Quantifying and extrapolating the
+  capabilities of language models.
+\newblock \emph{Transactions on Machine Learning Research (TMLR)}, 2023.
+
+\bibitem[Zheng et~al.(2023)Zheng, Chiang, Sheng, Zhuang, Wu, Zhuang, Lin, Li,
+  Li, Xing, et~al.]{zheng2023judging}
+Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao
+  Zhuang, Zi~Lin, Zhuohan Li, Dacheng Li, Eric Xing, et~al.
+\newblock Judging {LLM-as-a-Judge} with {MT-Bench} and {Chatbot Arena}.
+\newblock In \emph{Advances in Neural Information Processing Systems
+  (NeurIPS)}, 2023.
+
+\bibitem[Zhong et~al.(2024)Zhong, Cui, Guo, Liang, Lu, Wang, Saied, Chen, and
+  Duan]{zhong2024agieval}
+Wanjun Zhong, Ruixiang Cui, Yiduo Guo, Yaobo Liang, Shuai Lu, Yanlin Wang, Amin
+  Saied, Weizhu Chen, and Nan Duan.
+\newblock {AGIEval}: A human-centric benchmark for evaluating foundation
+  models.
+\newblock In \emph{Findings of the Association for Computational Linguistics:
+  NAACL}, 2024.
+
+\end{thebibliography}

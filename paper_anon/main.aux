@@ -1,0 +1,228 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{hendrycks2021mmlu}
+\citation{rein2024gpqa}
+\citation{srivastava2023bigbench,zhong2024agieval,phan2025hle}
+\citation{panickssery2024selfpref,zheng2023judging}
+\citation{sainz2023contamination,magar2022contamination,dodge2021documenting}
+\citation{jin2021medqa,jin2019pubmedqa}
+\citation{guha2023legalbench}
+\citation{islam2023financebench}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\newlabel{sec:intro}{{1}{1}{Introduction}{section.1}{}}
+\citation{hendrycks2021mmlu}
+\citation{srivastava2023bigbench}
+\citation{zhong2024agieval}
+\citation{rein2024gpqa}
+\citation{liang2023helm}
+\citation{phan2025hle}
+\citation{jin2021medqa}
+\citation{jin2019pubmedqa}
+\citation{guha2023legalbench}
+\citation{islam2023financebench}
+\citation{panickssery2024selfpref,zheng2023judging,sharma2024sycophancy}
+\@writefile{toc}{\contentsline {paragraph}{Why wine.}{2}{section*.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Contributions.}{2}{section*.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Related Work}{2}{section.2}\protected@file@percent }
+\newlabel{sec:related}{{2}{2}{Related Work}{section.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{Broad knowledge benchmarks.}{2}{section*.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Domain-specific benchmarks.}{2}{section*.4}\protected@file@percent }
+\citation{sainz2023contamination,magar2022contamination,dodge2021documenting}
+\citation{chen2014winerec}
+\citation{lefever2017winenlp}
+\citation{hodgson2017winereviews}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces End-to-end pipeline. Authoritative sources (top) are scraped by 35 source-specific extractors that share an atomic-fact decomposition and validation pass. Generated questions are gated by a closed-book pre-screen and a nine-agent audit before being tagged for release.}}{3}{figure.1}\protected@file@percent }
+\newlabel{fig:pipeline}{{1}{3}{End-to-end pipeline. Authoritative sources (top) are scraped by 35 source-specific extractors that share an atomic-fact decomposition and validation pass. Generated questions are gated by a closed-book pre-screen and a nine-agent audit before being tagged for release}{figure.1}{}}
+\@writefile{toc}{\contentsline {paragraph}{LLM-as-judge bias and self-preference.}{3}{section*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Benchmark contamination and solvability.}{3}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Wine in NLP.}{3}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Dataset Construction}{3}{section.3}\protected@file@percent }
+\newlabel{sec:dataset}{{3}{3}{Dataset Construction}{section.3}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Atomic-fact corpus: 38{,}104 facts from 35 scrapers, six domain pillars, three source tiers.}}{4}{table.1}\protected@file@percent }
+\newlabel{tab:facts}{{1}{4}{Atomic-fact corpus: 38{,}104 facts from 35 scrapers, six domain pillars, three source tiers}{table.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Domain taxonomy}{4}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Source tiering, licensing, and non-fabrication}{4}{subsection.3.2}\protected@file@percent }
+\newlabel{sec:sources}{{3.2}{4}{Source tiering, licensing, and non-fabrication}{subsection.3.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{Source licensing.}{4}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Non-fabrication guarantee.}{4}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Atomic fact extraction}{4}{subsection.3.3}\protected@file@percent }
+\newlabel{sec:extraction}{{3.3}{4}{Atomic fact extraction}{subsection.3.3}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Atomic-fact extraction pipeline. Inputs are heterogeneous (HTML pages, RDF graphs, SPARQL responses, CSV dumps); outputs are uniform single-assertion sentences with entity tags, domain label, source URL and tier.}}{5}{figure.2}\protected@file@percent }
+\newlabel{fig:fact_processing}{{2}{5}{Atomic-fact extraction pipeline. Inputs are heterogeneous (HTML pages, RDF graphs, SPARQL responses, CSV dumps); outputs are uniform single-assertion sentences with entity tags, domain label, source URL and tier}{figure.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Question generation: five strategies, five models}{5}{subsection.3.4}\protected@file@percent }
+\newlabel{sec:generation}{{3.4}{5}{Question generation: five strategies, five models}{subsection.3.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{Closed-book gate.}{5}{section*.10}\protected@file@percent }
+\citation{gebru2021datasheets}
+\citation{koehn2024croissant}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Final corpus: \texttt  {release\_v1.2}}{6}{subsection.3.5}\protected@file@percent }
+\newlabel{sec:release}{{3.5}{6}{Final corpus: \texttt {release\_v1.2}}{subsection.3.5}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Composition of the released corpus.}}{6}{table.2}\protected@file@percent }
+\newlabel{tab:corpus}{{2}{6}{Composition of the released corpus}{table.2}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Multi-Agent Quality Audit}{6}{section.4}\protected@file@percent }
+\newlabel{sec:audit}{{4}{6}{Multi-Agent Quality Audit}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Team architecture}{6}{subsection.4.1}\protected@file@percent }
+\newlabel{sec:audit-arch}{{4.1}{6}{Team architecture}{subsection.4.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Gold-sheet calibration}{6}{subsection.4.2}\protected@file@percent }
+\newlabel{sec:gold}{{4.2}{6}{Gold-sheet calibration}{subsection.4.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces All 14 audit agents across four teams. Static agents use no LLM; tri-judge agents use a panel of three frontier models with majority voting. The \emph  {Run} column indicates whether the agent is invoked on every question (\textsc  {always}) or only when an upstream agent flags a corpus-level concern (\textsc  {esc}, for \emph  {escalation-gated}).}}{7}{table.3}\protected@file@percent }
+\newlabel{tab:agents}{{3}{7}{All 14 audit agents across four teams. Static agents use no LLM; tri-judge agents use a panel of three frontier models with majority voting. The \emph {Run} column indicates whether the agent is invoked on every question (\textsc {always}) or only when an upstream agent flags a corpus-level concern (\textsc {esc}, for \emph {escalation-gated})}{table.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Release-cycle results}{7}{subsection.4.3}\protected@file@percent }
+\newlabel{sec:audit-results}{{4.3}{7}{Release-cycle results}{subsection.4.3}{}}
+\citation{rein2024gpqa}
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Audit findings on \texttt  {release\_v1.1} and the resulting drop / re-label policy.}}{8}{table.4}\protected@file@percent }
+\newlabel{tab:audit_results}{{4}{8}{Audit findings on \texttt {release\_v1.1} and the resulting drop / re-label policy}{table.4}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Difficulty distribution before and after C4 re-label.}}{8}{table.5}\protected@file@percent }
+\newlabel{tab:difficulty-shift}{{5}{8}{Difficulty distribution before and after C4 re-label}{table.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Calibration philosophy}{8}{subsection.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Evaluation}{8}{section.5}\protected@file@percent }
+\newlabel{sec:eval}{{5}{8}{Evaluation}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Overall capability ranking}{8}{subsection.5.1}\protected@file@percent }
+\newlabel{sec:eval-rank}{{5.1}{8}{Overall capability ranking}{subsection.5.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Overall accuracy on the 3{,}266-question corpus across 16 configurations. Reasoning-mode configs are hatched.}}{9}{figure.3}\protected@file@percent }
+\newlabel{fig:leaderboard}{{3}{9}{Overall accuracy on the 3{,}266-question corpus across 16 configurations. Reasoning-mode configs are hatched}{figure.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Reasoning-mode lift}{9}{subsection.5.2}\protected@file@percent }
+\newlabel{sec:eval-reasoning}{{5.2}{9}{Reasoning-mode lift}{subsection.5.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Accuracy of reasoning-mode vs.\ standard configurations for four families. Numbers above bars: $\delta $ in pp with bootstrap 95\% CI from 1{,}000 resamples. Family colours match Figure~\ref {fig:leaderboard}; the hatched bar is the reasoning mode. Only DeepSeek shows a statistically significant lift; for the other three, zero is inside the CI.}}{9}{figure.4}\protected@file@percent }
+\newlabel{fig:reasoning}{{4}{9}{Accuracy of reasoning-mode vs.\ standard configurations for four families. Numbers above bars: $\delta $ in pp with bootstrap 95\% CI from 1{,}000 resamples. Family colours match Figure~\ref {fig:leaderboard}; the hatched bar is the reasoning mode. Only DeepSeek shows a statistically significant lift; for the other three, zero is inside the CI}{figure.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Self-preference bias}{10}{subsection.5.3}\protected@file@percent }
+\newlabel{sec:eval-sps}{{5.3}{10}{Self-preference bias}{subsection.5.3}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Self-preference bias. \emph  {Left:} cross-family accuracy matrix; rows are evaluator family, columns are question-generator family, diagonal entries are own-family. \emph  {Right:} per-config Self-Preference Score $\delta = \mathrm  {Acc}(\mathrm  {own}) - \mathrm  {Acc}(\mathrm  {other})$ with 95\% bootstrap CI; family colours match Figure~\ref {fig:leaderboard}.}}{10}{figure.5}\protected@file@percent }
+\newlabel{fig:sps}{{5}{10}{Self-preference bias. \emph {Left:} cross-family accuracy matrix; rows are evaluator family, columns are question-generator family, diagonal entries are own-family. \emph {Right:} per-config Self-Preference Score $\delta = \mathrm {Acc}(\mathrm {own}) - \mathrm {Acc}(\mathrm {other})$ with 95\% bootstrap CI; family colours match Figure~\ref {fig:leaderboard}}{figure.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Cost efficiency}{10}{subsection.5.4}\protected@file@percent }
+\newlabel{sec:eval-cost}{{5.4}{10}{Cost efficiency}{subsection.5.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Total OpenRouter cost (log scale) versus accuracy on the full 3{,}266-question slate. Family colours match Figure~\ref {fig:leaderboard}; the Pareto frontier (red dashed) illustrates the cost-vs-quality trade-off.}}{11}{figure.6}\protected@file@percent }
+\newlabel{fig:pareto}{{6}{11}{Total OpenRouter cost (log scale) versus accuracy on the full 3{,}266-question slate. Family colours match Figure~\ref {fig:leaderboard}; the Pareto frontier (red dashed) illustrates the cost-vs-quality trade-off}{figure.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5}Closed-book vs.\ source-grounded performance}{11}{subsection.5.5}\protected@file@percent }
+\newlabel{sec:eval-cb}{{5.5}{11}{Closed-book vs.\ source-grounded performance}{subsection.5.5}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Applications and Future Work}{11}{section.6}\protected@file@percent }
+\newlabel{sec:future}{{6}{11}{Applications and Future Work}{section.6}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Performance partitioned by audit verdict. Per-config accuracy on B2-flagged closed-book-solvable questions ($n{=}1{,}601$, yellow) vs.\ contextual / source-grounded questions ($n{=}1{,}665$, blue). Every config gains substantially on the closed-book slice, with $\delta $ ranging from $+$26.6~pp (GPT-5) to $+$39.6~pp (DeepSeek V3).}}{12}{figure.7}\protected@file@percent }
+\newlabel{fig:cb}{{7}{12}{Performance partitioned by audit verdict. Per-config accuracy on B2-flagged closed-book-solvable questions ($n{=}1{,}601$, yellow) vs.\ contextual / source-grounded questions ($n{=}1{,}665$, blue). Every config gains substantially on the closed-book slice, with $\delta $ ranging from $+$26.6~pp (GPT-5) to $+$39.6~pp (DeepSeek V3)}{figure.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Closing the wine-knowledge gap in low-cost models}{12}{subsection.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Case-based evaluation with industry partners}{12}{subsection.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.3}Generalising the LLM-driven scrape-to-audit pipeline}{13}{subsection.6.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Limitations}{13}{section.7}\protected@file@percent }
+\newlabel{sec:limitations}{{7}{13}{Limitations}{section.7}{}}
+\@writefile{toc}{\contentsline {paragraph}{Language and cultural scope.}{13}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Source skew within domains.}{13}{section*.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Snapshot vs.\ moving target.}{13}{section*.13}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Closed-book audit calibration.}{13}{section*.14}\protected@file@percent }
+\bibstyle{plainnat}
+\bibdata{references}
+\bibcite{koehn2024croissant}{{1}{2024}{{Akhtar et~al.}}{{Akhtar, Benjelloun, Conforti, et~al.}}}
+\bibcite{chen2014winerec}{{2}{2014}{{Chen et~al.}}{{Chen, Chen, Liu, and Ma}}}
+\bibcite{dodge2021documenting}{{3}{2021}{{Dodge et~al.}}{{Dodge, Sap, Marasovi{\'c}, Agnew, Ilharco, Groeneveld, Mitchell, and Gardner}}}
+\bibcite{gebru2021datasheets}{{4}{2021}{{Gebru et~al.}}{{Gebru, Morgenstern, Vecchione, Vaughan, Wallach, Daum{\'e}~III, and Crawford}}}
+\bibcite{guha2023legalbench}{{5}{2023}{{Guha et~al.}}{{Guha, Nyarko, Ho, R{\'e}, Chilton, et~al.}}}
+\bibcite{hendrycks2021mmlu}{{6}{2021}{{Hendrycks et~al.}}{{Hendrycks, Burns, Basart, Zou, Mazeika, Song, and Steinhardt}}}
+\@writefile{toc}{\contentsline {paragraph}{Self-preference is not fully neutralised.}{14}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8}Ethics and Responsible Use}{14}{section.8}\protected@file@percent }
+\newlabel{sec:ethics}{{8}{14}{Ethics and Responsible Use}{section.8}{}}
+\@writefile{toc}{\contentsline {paragraph}{Alcohol context.}{14}{section*.16}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Source licensing.}{14}{section*.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Personal data.}{14}{section*.18}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Misuse considerations.}{14}{section*.19}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{LLM use during construction.}{14}{section*.20}\protected@file@percent }
+\bibcite{hodgson2017winereviews}{{7}{2008}{{Hodgson}}{{}}}
+\bibcite{islam2023financebench}{{8}{2023}{{Islam et~al.}}{{Islam, Kannappan, Kiela, Qian, Scherrer, and Vidgen}}}
+\bibcite{jin2021medqa}{{9}{2021}{{Jin et~al.}}{{Jin, Pan, Oufattole, Weng, Fang, and Szolovits}}}
+\bibcite{jin2019pubmedqa}{{10}{2019}{{Jin et~al.}}{{Jin, Dhingra, Liu, Cohen, and Lu}}}
+\bibcite{lefever2017winenlp}{{11}{2018}{{Lefever et~al.}}{{Lefever, Hendrickx, Croijmans, Majid, and van~den Bosch}}}
+\bibcite{liang2023helm}{{12}{2023}{{Liang et~al.}}{{Liang, Bommasani, Lee, et~al.}}}
+\bibcite{magar2022contamination}{{13}{2022}{{Magar and Schwartz}}{{}}}
+\bibcite{panickssery2024selfpref}{{14}{2024}{{Panickssery et~al.}}{{Panickssery, Bowman, and Feng}}}
+\bibcite{phan2025hle}{{15}{2025}{{Phan et~al.}}{{Phan, Gatti, Han, Li, Hu, et~al.}}}
+\bibcite{rein2024gpqa}{{16}{2024}{{Rein et~al.}}{{Rein, Hou, Stickland, Petty, Pang, Dirani, Michael, and Bowman}}}
+\bibcite{sainz2023contamination}{{17}{2023}{{Sainz et~al.}}{{Sainz, Campos, Garc{\'i}a-Ferrero, Etxaniz, de~Lacalle, and Agirre}}}
+\bibcite{sharma2024sycophancy}{{18}{2024}{{Sharma et~al.}}{{Sharma, Tong, Korbak, Duvenaud, Askell, Bowman, et~al.}}}
+\bibcite{srivastava2023bigbench}{{19}{2023}{{Srivastava et~al.}}{{}}}
+\bibcite{zheng2023judging}{{20}{2023}{{Zheng et~al.}}{{Zheng, Chiang, Sheng, Zhuang, Wu, Zhuang, Lin, Li, Li, Xing, et~al.}}}
+\bibcite{zhong2024agieval}{{21}{2024}{{Zhong et~al.}}{{Zhong, Cui, Guo, Liang, Lu, Wang, Saied, Chen, and Duan}}}
+\citation{gebru2021datasheets}
+\@writefile{toc}{\contentsline {section}{\numberline {A}Datasheet for OenoBench}{15}{appendix.A}\protected@file@percent }
+\newlabel{app:datasheet}{{A}{15}{Datasheet for OenoBench}{appendix.A}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.1}Motivation}{16}{subsection.A.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{For what purpose was the dataset created?}{16}{section*.22}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Who created the dataset?}{16}{section*.23}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Funding.}{16}{section*.24}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.2}Composition}{16}{subsection.A.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{What do the instances represent?}{16}{section*.25}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{How many instances are there?}{16}{section*.26}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{What data does each instance consist of?}{16}{section*.27}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Recommended data splits.}{16}{section*.28}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Errors, noise, redundancies?}{16}{section*.29}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Self-contained, or relies on external resources?}{16}{section*.30}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.3}Collection process}{16}{subsection.A.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{How was the data acquired?}{16}{section*.31}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Time frame.}{16}{section*.32}\protected@file@percent }
+\citation{koehn2024croissant}
+\@writefile{toc}{\contentsline {paragraph}{Ethical review.}{17}{section*.33}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.4}Preprocessing / cleaning / labelling}{17}{subsection.A.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.5}Uses}{17}{subsection.A.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Recommended uses.}{17}{section*.34}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Discouraged uses.}{17}{section*.35}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.6}Distribution}{17}{subsection.A.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Will the dataset be distributed?}{17}{section*.36}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Citation.}{17}{section*.37}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {A.7}Maintenance}{17}{subsection.A.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Maintainer.}{17}{section*.38}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Update cadence.}{17}{section*.39}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Errata.}{17}{section*.40}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Multi-agent audit architecture. Candidate questions are fanned out to four teams; each team independently emits per-question verdicts. Critical \textsc  {fail} signals route the question to the drop pool; C4 difficulty disagreements route to relabel; otherwise the question is kept in \texttt  {release\_v1.2}. Every agent is calibrated against the human gold sheet via Cohen's $\kappa $.}}{18}{figure.8}\protected@file@percent }
+\newlabel{fig:audit-app}{{8}{18}{Multi-agent audit architecture. Candidate questions are fanned out to four teams; each team independently emits per-question verdicts. Critical \textsc {fail} signals route the question to the drop pool; C4 difficulty disagreements route to relabel; otherwise the question is kept in \texttt {release\_v1.2}. Every agent is calibrated against the human gold sheet via Cohen's $\kappa $}{figure.8}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {B}Additional Methodology Detail}{18}{appendix.B}\protected@file@percent }
+\newlabel{app:methodology}{{B}{18}{Additional Methodology Detail}{appendix.B}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {B.1}Atomic fact extraction pipeline}{18}{subsection.B.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {B.2}Wikidata SPARQL: P17 vs P131*}{18}{subsection.B.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {B.3}Question-generation prompts}{19}{subsection.B.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {B.4}Closed-book gate specification}{19}{subsection.B.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {B.5}Audit agent specifications}{19}{subsection.B.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {C}Full Evaluation Tables}{19}{appendix.C}\protected@file@percent }
+\newlabel{app:eval}{{C}{19}{Full Evaluation Tables}{appendix.C}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Audit-agent thresholds and gold-sheet calibration.}}{20}{table.6}\protected@file@percent }
+\newlabel{tab:agent-thresholds}{{6}{20}{Audit-agent thresholds and gold-sheet calibration}{table.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.1}Per-domain breakdown}{20}{subsection.C.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces Per-config per-domain accuracy (\%).}}{20}{table.7}\protected@file@percent }
+\newlabel{tab:full-domain}{{7}{20}{Per-config per-domain accuracy (\%)}{table.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.2}Per-strategy breakdown}{20}{subsection.C.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.3}Per-difficulty breakdown and reasoning lift}{20}{subsection.C.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{On the L2 / L3 / L4 means in Table~\ref {tab:full-difficulty}.}{20}{section*.41}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {C.4}Self-preference bootstrap CIs}{20}{subsection.C.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {D}Application Screenshots}{20}{appendix.D}\protected@file@percent }
+\newlabel{app:screenshots}{{D}{20}{Application Screenshots}{appendix.D}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {D.1}Human-review web application}{20}{subsection.D.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Per-domain accuracy as a heatmap. \emph  {Wine business} is the hardest domain across every tier (mean 56.5\%) — both because business-domain facts are sparser in the training distribution and because the C4 difficulty re-label promoted business questions that are computationally harder (multi-fact reasoning over regulation).}}{21}{figure.9}\protected@file@percent }
+\newlabel{fig:domain-heatmap}{{9}{21}{Per-domain accuracy as a heatmap. \emph {Wine business} is the hardest domain across every tier (mean 56.5\%) — both because business-domain facts are sparser in the training distribution and because the C4 difficulty re-label promoted business questions that are computationally harder (multi-fact reasoning over regulation)}{figure.9}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces Per-config per-strategy accuracy (\%).}}{21}{table.8}\protected@file@percent }
+\newlabel{tab:full-strategy}{{8}{21}{Per-config per-strategy accuracy (\%)}{table.8}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces Per-strategy accuracy heatmap. Templates are the easiest strategy uniformly (89.5\% mean), even for small models, because they are deterministic single-fact recall questions. The fact-to-question strategy is hardest because its distractors are sampled from confusable same-category entities; comparative questions add the constraint that the model must integrate two facts.}}{22}{figure.10}\protected@file@percent }
+\newlabel{fig:strategy-heatmap}{{10}{22}{Per-strategy accuracy heatmap. Templates are the easiest strategy uniformly (89.5\% mean), even for small models, because they are deterministic single-fact recall questions. The fact-to-question strategy is hardest because its distractors are sampled from confusable same-category entities; comparative questions add the constraint that the model must integrate two facts}{figure.10}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {9}{\ignorespaces Per-config per-difficulty accuracy (\%).}}{22}{table.9}\protected@file@percent }
+\newlabel{tab:full-difficulty}{{9}{22}{Per-config per-difficulty accuracy (\%)}{table.9}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {E}Released Artifacts and Reproducibility}{22}{appendix.E}\protected@file@percent }
+\newlabel{app:artifacts}{{E}{22}{Released Artifacts and Reproducibility}{appendix.E}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {E.1}Released artifacts}{22}{subsection.E.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {10}{\ignorespaces Reasoning lift per difficulty tier ($\delta $ = thinking $-$ standard, pp).}}{23}{table.10}\protected@file@percent }
+\newlabel{tab:reasoning-by-diff}{{10}{23}{Reasoning lift per difficulty tier ($\delta $ = thinking $-$ standard, pp)}{table.10}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces Difficulty calibration: distribution of accuracy across the 16 configs at each level. The medians sit at L1 96\%, L2 70\%, L3 81\%, L4 60\%.}}{23}{figure.11}\protected@file@percent }
+\newlabel{fig:difficulty-box}{{11}{23}{Difficulty calibration: distribution of accuracy across the 16 configs at each level. The medians sit at L1 96\%, L2 70\%, L3 81\%, L4 60\%}{figure.11}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {E.2}Reproducibility scripts}{23}{subsection.E.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {11}{\ignorespaces Per-config Self-Preference Score with 95\% bootstrap CI (1{,}000 resamples). DeepSeek and Mistral have no own-family questions in \texttt  {release\_v1.2} and are omitted.}}{24}{table.11}\protected@file@percent }
+\newlabel{tab:sps-full}{{11}{24}{Per-config Self-Preference Score with 95\% bootstrap CI (1{,}000 resamples). DeepSeek and Mistral have no own-family questions in \texttt {release\_v1.2} and are omitted}{table.11}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {12}{\ignorespaces Sign-in / register screen. Outer HTTP Basic Auth gates shared-link access; the inner form establishes a per-reviewer session for IRR attribution.}}{24}{figure.12}\protected@file@percent }
+\newlabel{fig:review-login}{{12}{24}{Sign-in / register screen. Outer HTTP Basic Auth gates shared-link access; the inner form establishes a per-reviewer session for IRR attribution}{figure.12}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {E.3}Database schema}{24}{subsection.E.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {E.4}Compute and cost}{24}{subsection.E.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {13}{\ignorespaces Reviewer dashboard. Active batches are listed; clicking a batch enters the rubric-scoring flow (an eight-rubric grid with \textsc  {pass} / \textsc  {warn} / \textsc  {fail} per rubric, inline guidance from the reviewer guide, and per-submission time-on-page tracking). The reviewer guide is linked permanently in the sidebar.}}{25}{figure.13}\protected@file@percent }
+\newlabel{fig:review-dashboard}{{13}{25}{Reviewer dashboard. Active batches are listed; clicking a batch enters the rubric-scoring flow (an eight-rubric grid with \textsc {pass} / \textsc {warn} / \textsc {fail} per rubric, inline guidance from the reviewer guide, and per-submission time-on-page tracking). The reviewer guide is linked permanently in the sidebar}{figure.13}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {12}{\ignorespaces Per-config cost ledger for the full 16-config evaluation (3{,}266 questions per config). Effective OpenRouter spend.}}{25}{table.12}\protected@file@percent }
+\newlabel{tab:cost-ledger-app}{{12}{25}{Per-config cost ledger for the full 16-config evaluation (3{,}266 questions per config). Effective OpenRouter spend}{table.12}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {E.5}Test status}{25}{subsection.E.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {F}Construction Timeline}{26}{appendix.F}\protected@file@percent }
+\newlabel{app:timeline}{{F}{26}{Construction Timeline}{appendix.F}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {13}{\ignorespaces Construction-and-evaluation timeline (selected milestones).}}{26}{table.13}\protected@file@percent }
+\newlabel{tab:timeline}{{13}{26}{Construction-and-evaluation timeline (selected milestones)}{table.13}{}}
+\citation{koehn2024croissant}
+\gdef \@abspage@last{29}
