@@ -64,12 +64,12 @@ def _arrow(ax, x1, y1, x2, y2, *, color="#2D3748", lw=1.2):
 # Diagram 1 — End-to-end pipeline overview                                    #
 # ---------------------------------------------------------------------------
 def diagram_pipeline():
-    fig, ax = plt.subplots(figsize=(11.5, 4.8))
-    ax.set_xlim(0, 11.5)
-    ax.set_ylim(0, 4.8)
+    fig, ax = plt.subplots(figsize=(12.0, 7.0))
+    ax.set_xlim(0, 12.0)
+    ax.set_ylim(0, 7.0)
     ax.axis("off")
 
-    # Row 1: Sources
+    # Row 1: Sources (y=6.20..6.95)
     sources = [
         ("Government\nregistries\n(INAO, TTB, OIV)", "#FED7AA"),
         ("Wikipedia /\nWikidata\n(SPARQL, MediaWiki)", "#FBCFE8"),
@@ -77,24 +77,33 @@ def diagram_pipeline():
         ("University DBs\n(UC Davis, USDA\nExtension)", "#BFDBFE"),
         ("Curated open\ndatasets\n(HF, Kaggle)", "#A7F3D0"),
     ]
+    strat_xs = [0.30 + i * 2.34 for i in range(5)]
+    strat_w = 2.04
     for i, (txt, fc) in enumerate(sources):
-        _box(ax, 0.15 + i * 2.25, 4.0, 1.95, 0.7, txt, fc=fc, fontsize=8.5)
+        _box(ax, strat_xs[i], 6.20, strat_w, 0.75, txt, fc=fc, fontsize=8.5)
 
-    # Row 2: Scrapers
-    _box(ax, 0.5, 3.05, 10.5, 0.55,
+    # Row 2: Scrapers (y=5.30)
+    _box(ax, 0.5, 5.30, 11.0, 0.55,
          "35 provenance-verified scrapers  (Tier-1 / Tier-2 / Tier-3 source-tier labels)",
-         fc="#1F2937", ec="#1F2937", fontsize=10,
-         fontweight="bold")
-    # white text override
+         fc="#1F2937", ec="#1F2937", fontsize=10, fontweight="bold")
     for t in ax.texts[-1:]:
         t.set_color("white")
 
-    # Row 3: Atomic fact corpus
-    _box(ax, 0.5, 2.10, 10.5, 0.55,
+    # Row 3: Atomic fact corpus (y=4.40)
+    _box(ax, 0.5, 4.40, 11.0, 0.55,
          "38,104 atomic facts  ·  6 domains  ·  580 unique source URLs",
          fc="#FEF3C7", ec="#D97706", fontsize=10, fontweight="bold")
 
-    # Row 4: Generation strategies
+    # Row 4a: section banner (full-width slim header announcing the
+    # generation stage and listing the LLM models). Placed in the gap
+    # between the atomic-facts row and the strategy boxes so it never
+    # crosses any arrows.
+    _box(ax, 0.5, 3.65, 11.0, 0.45,
+         "generation stage  ·  5 strategies  ×  5 LLM models  "
+         "(Claude · GPT · Gemini · Llama · Qwen)  +  deterministic templates",
+         fc="#F1F5F9", ec="#475569", fontsize=8.8, fontweight="bold")
+
+    # Row 4b: Generation strategies (the 5 colored boxes)
     strategies = [
         ("fact-to-question\n1,909", "#DBEAFE"),
         ("distractor mining\n405",   "#DBEAFE"),
@@ -103,28 +112,38 @@ def diagram_pipeline():
         ("comparative\n244",         "#DBEAFE"),
     ]
     for i, (txt, fc) in enumerate(strategies):
-        _box(ax, 0.15 + i * 2.25, 1.15, 1.95, 0.65, txt, fc=fc, fontsize=8.5)
-    ax.text(11.20, 1.475,
-            "5 generators\n(Claude, GPT,\nGemini, Llama, Qwen)",
-            ha="center", va="center", fontsize=7.5, style="italic",
-            color="#4B5563")
+        _box(ax, strat_xs[i], 2.55, strat_w, 0.70, txt, fc=fc, fontsize=8.5)
 
-    # Row 5: Audit + Release
-    _box(ax, 0.5, 0.20, 5.4, 0.75,
-         "9-agent audit  ·  4 teams\n(static / tri-judge / deterministic / corpus stats)",
-         fc="#F3E8FF", ec="#7E22CE", fontsize=9, fontweight="bold")
-    _box(ax, 6.05, 0.20, 4.95, 0.75,
-         "release_v1.2\n3,266 questions  ·  CC-BY-SA-4.0",
-         fc="#DCFCE7", ec="#15803D", fontsize=10, fontweight="bold")
+    # Row 5: Audit (y=1.20..2.05) — full-width box; all 5 strategies feed in
+    _box(ax, 0.5, 1.20, 11.0, 0.85,
+         "9-agent automated audit\n"
+         "4 teams: static · tri-judge · deterministic · corpus statistics",
+         fc="#F3E8FF", ec="#7E22CE", fontsize=10.5, fontweight="bold")
 
-    # Arrows between rows (centered)
-    for x in [1.15, 3.40, 5.65, 7.90, 10.15]:
-        _arrow(ax, x, 4.0, x, 3.6)
-    _arrow(ax, 5.75, 3.05, 5.75, 2.65)
-    _arrow(ax, 5.75, 2.10, 5.75, 1.80)
-    for x in [1.15, 3.40, 5.65, 7.90, 10.15]:
-        _arrow(ax, x, 1.15, x, 0.95)
-    _arrow(ax, 5.90, 0.575, 6.05, 0.575)
+    # Row 6: Release (y=0.10..0.80) — centered
+    _box(ax, 3.0, 0.10, 6.0, 0.70,
+         "release_v1.2  ·  3,266 questions  ·  CC-BY-SA-4.0",
+         fc="#DCFCE7", ec="#15803D", fontsize=10.5, fontweight="bold")
+
+    # ---- Arrows -----------------------------------------------------------
+    # Sources → scrapers
+    for i in range(5):
+        x = strat_xs[i] + strat_w / 2
+        _arrow(ax, x, 6.20, x, 5.85)
+    # Scrapers → atomic facts
+    _arrow(ax, 6.0, 5.30, 6.0, 4.95)
+    # Atomic facts → generation banner (single arrow)
+    _arrow(ax, 6.0, 4.40, 6.0, 4.10)
+    # Generation banner → strategies (fan-out from banner to each strategy)
+    for i in range(5):
+        x = strat_xs[i] + strat_w / 2
+        _arrow(ax, 6.0, 3.65, x, 3.25)
+    # Strategies → audit (fan-in: every strategy passes through audit)
+    for i in range(5):
+        x = strat_xs[i] + strat_w / 2
+        _arrow(ax, x, 2.55, x, 2.05)
+    # Audit → release (single bold arrow)
+    _arrow(ax, 6.0, 1.20, 6.0, 0.80, lw=1.8)
 
     save(fig, "diagram_pipeline")
 
