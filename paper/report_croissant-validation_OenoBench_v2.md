@@ -1,0 +1,452 @@
+# CROISSANT VALIDATION REPORT
+================================================================================
+## VALIDATION RESULTS
+--------------------------------------------------------------------------------
+Starting validation for file: croissant.json
+### JSON Format Validation
+✓
+The URL returned valid JSON.
+### Croissant Schema Validation
+✓
+The dataset passes Croissant validation.
+### Responsible AI Metadata
+✓
+All required Responsible AI metadata fields are present.
+### Records Generation Test (Optional)
+?
+Record set 'questions' failed due to generation error:
+
+```text
+An error occurred during the streaming generation of the dataset, more specifically during the operation Read(test-parquet)
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.13/site-packages/mlcroissant/_src/operation_graph/execute.py", line 98, in execute_operations_in_streaming
+    yield from operation.call(result)
+  File "/usr/local/lib/python3.13/site-packages/mlcroissant/_src/operation_graph/operations/field.py", line 290, in call
+    yield from df[i : i + chunk_size].apply(_get_result, axis=1)
+               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/site-packages/pandas/core/frame.py", line 10401, in apply
+    return op.apply().__finalize__(self, method="apply")
+           ~~~~~~~~^^
+  File "/usr/local/lib/python3.13/site-packages/pandas/core/apply.py", line 916, in apply
+    return self.apply_standard()
+           ~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/local/lib/python3.13/site-packages/pandas/core/apply.py", line 1063, in apply_standard
+    results, res_index = self.apply_series_generator()
+                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/usr/local/lib/python3.13/site-packages/pandas/core/apply.py", line 1081, in apply_series_generator
+    results[i] = self.func(v, *self.args, **self.kwargs)
+                 ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/site-packages/mlcroissant/_src/operation_graph/operations/field.py", line 260, in _get_result
+    _cast_value(self.node.ctx, v, field.data_type)
+    ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/site-packages/mlcroissant/_src/operation_graph/operations/field.py", line 124, in _cast_value
+    return _to_bytes(value)
+  File "/usr/local/lib/python3.13/site-packages/mlcroissant/_src/operation_graph/operations/field.py", line 147, in _to_bytes
+    return bytes(value)
+TypeError: 'str' object cannot be interpreted as an integer
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.13/site-packages/mlcroissant/_src/operation_graph/execute.py", line 116, in execute_operations_in_streaming
+    yield from read_all_files()
+  File "/usr/local/lib/python3.13/site-packages/mlcroissant/_src/operation_graph/execute.py", line 109, in read_all_files
+    yield from execute_operations_in_streaming(
+    ...<4 lines>...
+    )
+  File "/usr/local/lib/python3.13/site-packages/mlcroissant/_src/operation_graph/execute.py", line 137, in execute_operations_in_streaming
+    raise GenerationError(
+    ...<2 lines>...
+    ) from e
+mlcroissant._src.core.issues.GenerationError: An error occurred during the streaming generation of the dataset, more specifically during the operation ReadFields(questions)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/app/validation.py", line 145, in validate_records
+    raise result  # re-raise actual error outside timeout
+    ^^^^^^^^^^^^
+  File "/app/validation.py", line 119, in try_generate_record
+    for i, record in enumerate(record_collection):
+                     ~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.13/site-packages/mlcroissant/_src/datasets.py", line 166, in __iter__
+    yield from execute_operations_in_streaming(
+    ...<2 lines>...
+    )
+  File "/usr/local/lib/python3.13/site-packages/mlcroissant/_src/operation_graph/execute.py", line 137, in execute_operations_in_streaming
+    raise GenerationError(
+    ...<2 lines>...
+    ) from e
+mlcroissant._src.core.issues.GenerationError: An error occurred during the streaming generation of the dataset, more specifically during the operation Read(test-parquet)
+```
+## JSON-LD REFERENCE
+================================================================================
+```json
+{
+  "@context": {
+    "@language": "en",
+    "@vocab": "https://schema.org/",
+    "citeAs": "cr:citeAs",
+    "column": "cr:column",
+    "conformsTo": "dct:conformsTo",
+    "cr": "http://mlcommons.org/croissant/",
+    "rai": "http://mlcommons.org/croissant/RAI/",
+    "data": {
+      "@id": "cr:data",
+      "@type": "@json"
+    },
+    "dataType": {
+      "@id": "cr:dataType",
+      "@type": "@vocab"
+    },
+    "dct": "http://purl.org/dc/terms/",
+    "examples": {
+      "@id": "cr:examples",
+      "@type": "@json"
+    },
+    "extract": "cr:extract",
+    "field": "cr:field",
+    "fileProperty": "cr:fileProperty",
+    "fileObject": "cr:fileObject",
+    "fileSet": "cr:fileSet",
+    "format": "cr:format",
+    "includes": "cr:includes",
+    "isLiveDataset": "cr:isLiveDataset",
+    "jsonPath": "cr:jsonPath",
+    "key": "cr:key",
+    "md5": "cr:md5",
+    "parentField": "cr:parentField",
+    "path": "cr:path",
+    "recordSet": "cr:recordSet",
+    "references": "cr:references",
+    "regex": "cr:regex",
+    "repeated": "cr:repeated",
+    "replace": "cr:replace",
+    "sc": "https://schema.org/",
+    "separator": "cr:separator",
+    "source": "cr:source",
+    "subField": "cr:subField",
+    "transform": "cr:transform",
+    "@base": "cr_base_iri/"
+  },
+  "@type": "sc:Dataset",
+  "name": "OenoBench",
+  "description": "OenoBench is a 3,266-question multiple-choice benchmark for evaluating LLM knowledge of the wine domain. Questions cover six knowledge areas (wine regions, grape varieties, producers, viticulture, winemaking, wine business) at four difficulty tiers, generated by five LLMs and a deterministic template engine, grounded in 38,104 atomic facts scraped from 35 authoritative sources (Wikipedia, Wikidata, government registries, academic journals, official wine bodies). The release_v1.2 corpus was curated via a 9-agent automated audit + 50-question wine-expert gold review + a post-eval zero-correct audit (54 outright defects dropped) + a 29-question borderline-review pass (9 reject-verdicts dropped).",
+  "conformsTo": "http://mlcommons.org/croissant/1.0",
+  "license": "https://spdx.org/licenses/CC-BY-SA-4.0.html",
+  "url": "https://huggingface.co/datasets/nikitahudov/oenobench-v1",
+  "version": "1.2.1",
+  "datePublished": "2026-05-04",
+  "creator": [
+    {
+      "@type": "sc:Person",
+      "name": "Nikita Hudov",
+      "email": "nikitahudov@gmail.com"
+    }
+  ],
+  "keywords": [
+    "wine",
+    "viticulture",
+    "enology",
+    "benchmark",
+    "multiple-choice",
+    "domain-knowledge",
+    "evaluation",
+    "LLM"
+  ],
+  "inLanguage": "en",
+  "citeAs": "@misc{oenobench2026,\n  title  = {OenoBench: A Comprehensive Wine Knowledge Benchmark for Large Language Models},\n  author = {Hudov, Nikita},\n  year   = {2026},\n  url    = {https://huggingface.co/datasets/nikitahudov/oenobench-v1}\n}",
+  "rai:dataCollection": "Data collected over April-May 2026 via 35 dedicated scrapers covering Wikipedia (English wine articles), Wikidata SPARQL queries, government registries (INAO France, TTB US), academic journals (OENO One, Vitis, AJEV), official wine-body data exports (UC Davis Wine Ontology + AVA Digitizing Project + FPS Grape Database, INAO/TTB/Italian Wine Central, French/German/Italian/Spanish DO bodies, Australian/NZ wine bodies, etc.). All extraction is rate-limited, every fact traces to a source URL, and an April-2026 provenance audit purged 7,861 hardcoded LLM-generated facts that earlier scrapers had ingested as ground truth. Question generation: 5 strategies \u00d7 5 LLMs (Claude Opus 4.7, ChatGPT 5.4, Gemini 3.1 Pro, Llama 3.1 405B, Qwen 3.5 235B) plus a deterministic template engine, all gated by a closed-book solvability pre-screen.",
+  "rai:dataLimitations": "1) English-only (questions, options, source facts). Wine is a multilingual domain; native French/Italian/Spanish/German technical vocabularies are referenced but the benchmark itself is monolingual English. 2) Geographic skew toward Old World Europe + US/Australia/New Zealand because authoritative sources cluster geographically; Asian, African, and South American wine regions are under-represented relative to global production volume. 3) Generator-mix bias: each of the 5 LLMs may have systematic blind spots; D1_SelfPreference audit measures a population-level \u0394 of 0.33. 4) Closed-book solvability: 2,190 of 3,266 questions (~67%) carry a B2 calibration WARN \u2014 a frontier-LLM panel solved them without the source. This is documented but not treated as a defect. 5) Difficulty re-rating relies on Gemini Pro + 8 human spot-checks; the L3+L4 share rose from ~14% to 51% post-relabel without independent expert validation at scale. 6) Question-quality is bounded by the substantive-fact ceiling of the source pool \u2014 winemaking and wine_business are under-represented (187 and 246 questions respectively) because their facts are sparser in the upstream sources.",
+  "rai:dataBiases": "1) Cultural / Old-World bias: most wine knowledge is encoded in European appellation systems and US AVAs; emerging markets (China, India, parts of South America/Africa) are under-represented. 2) Iconic-entity bias: famous producers and regions are over-represented in Wikipedia, leading to easier-than-intended questions for well-known entities. The B3_UbiquityRisk audit dropped 183 such questions. 3) Generator stylistic bias: A4_TemplateFingerprint audit measures the corpus AUC at 0.64 \u2014 questions are slightly distinguishable from human-authored references, reflecting the LLM origin. 4) Difficulty calibration bias toward LLM perception: the C4-driven relabel makes the corpus harder for a frontier-LLM perspective; human reviewers may bucket questions differently. 5) Wikipedia framing bias: facts inherit the editorial perspective of the English Wikipedia community.",
+  "rai:personalSensitiveInformation": "No PII or sensitive personal data. Famous individuals (winemakers, critics, producers) are referenced as they appear in Wikipedia / government appellation registries \u2014 these are public figures discussed in their professional capacity. No medical, health, financial, or biometric data.",
+  "rai:dataUseCases": "Primary intended uses: (1) Evaluating LLM factual recall and reasoning on wine domain knowledge at multiple difficulty tiers; (2) Studying domain-specific reasoning patterns (recall vs compare vs apply vs synthesize); (3) Self-preference and generator-bias analysis in LLM-generated question sets; (4) Source-grounded evaluation where the source_facts column is exposed to test whether models retrieve from context vs world knowledge. Out-of-scope uses: this dataset is NOT designed for training (sample size too small), is NOT a comprehensive wine education curriculum, and should NOT be used to make health, medical, regulatory, or commercial wine-purchasing decisions.",
+  "rai:dataSocialImpact": "Positive: provides an open, source-anchored benchmark for evaluating wine-domain LLM knowledge \u2014 useful for AI evaluation research and for wine educators studying model capabilities. Negative risks: (a) over-reliance on LLM wine recommendations could propagate the geographic / cultural biases noted above; (b) the dataset's MC format may incentivise narrow benchmark optimisation; (c) the 'closed-book solvability' calibration warnings expose the underlying issue that frontier LLMs already know a great deal of mainstream wine knowledge \u2014 practitioners should not over-interpret strong scores as evidence of new capability. Mitigations: licensed CC-BY-SA-4.0 to encourage transparent reuse; full audit findings published; provenance preserved per question (source URL + generator + audit verdict).",
+  "rai:annotationsPerItem": "1 \u2014 each question has exactly one keyed correct answer plus 3-4 distractor options. Audit findings are added per question across 10+ agents (A1-A4, B1-B3, C2/C4, D1/D3) \u2014 23,488 finding rows total under the release_v1.2 audit run. A subset of questions also has 1 human-expert review row attached (45 in the release_v1_1_smart batch + 29 in the borderline_audit_2026_05_04 batch).",
+  "rai:dataAnnotationProtocol": "Question generation is fully automated through 5 strategies (fact_to_question, comparative, scenario_synthesis, distractor_mining, template) with prompts engineered through 16 audit-pilot cycles. Closed-book gate: every L1/L2 LLM-generated multiple-choice question is pre-screened by an independent LLM (Claude Sonnet for L1/L2, Claude Opus for L3+); if the gate solves the question correctly with no source, the question is either banked to a closed-book reserve OR relabeled to L1 under a 50% per-strategy quota. Audit: 9-agent post-generation framework \u2014 Team A (4 static agents: lexical hygiene, bias stats, fact echo, template fingerprint), Team B (LLM tri-judge for answer-key consensus + closed-book solvability), Team C (category leak + difficulty re-rating), Team D (self-preference + skew). Custom B3_UbiquityRisk static check for ubiquity-grape \u00d7 region-answer ambiguity. Human review (round 1): 45 questions stratified-sample reviewed by a wine domain expert on 8 rubrics; 14 reviewers' suggested_difficulty values fed back into the difficulty relabel pass. Post-eval refinement (round 2): full 16-config eval on the 3,329-question corpus surfaced 97 questions with 0/16 correct; manual classification identified 54 outright corpus defects (DUP_OPTION, EQUIV_OPTIONS, ALL_CORRECT, WRONG_GROUND_TRUTH) which were dropped. Post-eval refinement (round 3): the remaining 29 borderline (SOURCE_FACT_DUBIOUS + AMBIGUOUS_WORDING) items were imported into the human-review web app and scored on the 8-rubric v2 scheme by the wine domain expert; 9 of 29 were rejected and dropped.",
+  "rai:dataAnnotationDemographic": "1 wine domain expert (annotator/reviewer) for the 45-question gold-sheet review. The 5 LLM generators (Claude/ChatGPT/Gemini/Llama/Qwen) are noted as the primary annotators; the deterministic template engine is non-LLM.",
+  "rai:dataPreprocessingProtocol": "Source facts: scraped \u2192 atomic-fact decomposition \u2192 entity tagging (region, country, grape, appellation, producer, AVA, DOC, DOCG, etc.) \u2192 confidence scoring \u2192 deduplication. Generated questions: schema validation \u2192 option-shuffling for position-bias mitigation \u2192 closed-book gate \u2192 9-agent audit \u2192 drop policy on critical FAILs (A1, A3, B1, C2, B3) \u2192 difficulty relabel (C4 + human suggested_difficulty) \u2192 cosine-0.92 dedup.",
+  "rai:dataReleaseMaintenancePlan": "release_v1.2 is the NeurIPS 2026 submission corpus. Issues + PRs are accepted at https://github.com/nikitahudov/oenobench. Future versions will extend the fact pool (winemaking + wine_business currently under-represented) and incorporate post-acceptance reviewer feedback.",
+  "rai:hasSyntheticData": "Yes \u2014 all 3,266 questions are LLM-generated by five frontier models (Claude Opus 4.7, ChatGPT 5.4, Gemini 3.1 Pro, Llama 3.1 405B, Qwen 3.5 235B) plus a deterministic template engine, across five complementary strategies (fact_to_question, comparative, scenario_synthesis, distractor_mining, template). Every question is grounded in human-authored source facts: the 38,104 atomic facts in the upstream fact pool are extracted and atomically rephrased from real-world authoritative sources (Wikipedia/Wikidata, INAO, TTB, OIV, OENO One, AJEV, Vitis, UC Davis, FPS, etc.) and are NOT synthetic. LLMs reformat verified facts into multiple-choice questions and audit the result, but never serve as the source of truth for any factual claim \u2014 every option key traces to a source URL with a tier-of-authority label.",
+  "isLiveDataset": false,
+  "distribution": [
+    {
+      "@type": "cr:FileObject",
+      "@id": "test-parquet",
+      "name": "test.parquet",
+      "description": "OenoBench release_v1.2 corpus \u2014 3,266 multiple-choice questions in Parquet format (zstd compression).",
+      "contentUrl": "https://huggingface.co/datasets/nikitahudov/oenobench-v1/resolve/main/data/test.parquet",
+      "encodingFormat": "application/x-parquet",
+      "sha256": "ab90444be58963c8a96086adcf4ed6de952f539bfae2824d11399ae4ce24dced"
+    }
+  ],
+  "recordSet": [
+    {
+      "@type": "cr:RecordSet",
+      "@id": "questions",
+      "name": "questions",
+      "description": "One row per multiple-choice question.",
+      "field": [
+        {
+          "@type": "cr:Field",
+          "@id": "questions/uuid",
+          "name": "uuid",
+          "description": "Internal stable UUID for the question.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "uuid"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "questions/question_id",
+          "name": "question_id",
+          "description": "Public ID, e.g. WB-REG-0042-L3. The L-suffix is the originally assigned difficulty; see the difficulty column for the post-relabel value.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "question_id"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "questions/domain",
+          "name": "domain",
+          "description": "One of: wine_regions, grape_varieties, producers, viticulture, winemaking, wine_business.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "domain"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "questions/difficulty",
+          "name": "difficulty",
+          "description": "Difficulty level 1-4 after C4 + human-reviewer relabel (the value to use for evaluation). 1=entry, 4=expert.",
+          "dataType": "sc:Integer",
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "difficulty"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "questions/difficulty_assigned",
+          "name": "difficulty_assigned",
+          "description": "Originally assigned difficulty (before C4 / human relabel). For unrelabelled rows this equals difficulty.",
+          "dataType": "sc:Integer",
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "difficulty_assigned"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "questions/difficulty_relabel_source",
+          "name": "difficulty_relabel_source",
+          "description": "Null if not relabelled; 'c4_fail' if the difficulty was updated by the C4 difficulty audit (Gemini-Pro re-rate, delta>=2); 'human_override' if a wine-expert reviewer set a suggested_difficulty.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "difficulty_relabel_source"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "questions/question_type",
+          "name": "question_type",
+          "description": "Always 'multiple_choice' in v1.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "question_type"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "questions/cognitive_dim",
+          "name": "cognitive_dim",
+          "description": "Cognitive dimension: recall, compare, apply, synthesize.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "cognitive_dim"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "questions/question_text",
+          "name": "question_text",
+          "description": "The question stem.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "question_text"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "questions/options",
+          "name": "options",
+          "description": "List of {id: A|B|C|D, text: str} multiple-choice options.",
+          "dataType": "sc:Text",
+          "repeated": true,
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "options"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "questions/correct_answer",
+          "name": "correct_answer",
+          "description": "The keyed letter (A, B, C, or D).",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "correct_answer"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "questions/correct_answer_text",
+          "name": "correct_answer_text",
+          "description": "The prose text of the correct option.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "correct_answer_text"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "questions/explanation",
+          "name": "explanation",
+          "description": "Brief rationale for the correct answer (LLM-generated).",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "explanation"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "questions/generator",
+          "name": "generator",
+          "description": "The LLM (or 'template_only') that authored this question. One of: claude, chatgpt, gemini, llama, qwen, template_only.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "generator"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "questions/generation_method",
+          "name": "generation_method",
+          "description": "The pipeline strategy used. One of: fact_to_question, comparative, scenario_synthesis, distractor_mining, template.",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "generation_method"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "questions/source_facts",
+          "name": "source_facts",
+          "description": "List of {fact_id, fact_text, source_name, source_url} \u2014 externally-verified atomic facts the question is grounded in.",
+          "dataType": "sc:Text",
+          "repeated": true,
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "source_facts"
+            }
+          }
+        },
+        {
+          "@type": "cr:Field",
+          "@id": "questions/audit_verdict",
+          "name": "audit_verdict",
+          "description": "Audit-tag rollup. One of: audit_clean (no FAIL/WARN), audit_minor_findings, audit_calibration_finding (B2 closed-book or C4 difficulty calibration signal \u2014 informational only).",
+          "dataType": "sc:Text",
+          "source": {
+            "fileObject": {
+              "@id": "test-parquet"
+            },
+            "extract": {
+              "column": "audit_verdict"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
+```
