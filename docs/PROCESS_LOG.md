@@ -2756,3 +2756,118 @@ datasheet authoring are the remaining items before NeurIPS submission.
   `excluded_post_eval_v1_2_audit` tag in `public.questions` —
   archived, not deleted, so a future v1.3 with corrected ground
   truth can re-promote them.
+
+
+## 2026-05-04 — Phase 5: Borderline-review action on the 29 SOURCE_FACT_DUBIOUS / AMBIGUOUS_WORDING items
+
+### What was done
+
+Closing the open follow-up from the zero-correct audit: the 29
+borderline questions (13 `SOURCE_FACT_DUBIOUS` + 16
+`AMBIGUOUS_WORDING`) were imported into the human-review web app as
+batch `borderline_audit_2026_05_04` and reviewed by the wine domain
+expert against the 8-rubric v2 scheme.  Reviewer verdicts drove a
+second corpus-refinement pass on `release_v1.2`, mirroring the
+methodology of the 2026-05-04 morning drop.
+
+### Methodology — review pipeline
+
+1. **Batch import.**  The 29 qids written into a CSV ingestible by
+   `python -m src.review_app.import_batch` (using the same gold-sheet
+   schema as `release_v1_pilot`).  Imported under batch name
+   `borderline_audit_2026_05_04`.
+2. **Domain-expert review.**  Reviewed in the Phase 4 review web app
+   (port 5556) against 8 rubrics: `answer_correct`,
+   `distractors_plausible`, `not_ambiguous`, `source_faithful`,
+   `needs_source`, `no_vague_language`, `labels_correct`,
+   `verbatim_copy` — plus an `overall_verdict` of `approve` or
+   `reject` and optional `suggested_answer` / `suggested_difficulty`.
+   29/29 reviews completed (100% coverage).
+3. **Drop policy.**  Same shape as 2026-05-04 morning: every `reject`
+   verdict is dropped from `release_v1.2` regardless of which rubrics
+   failed (the verdict is the integration of the per-rubric scores).
+   Every `approve` verdict is kept.  The drop is implemented by
+   removing `release_v1.2` from `q.tags` and appending a paper-trail
+   tag `excluded_post_eval_v1_2_borderline_review`.
+
+### Quantitative results — verdict distribution
+
+| Verdict | Count | % of 29 |
+|---|---:|---:|
+| approve (kept) | 20 | 69.0% |
+| reject (dropped) | 9 | 31.0% |
+
+The 9 rejects all failed `not_ambiguous`; 6 of 9 also failed
+`answer_correct`; 1 of 9 also failed `source_faithful` +
+`needs_source`; 1 of 9 also failed `distractors_plausible`.  The
+rejection pattern matches the audit categories: the
+`AMBIGUOUS_WORDING` cluster bled into the corpus along several
+rubric axes simultaneously.
+
+### Quantitative results — drop attribution
+
+Per-domain (n=9):
+
+| Domain | Dropped |
+|---|---:|
+| grape_varieties | 4 |
+| producers | 3 |
+| viticulture | 1 |
+| wine_regions | 1 |
+
+Per-strategy (n=9):
+
+| Strategy | Dropped |
+|---|---:|
+| comparative | 3 |
+| distractor_mining | 3 |
+| scenario_synthesis | 2 |
+| fact_to_question | 1 |
+
+### Quantitative results — corpus refinement (round 2 vs round 1)
+
+| | Round-1 cleaned (3,275 Qs) | Round-2 cleaned (3,266 Qs) | Δ |
+|---|---:|---:|---:|
+| Total LLM calls | 52,400 | 52,256 | -144 |
+| Effective cost (OR-authoritative) | $98.78 | $98.33 | -$0.45 |
+| Slate-mean accuracy | 72.8% | 73.0% | +0.2pp |
+| Per-config accuracy lift | — | — | +0.1 to +0.3pp uniformly |
+
+Cumulative refinement vs original pre-audit corpus: **3,329 → 3,266
+questions (-63, -1.9%)**, slate-mean accuracy **71.6% → 73.0%
+(+1.4pp)** — both rounds combined.
+
+### Headline findings (unchanged after round-2 cleanup)
+
+- All four headline findings from the round-1 cleaned report —
+  Anthropic SPS bias, Google reverse SPS, Qwen-7B SPS lift,
+  DeepSeek-R1 reasoning lift — remain in direction and within
+  ≤0.3pp of round-1 magnitudes.  The 9 additional drops do not
+  change any qualitative claim.
+
+### Re-render
+
+`data/reports/eval_release_v1_2_full_cleaned.md` was regenerated via
+`python -m src.evaluation.report --tag eval_release_v1_2_full
+--release v1.2 --output data/reports/eval_release_v1_2_full_cleaned.md`.
+The renderer's `--release v1.2` filter automatically picks up the
+new tag state — no code change required.
+
+### Final state
+
+- `release_v1.2` corpus: **3,266 questions** (was 3,275 after round 1,
+  3,329 pre-audit).
+- 9 dropped items archived under
+  `excluded_post_eval_v1_2_borderline_review` tag — reversible.
+- 20 approved items remain in `release_v1.2`; the 13
+  `SOURCE_FACT_DUBIOUS` and 16 `AMBIGUOUS_WORDING` audit-categories
+  thus split 11+9 (one third dropped, two thirds kept) under
+  domain-expert review.
+- 5/5 zero-correct audit follow-ups now closed:
+  - 54 round-1 drops (DUP_OPTION + EQUIV_OPTIONS + ALL_CORRECT +
+    WRONG_GROUND_TRUTH) — done 2026-05-04 morning.
+  - 9 round-2 drops (borderline-reject) — done this entry.
+  - 14 HARD_BUT_FAIR retained as legitimate difficulty signal.
+  - 20 borderline-approves retained.
+  - The `--release` renderer flag remains the public mechanism for
+    further refinement passes against an existing eval run.
