@@ -2648,3 +2648,111 @@ resolved by the relabel pass.
 
 Phase 5 evaluation (16-config OpenRouter slate × 3,329 Qs) and final
 datasheet authoring are the remaining items before NeurIPS submission.
+
+
+## 2026-05-04 — Phase 5: Full eval + zero-correct audit + corpus refinement
+
+### What was done
+
+1. **Full Phase 5 eval shipped.**  16-config OpenRouter slate ×
+   3,329 release_v1.2 questions = 53,264 LLM calls.  Run id
+   `8b0a0864-f3c6-4ec5-8f3d-e30271b8c3a0`, tag
+   `eval_release_v1_2_full`.  Total cost $100.94 (OR-authoritative
+   for 99% of rows), wall ≈1h 53m active eval time.
+2. **Zero-correct audit.**  Pulled the 97 questions where all 16
+   configs returned a wrong answer; classified each into one of 7
+   defect categories.  Result: 56% of zero-correct items are corpus
+   defects (54 of 97).
+3. **Corpus refinement (in-place on release_v1.2).**  Removed the
+   `release_v1.2` tag from 54 questions identified as
+   `DUP_OPTION` (6), `EQUIV_OPTIONS` (2), `ALL_CORRECT` (19), or
+   `WRONG_GROUND_TRUTH` (27).  Added paper-trail tag
+   `excluded_post_eval_v1_2_audit` so the action is reversible /
+   inspectable.  29 borderline items (`SOURCE_FACT_DUBIOUS` 13,
+   `AMBIGUOUS_WORDING` 16) left in place pending domain-expert
+   review.
+4. **Renderer updated.**  `src/evaluation/report.py:_load_answers`
+   now accepts a `release` parameter that adds
+   `'release_<release>' = ANY(q.tags)` to the WHERE clause; the CLI
+   exposes `--release v1.2`.  Re-running existing eval data through
+   the cleaned filter is now a one-line render — no re-eval needed.
+5. **Re-rendered.**  `data/reports/eval_release_v1_2_full_cleaned.md`
+   reflects the 3,275-question post-audit corpus.
+
+### Quantitative results (audit categories)
+
+| Category | Count | % of 97 |
+|---|---:|---:|
+| DUP_OPTION (same option text twice; key like "A,D") | 6 | 6.2% |
+| EQUIV_OPTIONS (synonyms / different names for one entity) | 2 | 2.1% |
+| ALL_CORRECT (≥2 options factually true) | 19 | 19.6% |
+| WRONG_GROUND_TRUTH (keyed answer contradicts wine consensus) | 27 | 27.8% |
+| SOURCE_FACT_DUBIOUS (uncited / weak provenance) | 13 | 13.4% |
+| AMBIGUOUS_WORDING | 16 | 16.5% |
+| HARD_BUT_FAIR (legit difficulty, no defect) | 14 | 14.4% |
+| **Total** | 97 | 100% |
+
+### Quantitative results (cleaned vs original)
+
+| | Original (3,329 Qs) | Cleaned (3,275 Qs) | Δ |
+|---|---:|---:|---:|
+| Total LLM calls | 53,264 | 52,400 | -864 |
+| Effective cost (OR-authoritative) | $101.04 | $98.78 | -$2.26 |
+| Slate-mean accuracy | 71.6% | 72.7% | +1.1pp |
+| Per-config accuracy lift | — | — | +0.9 to +1.4pp |
+| Slate-mean CB-fail vs CB-pass gap | +34.5% | +32.9% | -1.6pp |
+
+### Headline findings (unchanged after cleanup)
+
+- **Self-preference bias.** Anthropic family +9.4% to +10.2% own-
+  preference (CIs exclude 0); qwen-2.5-7b +9.0%; Google family -6.0%
+  to -10.3% (reverse preference).
+- **Reasoning lift.** Only DeepSeek-R1 vs DeepSeek-V3 shows a
+  significant lift (+6.8%, CI [+4.6, +9.1]); Opus, Gemini-Pro, o3
+  thinking-vs-standard deltas are within noise.
+- **Closed-book vs contextual gap.** Slate-mean +32.9pp on
+  closed-book-solvable vs contextual questions — every model leans
+  heavily on memorised wine knowledge.
+
+### Issues encountered & resolutions
+
+- **Postgres connection pool exhaustion.**  Initial run hit "too many
+  clients already" because per-thread connections × 480 peak threads
+  > default `max_connections=100`.  Killed run, raised to 500
+  (`ALTER SYSTEM SET max_connections = 500` + container restart),
+  resumed via `--resume` (already-written rows preserved; missing
+  rows refilled).  Persisted across restarts.
+- **Haiku 4.5 guardrail trips.**  Intrinsic ~20% parse-fail rate
+  trips the 2% default and even the relaxed 20% threshold.  Resumed
+  Haiku alone with `OENOBENCH_EVAL_GUARDRAIL_THRESHOLD=0.50`.
+  Final Haiku parse-rate 80.3% on the cleaned corpus.
+- **Generation-pipeline bug surfaced by audit.**  All 6 `DUP_OPTION`
+  items came from the `comparative` strategy emitting the same
+  answer string twice and writing a comma-separated key (`"A,D"`).
+  The single-letter parser cannot accept the comma key, so 100% of
+  models fail by construction.  Generator fix is a follow-up; the
+  6 items are dropped for v1.2.
+
+### Tools shipped
+
+- `data/reports/eval_eval_release_v1_2_full_20260503T234445Z.md` —
+  original full-eval report
+- `data/reports/zero_correct_97_audit.md` — 97-question audit
+  with per-item diagnosis and recommended action
+- `data/reports/eval_release_v1_2_full_cleaned.md` — re-rendered
+  report against the 3,275-question post-audit corpus
+- `--release` CLI flag on `python -m src.evaluation.report` for
+  retroactive corpus-tag filtering of an existing eval run
+
+### Follow-ups for the paper
+
+- Domain-expert review of the 29 borderline items
+  (`SOURCE_FACT_DUBIOUS` + `AMBIGUOUS_WORDING`).
+- Fix the `comparative` generator so duplicate-option questions
+  cannot recur.
+- Decide whether to backport the audit-driven drops to
+  `release_v1.1`.
+- The 54 dropped items still carry the
+  `excluded_post_eval_v1_2_audit` tag in `public.questions` —
+  archived, not deleted, so a future v1.3 with corrected ground
+  truth can re-promote them.

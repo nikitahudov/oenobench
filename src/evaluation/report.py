@@ -298,19 +298,37 @@ def _resolve_run(conn, tag: str) -> dict[str, Any]:
     return dict(row)
 
 
-def _load_answers(conn, run_id: str, corpus_schema: str) -> list[dict[str, Any]]:
+def _load_answers(
+    conn,
+    run_id: str,
+    corpus_schema: str,
+    release: str | None = None,
+) -> list[dict[str, Any]]:
     """
     Load all evaluation_answers for run_id, joined to {corpus_schema}.questions
     for domain, tags, difficulty, and generation_method (strategy).
     Also joins {corpus_schema}.generation_metadata to obtain the generator enum
     for SPS.  Both ``sample`` and ``public`` schemas expose the same relevant
     columns, so the join is unconditional.
+
+    If ``release`` is set (e.g. ``"v1.2"``), additionally filters answers to
+    those whose question still carries the matching ``release_<release>`` tag.
+    Use this to re-render the report after retroactively dropping defective
+    questions from a release without re-running the eval — answers for dropped
+    questions are excluded from every section's aggregation.
     """
     genmeta_join = (
         f"LEFT JOIN {corpus_schema}.generation_metadata gm ON gm.question_id = q.id"
     )
     genmeta_select = "gm.generator::text AS generator"
     strategy_select = "gm.generation_method::text AS strategy"
+
+    where_clauses = ["a.run_id = %s"]
+    params: list[Any] = [run_id]
+    if release:
+        where_clauses.append("%s = ANY(q.tags)")
+        params.append(f"release_{release}")
+    where_sql = " AND ".join(where_clauses)
 
     sql = f"""
         SELECT
@@ -338,10 +356,10 @@ def _load_answers(conn, run_id: str, corpus_schema: str) -> list[dict[str, Any]]
         FROM evaluation_answers a
         JOIN {corpus_schema}.questions q ON q.id = a.question_id
         {genmeta_join}
-        WHERE a.run_id = %s
+        WHERE {where_sql}
     """
     with conn.cursor() as cur:
-        cur.execute(sql, (run_id,))
+        cur.execute(sql, tuple(params))
         rows = cur.fetchall()
     return [dict(r) for r in rows]
 
@@ -1310,11 +1328,20 @@ def _section_difficulty(buf: StringIO, answers: list[dict]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def render_report(tag: str, output_path: str | None = None) -> str:
+def render_report(
+    tag: str,
+    output_path: str | None = None,
+    release: str | None = None,
+) -> str:
     """
     Query DB and render the full markdown report.
     Returns the markdown string.
     Also writes to output_path (or data/reports/eval_<tag>_<ts>.md).
+
+    If ``release`` is set (e.g. ``"v1.2"``), restricts every section's
+    aggregation to answers whose question still carries the matching
+    ``release_<release>`` tag.  Use this to re-render after dropping
+    defective questions from a release without re-running the eval.
     """
     from src.utils.db import get_pg
 
@@ -1334,7 +1361,7 @@ def render_report(tag: str, output_path: str | None = None) -> str:
         corpus_schema = "public"
 
     # 3. Load answers
-    answers = _load_answers(conn, run_id, corpus_schema)
+    answers = _load_answers(conn, run_id, corpus_schema, release=release)
 
     # 4. Render
     buf = StringIO()
@@ -1377,9 +1404,18 @@ def render_report(tag: str, output_path: str | None = None) -> str:
 @click.command()
 @click.option("--tag", required=True, help="Evaluation run tag (e.g. eval_sample_v1)")
 @click.option("--output", default=None, help="Output file path (default: data/reports/eval_<tag>_<ts>.md)")
-def main(tag: str, output: str | None) -> None:
+@click.option(
+    "--release",
+    default=None,
+    help=(
+        "Restrict aggregation to answers whose question still carries the "
+        "release_<release> tag (e.g. --release=v1.2).  Use to re-render after "
+        "retroactively dropping defective questions from a release."
+    ),
+)
+def main(tag: str, output: str | None, release: str | None) -> None:
     """Render a markdown evaluation report for a given run tag."""
-    report_md = render_report(tag=tag, output_path=output)
+    report_md = render_report(tag=tag, output_path=output, release=release)
     click.echo(report_md)
 
 
