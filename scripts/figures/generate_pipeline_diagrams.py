@@ -164,8 +164,8 @@ def diagram_fact_processing():
          "pronouns / demonstratives\n→ entity names"),
         ("3. Domain classify",
          "lexicon + rules\n→ 1 of 6 pillars"),
-        ("4. Length & predicate",
-         "must have verb;\nno dangling refs"),
+        ("4. Length & verb",
+         "verb required;\nno dangling refs"),
         ("5. On-topic filter",
          "region-specific\nkeyword sets"),
     ]
@@ -223,33 +223,33 @@ def diagram_fact_processing():
 # Diagram 3 — Quality-assurance teams                                          #
 # ---------------------------------------------------------------------------
 def diagram_quality_assurance():
-    fig, ax = plt.subplots(figsize=(11.5, 5.0))
+    fig, ax = plt.subplots(figsize=(11.5, 6.0))
     ax.set_xlim(0, 11.5)
-    ax.set_ylim(0, 5.0)
+    ax.set_ylim(0, 6.0)
     ax.axis("off")
 
-    # Top: candidate questions
-    _box(ax, 3.6, 4.20, 4.3, 0.55,
+    # Top: candidate questions (y=5.15..5.70)
+    _box(ax, 3.6, 5.15, 4.3, 0.55,
          "Candidate questions  (5 strategies × 5 generators)",
          fc="#FEF3C7", ec="#D97706", fontsize=10, fontweight="bold")
 
-    # Four team boxes
+    # Four team boxes — labels shortened where they would otherwise crowd
     teams = [
-        ("Team A — Static integrity", "#DBEAFE", "#1D4ED8",
+        ("Team A — Static", "#DBEAFE", "#1D4ED8",
          ["A1 LexicalHygiene", "A2 BiasStats",
           "A3 FactEcho",       "A4 TemplateFingerprint"]),
-        ("Team B — Tri-judge LLM panel", "#F3E8FF", "#7E22CE",
+        ("Team B — Tri-judge", "#F3E8FF", "#7E22CE",
          ["B1 TriJudgeAnswer",       "B2 ClosedBookSolvability",
           "B3 UbiquityRisk",         "B4 Ambiguity (esc)",
           "B5 VerifierSkip (esc)"]),
-        ("Team C — Deterministic checks", "#DCFCE7", "#15803D",
-         ["C1 DistractorDifficulty (esc)",
+        ("Team C — Deterministic", "#DCFCE7", "#15803D",
+         ["C1 DistractorDiff. (esc)",
           "C2 CategoryLeak",
           "C3 SourceSwap (esc)",
           "C4 DifficultyAudit"]),
-        ("Team D — Corpus statistics", "#FFE4E6", "#B91C1C",
+        ("Team D — Corpus stats", "#FFE4E6", "#B91C1C",
          ["D1 SelfPreference",
-          "D2 DedupCalibration (esc)",
+          "D2 DedupCalib. (esc)",
           "D3 SkewAudit"]),
     ]
 
@@ -259,42 +259,45 @@ def diagram_quality_assurance():
     total_w = 4 * col_w + 3 * col_gap
     x0 = (11.5 - total_w) / 2
 
+    # Team headers (y=4.20..4.75)
+    # Agent rows: top j=0 at y=3.85, step 0.40, height 0.32
+    #   → bottom of j=4 box = 3.85 - 4*0.40 = 2.25, top = 2.57
     for i, (title, fc, ec, agents) in enumerate(teams):
         x = x0 + i * (col_w + col_gap)
-        # Team header
-        _box(ax, x, 3.30, col_w, 0.55, title,
+        _box(ax, x, 4.20, col_w, 0.55, title,
              fc=fc, ec=ec, fontsize=9.5, fontweight="bold")
-        # Agent list
         for j, agent in enumerate(agents):
-            _box(ax, x + 0.10, 2.95 - j * 0.40, col_w - 0.20, 0.32,
-                 agent, fc="white", ec=ec, lw=0.7, fontsize=8.0)
+            _box(ax, x + 0.10, 3.85 - j * 0.40, col_w - 0.20, 0.32,
+                 agent, fc="white", ec=ec, lw=0.7, fontsize=7.8)
 
-    # Arrows from candidates → each team
+    # Arrows: candidates → team headers
     for i in range(4):
         x = x0 + i * (col_w + col_gap) + col_w / 2
-        _arrow(ax, 5.75, 4.20, x, 3.85)
+        _arrow(ax, 5.75, 5.15, x, 4.75)
 
-    # Outcome row
-    _box(ax, 0.50, 0.45, 4.3, 0.55,
+    # Arrows: agent stacks → outcome row (going DOWN, no longer crossing
+    # the calibration box because the box is now below the outcomes)
+    for i in range(4):
+        x = x0 + i * (col_w + col_gap) + col_w / 2
+        _arrow(ax, x, 2.20, x, 1.75)
+
+    # Outcome row (y=1.20..1.75)
+    _box(ax, 0.50, 1.20, 4.3, 0.55,
          "DROP (critical FAIL)  →  341 questions removed",
          fc="#FEE2E2", ec="#B91C1C", fontsize=9, fontweight="bold")
-    _box(ax, 5.0, 0.45, 3.0, 0.55,
+    _box(ax, 5.0, 1.20, 3.0, 0.55,
          "RELABEL (C4 / human)  →  1,259",
          fc="#FEF3C7", ec="#D97706", fontsize=9, fontweight="bold")
-    _box(ax, 8.20, 0.45, 2.80, 0.55,
+    _box(ax, 8.20, 1.20, 2.80, 0.55,
          "KEEP  →  release_v1.2",
          fc="#DCFCE7", ec="#15803D", fontsize=9, fontweight="bold")
 
-    # Calibration callout
-    _box(ax, 1.5, 1.20, 8.5, 0.50,
+    # Calibration callout (y=0.20..0.75) — below outcome row, clear of
+    # all team-agent boxes and all arrows.
+    _box(ax, 1.5, 0.20, 8.5, 0.55,
          "Each agent calibrated against human gold sheet via Cohen's κ "
          "— signals with κ < 0.6 are advisory-only",
          fc="#F1F5F9", ec="#334155", fontsize=8.5)
-
-    # Connect teams to outcome row
-    for i in range(4):
-        x = x0 + i * (col_w + col_gap) + col_w / 2
-        _arrow(ax, x, 1.05, x, 1.70)
 
     save(fig, "diagram_quality_assurance")
 

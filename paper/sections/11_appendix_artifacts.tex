@@ -68,20 +68,13 @@ latency columns on \texttt{evaluation\_answers}),
 \texttt{005\_or\_cost\_telemetry.sql} (OpenRouter authoritative cost
 columns).
 
-A simplified entity-relationship diagram is in
-Figure~\ref{fig:schema}.
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=0.85\linewidth]{figures/diagram_schema.png}
-  \caption{Simplified release schema. \texttt{sources} ground
-    \texttt{facts}; \texttt{questions} pull from \texttt{facts} via
-    \texttt{question\_facts}; \texttt{generation\_metadata} records
-    the LLM and strategy that produced each question;
-    \texttt{audit\_findings} holds per-agent verdicts;
-    \texttt{human\_reviews} holds gold-sheet ratings.}
-  \label{fig:schema}
-\end{figure}
+The released schema is documented in code
+(\texttt{config/postgres/}); the load-bearing tables are
+\texttt{sources} (registry), \texttt{facts} (atomic facts grounded by
+source), \texttt{questions} + \texttt{question\_facts} (corpus and
+fact-question links), \texttt{generation\_metadata} (per-question
+generator and strategy), \texttt{audit\_findings} (per-agent
+verdicts), and \texttt{human\_reviews} (gold-sheet ratings).
 
 \subsection{Compute and cost}
 

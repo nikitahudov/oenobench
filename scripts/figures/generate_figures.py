@@ -60,8 +60,8 @@ FAMILY_COLORS = {
     "google":    "#4285F4",   # blue
     "meta":      "#6366F1",   # indigo (distinct from google blue)
     "qwen":      "#A020F0",   # purple
-    "deepseek":  "#0BC5A1",   # teal (distinct from google blue)
-    "mistral":   "#FA520F",   # red-orange
+    "deepseek":  "#DC2626",   # red
+    "mistral":   "#EC4899",   # pink
 }
 
 # Pretty short labels
@@ -387,7 +387,7 @@ def fig_reasoning_lift():
     # family legend (matches leaderboard) + reasoning hatch
     handles = [Patch(facecolor=FAMILY_COLORS[f], edgecolor="black", label=f) for f in fams]
     handles.append(Patch(facecolor="white", edgecolor="black", hatch="//", label="reasoning"))
-    ax.legend(handles=handles, frameon=False, fontsize=7, loc="lower right", ncol=2)
+    ax.legend(handles=handles, frameon=False, fontsize=7, loc="upper right", ncol=2)
     save(fig, "fig_reasoning_lift")
 
 
@@ -468,30 +468,48 @@ def fig_pareto_cost():
     ax.scatter(xs, ys, c=cs, s=85, edgecolor="black",
                linewidth=0.5, zorder=3)
 
-    # manual label-offset table to avoid overlap (offsets in points)
+    # Manual label-offset table (offsets in points). Strategy: keep
+    # labels close in the sparse low-cost region, stagger vertically in
+    # the dense $3 and $10–13 clusters, and shift the rightmost few
+    # points leftward so labels don't clip the right edge.
     OFFSETS = {
-        "Llama 3.1 8B":            (8,  -10),
-        "Llama 3.3 70B":           (-25,  10),
-        "Gemini 2.5 Flash":        (-90,  -2),
-        "DeepSeek V3":             (-72,   8),
-        "Qwen 2.5 72B":            (8,    -3),
-        "Qwen 2.5 7B":             (-58, -12),
-        "Claude Haiku 4.5":        (-78, -3),
-        "Mistral Large":           (8,    4),
-        "GPT-5-mini":              (-62,  10),
-        "Claude Opus 4.7":         (-95,  10),
-        "Claude Opus 4.7 (think)": (8,   -12),
-        "DeepSeek R1":             (-65, -10),
-        "o3":                      (-15,  12),
-        "Gemini 2.5 Pro (think)":  (-118,  16),
-        "GPT-5":                   (-32, -14),
-        "Gemini 2.5 Pro":          (-110, -14),
+        # Sparse low-cost area: simple right-of-dot labels.
+        "Llama 3.1 8B":            (8,  -3),
+        "Llama 3.3 70B":           (8,   5),
+        "Gemini 2.5 Flash":        (8,   5),
+        "DeepSeek V3":             (8,  -3),
+        "Qwen 2.5 7B":             (8,  -3),
+        "Qwen 2.5 72B":            (8,  -10),
+        "Claude Haiku 4.5":        (8,  -3),
+        "Mistral Large":           (8,   4),
+        # $3 cluster: stagger Opus pair, route GPT-5-mini leftward.
+        "GPT-5-mini":              (-65, -3),
+        "Claude Opus 4.7":         (8,  12),
+        "Claude Opus 4.7 (think)": (8, -14),
+        # Upper-right dense cluster (R1, o3, Pro-think, GPT-5, Pro): use
+        # leader-line annotations for the four dots that would otherwise
+        # collide. R1 is below the rest so its right-of-dot label is safe.
+        "DeepSeek R1":             (8,  -3),
+    }
+    LEADER = {
+        "o3":                      ((10.0, 88.5),  "left"),
+        "Gemini 2.5 Pro (think)":  ((45.0, 86.0),  "left"),
+        "GPT-5":                   ((45.0, 82.0),  "left"),
+        "Gemini 2.5 Pro":          ((60.0, 79.0),  "left"),
     }
     for p in points:
-        dx, dy = OFFSETS.get(p["label"], (8, 6))
-        ax.annotate(p["label"], (p["cost"], p["acc"]),
-                    xytext=(dx, dy), textcoords="offset points",
-                    fontsize=7.0)
+        if p["label"] in LEADER:
+            (lx, ly), ha = LEADER[p["label"]]
+            ax.annotate(p["label"], xy=(p["cost"], p["acc"]),
+                        xytext=(lx, ly), textcoords="data",
+                        ha=ha, va="center", fontsize=7.0,
+                        arrowprops=dict(arrowstyle="-", color="#6B7280",
+                                        lw=0.5, shrinkA=0, shrinkB=3))
+        else:
+            dx, dy = OFFSETS.get(p["label"], (8, 4))
+            ax.annotate(p["label"], (p["cost"], p["acc"]),
+                        xytext=(dx, dy), textcoords="offset points",
+                        fontsize=7.0)
 
     # Pareto frontier (upper-left envelope: low cost, high acc)
     sorted_pts = sorted(points, key=lambda p: p["cost"])
@@ -502,12 +520,12 @@ def fig_pareto_cost():
             fxs.append(p["cost"])
             fys.append(p["acc"])
             best = p["acc"]
-    ax.plot(fxs, fys, color="#DC2626", lw=1.2, linestyle="--",
+    ax.plot(fxs, fys, color="#1F2937", lw=1.2, linestyle="--",
             label="Pareto frontier", zorder=2)
 
     ax.set_xscale("log")
-    ax.set_xlim(0.005, 60)
-    ax.set_ylim(48, 90)
+    ax.set_xlim(0.005, 100)
+    ax.set_ylim(48, 92)
     ax.set_xlabel("Total evaluation cost (USD, 3,266 questions)")
     ax.set_ylabel("Accuracy (%)")
     ax.set_title("Cost-vs-accuracy Pareto frontier")
@@ -515,10 +533,12 @@ def fig_pareto_cost():
                   key=lambda f: list(FAMILY_COLORS).index(f) if f in FAMILY_COLORS else 99)
     handles = [Patch(facecolor=FAMILY_COLORS.get(f, "#888"),
                      edgecolor="black", label=f) for f in fams]
-    handles.append(Patch(facecolor="white", edgecolor="#DC2626",
+    handles.append(Patch(facecolor="white", edgecolor="#1F2937",
                          linewidth=1.4, label="Pareto frontier"))
+    # Legend in lower-right corner (low-acc / mid-cost area is empty in
+    # this layout) with a tighter 4-row × 2-col arrangement.
     ax.legend(handles=handles, frameon=False, fontsize=7, loc="lower right",
-              ncol=2)
+              ncol=1)
     ax.grid(True, axis="both", linestyle=":", lw=0.4, alpha=0.5)
     save(fig, "fig_pareto_cost")
 
@@ -535,10 +555,10 @@ def fig_cb_vs_source():
     width = 0.4
     ax.barh(y - width / 2, [c["acc_cb"] for c in cb], width,
             color="#FBBF24", edgecolor="black", linewidth=0.4,
-            label="closed-book solvable (n=1,601)")
+            label="closed-book solvable")
     ax.barh(y + width / 2, [c["acc_pass"] for c in cb], width,
             color="#3B82F6", edgecolor="black", linewidth=0.4,
-            label="contextual / source-grounded (n=1,665)")
+            label="contextual / source-grounded")
     for i, c in enumerate(cb):
         ax.text(c["acc_cb"] + 0.5, i - width / 2,
                 f"{c['acc_cb']:.0f}", va="center", fontsize=7)
@@ -547,10 +567,13 @@ def fig_cb_vs_source():
     ax.set_yticks(y)
     ax.set_yticklabels(labels)
     ax.invert_yaxis()
-    ax.set_xlim(30, 105)
+    ax.set_xlim(30, 108)
     ax.set_xlabel("Accuracy (%)")
     ax.set_title("Closed-book vs source-grounded performance per config")
-    ax.legend(loc="lower right", frameon=False, fontsize=8)
+    # Legend below the plot, inside the bottom margin, so it sits clear
+    # of every bar and every value label.
+    ax.legend(loc="upper center", frameon=False, fontsize=8,
+              bbox_to_anchor=(0.5, -0.10), ncol=2)
     save(fig, "fig_cb_vs_source")
 
 
