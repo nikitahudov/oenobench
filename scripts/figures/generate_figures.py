@@ -55,13 +55,13 @@ plt.rcParams.update({
 })
 
 FAMILY_COLORS = {
-    "anthropic": "#D97757",
-    "openai": "#10A37F",
-    "google": "#4285F4",
-    "meta": "#0668E1",
-    "qwen": "#A020F0",
-    "deepseek": "#1A73E8",
-    "mistral": "#FA520F",
+    "anthropic": "#D97757",   # warm orange-brown
+    "openai":    "#10A37F",   # green
+    "google":    "#4285F4",   # blue
+    "meta":      "#6366F1",   # indigo (distinct from google blue)
+    "qwen":      "#A020F0",   # purple
+    "deepseek":  "#0BC5A1",   # teal (distinct from google blue)
+    "mistral":   "#FA520F",   # red-orange
 }
 
 # Pretty short labels
@@ -336,11 +336,9 @@ def fig_leaderboard():
     ax.set_yticks(y)
     ax.set_yticklabels(labels)
     ax.invert_yaxis()
-    ax.set_xlim(0, 100)
+    ax.set_xlim(40, 95)
     ax.set_xlabel("Accuracy (%) on 3,266 wine MC questions")
     ax.set_title("Overall capability ranking — 16-config slate")
-    ax.axvline(25, linestyle=":", color="grey", lw=0.6)
-    ax.text(25.5, len(labels) - 0.5, "random (4 options)", color="grey", fontsize=7)
 
     # legend
     fams = sorted(set(families), key=lambda f: list(FAMILY_COLORS).index(f) if f in FAMILY_COLORS else 99)
@@ -355,7 +353,7 @@ def fig_leaderboard():
 # --------------------------------------------------------------------------- #
 def fig_reasoning_lift():
     pairs = parse_reasoning_pairs()
-    fig, ax = plt.subplots(figsize=(6.0, 3.2))
+    fig, ax = plt.subplots(figsize=(6.0, 3.4))
     n = len(pairs)
     x = np.arange(n)
     width = 0.35
@@ -364,31 +362,32 @@ def fig_reasoning_lift():
     deltas = [p["delta"] for p in pairs]
     lo = [p["lo"] for p in pairs]
     hi = [p["hi"] for p in pairs]
+    fams = ["anthropic", "google", "openai", "deepseek"]
+    fcolors = [FAMILY_COLORS[f] for f in fams]
 
-    ax.bar(x - width / 2, s_acc, width, color="#9CA3AF", edgecolor="black",
-           linewidth=0.4, label="standard")
-    ax.bar(x + width / 2, t_acc, width, color="#1F2937", edgecolor="black",
-           linewidth=0.4, label="reasoning")
+    ax.bar(x - width / 2, s_acc, width,
+           color=[matplotlib.colors.to_rgba(c, 0.45) for c in fcolors],
+           edgecolor="black", linewidth=0.4, label="standard")
+    ax.bar(x + width / 2, t_acc, width,
+           color=fcolors, edgecolor="black", linewidth=0.4,
+           hatch="//", label="reasoning mode")
 
-    # delta annotation with CI
     for i, (d, l, h) in enumerate(zip(deltas, lo, hi)):
         sign = "+" if d >= 0 else ""
         ax.text(i, max(s_acc[i], t_acc[i]) + 1.5,
                 f"{sign}{d:.1f} pp\n[{l:+.1f},{h:+.1f}]",
                 ha="center", fontsize=7)
     ax.set_xticks(x)
-    labels = []
-    for p in pairs:
-        if "vs" in p["pair"].lower():
-            short = p["pair"].split(":")[0]
-        else:
-            short = p["pair"]
-        labels.append(short.replace("DeepSeek-R1", "DeepSeek").replace("vs GPT-5", "(o3)").replace("vs DeepSeek-V3", ""))
-    ax.set_xticklabels(["Claude\nOpus 4.7", "Gemini\n2.5 Pro", "OpenAI\no3 / GPT-5", "DeepSeek\nR1 / V3"], fontsize=8)
+    ax.set_xticklabels([
+        "Claude\nOpus 4.7", "Gemini\n2.5 Pro",
+        "OpenAI\no3 vs GPT-5", "DeepSeek\nR1 vs V3"], fontsize=8)
     ax.set_ylim(60, 95)
     ax.set_ylabel("Accuracy (%)")
     ax.set_title("Reasoning-mode lift over standard")
-    ax.legend(frameon=False, fontsize=8)
+    # family legend (matches leaderboard) + reasoning hatch
+    handles = [Patch(facecolor=FAMILY_COLORS[f], edgecolor="black", label=f) for f in fams]
+    handles.append(Patch(facecolor="white", edgecolor="black", hatch="//", label="reasoning"))
+    ax.legend(handles=handles, frameon=False, fontsize=7, loc="lower right", ncol=2)
     save(fig, "fig_reasoning_lift")
 
 
@@ -454,37 +453,72 @@ def fig_pareto_cost():
     eff = parse_cost_efficiency()
     cost_by_cfg = {e["config"]: e["cost"] for e in eff}
 
-    fig, ax = plt.subplots(figsize=(6.0, 4.0))
-    xs, ys, labels, colors = [], [], [], []
+    fig, ax = plt.subplots(figsize=(6.6, 4.6))
+    points = []
     for c in cfgs:
-        # use total $ on x-axis (log), accuracy on y; floor at $0.01 for log scale
         cost = max(cost_by_cfg.get(c["config"], c["cost"]), 0.01)
-        xs.append(cost)
-        ys.append(c["acc"])
-        labels.append(LABEL.get(c["config"], c["config"]))
-        colors.append(FAMILY_COLORS.get(c["family"], "#888"))
-    ax.scatter(xs, ys, c=colors, s=80, edgecolor="black", linewidth=0.5, zorder=3)
-    for x, y, lbl in zip(xs, ys, labels):
-        ax.annotate(lbl, (x, y), fontsize=7, xytext=(4, 3), textcoords="offset points")
+        points.append({
+            "cost": cost, "acc": c["acc"],
+            "label": LABEL.get(c["config"], c["config"]),
+            "color": FAMILY_COLORS.get(c["family"], "#888"),
+        })
+    xs = [p["cost"] for p in points]
+    ys = [p["acc"] for p in points]
+    cs = [p["color"] for p in points]
+    ax.scatter(xs, ys, c=cs, s=85, edgecolor="black",
+               linewidth=0.5, zorder=3)
+
+    # manual label-offset table to avoid overlap (offsets in points)
+    OFFSETS = {
+        "Llama 3.1 8B":            (8,  -10),
+        "Llama 3.3 70B":           (-25,  10),
+        "Gemini 2.5 Flash":        (-90,  -2),
+        "DeepSeek V3":             (-72,   8),
+        "Qwen 2.5 72B":            (8,    -3),
+        "Qwen 2.5 7B":             (-58, -12),
+        "Claude Haiku 4.5":        (-78, -3),
+        "Mistral Large":           (8,    4),
+        "GPT-5-mini":              (-62,  10),
+        "Claude Opus 4.7":         (-95,  10),
+        "Claude Opus 4.7 (think)": (8,   -12),
+        "DeepSeek R1":             (-65, -10),
+        "o3":                      (-15,  12),
+        "Gemini 2.5 Pro (think)":  (-118,  16),
+        "GPT-5":                   (-32, -14),
+        "Gemini 2.5 Pro":          (-110, -14),
+    }
+    for p in points:
+        dx, dy = OFFSETS.get(p["label"], (8, 6))
+        ax.annotate(p["label"], (p["cost"], p["acc"]),
+                    xytext=(dx, dy), textcoords="offset points",
+                    fontsize=7.0)
 
     # Pareto frontier (upper-left envelope: low cost, high acc)
-    points = sorted(zip(xs, ys, labels), key=lambda t: t[0])
-    frontier_xs, frontier_ys = [], []
+    sorted_pts = sorted(points, key=lambda p: p["cost"])
+    fxs, fys = [], []
     best = -np.inf
-    for x, y, _ in points:
-        if y > best:
-            frontier_xs.append(x)
-            frontier_ys.append(y)
-            best = y
-    ax.plot(frontier_xs, frontier_ys, color="#DC2626", lw=1.2, linestyle="--",
+    for p in sorted_pts:
+        if p["acc"] > best:
+            fxs.append(p["cost"])
+            fys.append(p["acc"])
+            best = p["acc"]
+    ax.plot(fxs, fys, color="#DC2626", lw=1.2, linestyle="--",
             label="Pareto frontier", zorder=2)
 
     ax.set_xscale("log")
+    ax.set_xlim(0.005, 60)
+    ax.set_ylim(48, 90)
     ax.set_xlabel("Total evaluation cost (USD, 3,266 questions)")
     ax.set_ylabel("Accuracy (%)")
     ax.set_title("Cost-vs-accuracy Pareto frontier")
-    ax.set_ylim(50, 90)
-    ax.legend(frameon=False, fontsize=8, loc="lower right")
+    fams = sorted(set(c["family"] for c in cfgs),
+                  key=lambda f: list(FAMILY_COLORS).index(f) if f in FAMILY_COLORS else 99)
+    handles = [Patch(facecolor=FAMILY_COLORS.get(f, "#888"),
+                     edgecolor="black", label=f) for f in fams]
+    handles.append(Patch(facecolor="white", edgecolor="#DC2626",
+                         linewidth=1.4, label="Pareto frontier"))
+    ax.legend(handles=handles, frameon=False, fontsize=7, loc="lower right",
+              ncol=2)
     ax.grid(True, axis="both", linestyle=":", lw=0.4, alpha=0.5)
     save(fig, "fig_pareto_cost")
 
@@ -496,7 +530,7 @@ def fig_cb_vs_source():
     cb = parse_cb()
     cb = sorted(cb, key=lambda r: r["acc_pass"], reverse=True)
     labels = [LABEL.get(c["config"], c["config"]) for c in cb]
-    fig, ax = plt.subplots(figsize=(6.6, 4.4))
+    fig, ax = plt.subplots(figsize=(6.4, 5.2))
     y = np.arange(len(labels))
     width = 0.4
     ax.barh(y - width / 2, [c["acc_cb"] for c in cb], width,

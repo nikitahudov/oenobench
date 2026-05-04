@@ -3,7 +3,9 @@
 
 We give the full per-domain, per-strategy, and per-difficulty
 breakdowns referenced in Section~\ref{sec:eval}, plus the cost ledger
-and the post-evaluation zero-correct audit.
+and per-config self-preference detail.
+
+\subsection{Per-domain breakdown}
 
 \begin{table}[h]
   \centering
@@ -47,6 +49,8 @@ and the post-evaluation zero-correct audit.
     regulation).}
   \label{fig:domain-heatmap}
 \end{figure}
+
+\subsection{Per-strategy breakdown}
 
 \begin{table}[h]
   \centering
@@ -92,6 +96,8 @@ and the post-evaluation zero-correct audit.
   \label{fig:strategy-heatmap}
 \end{figure}
 
+\subsection{Per-difficulty breakdown and reasoning lift}
+
 \begin{table}[h]
   \centering
   \footnotesize
@@ -123,6 +129,24 @@ and the post-evaluation zero-correct audit.
   \end{tabular}
 \end{table}
 
+\paragraph{On the L2 / L3 / L4 means in Table~\ref{tab:full-difficulty}.}
+Two features of the column averages deserve comment. First, the L2
+mean (68.8\%) is \emph{below} the L3 mean (78.7\%) --- an apparent
+inversion of the difficulty ordering. This is an artefact of the C4
+difficulty re-label (Section~\ref{sec:audit}): many questions
+originally labelled L2 by their generator were promoted to L3, leaving
+behind a residual L2 set that is concentrated in the
+\emph{wine\_business} pillar (the hardest domain by a wide margin,
+Table~\ref{tab:full-domain}). The L3 set, in contrast, was enriched
+with cleanly-stated multi-fact items from the higher-quality scrapers.
+Second, the L3 $\rightarrow$ L4 drop is real and large
+(78.7\%~$\rightarrow$~58.7\%, a 20~pp fall), reflecting that L4 is the
+expert tier where the source fact is genuinely required to answer the
+question; that fall is also where the inter-config spread is widest
+(Section~\ref{sec:eval-rank}), making L4 the most discriminating slice
+for distinguishing models. Both effects are intended outcomes of the
+audit-driven difficulty re-label rather than miscalibration.
+
 \begin{table}[h]
   \centering
   \footnotesize
@@ -145,67 +169,8 @@ and the post-evaluation zero-correct audit.
   \includegraphics[width=0.65\linewidth]{figures/fig_difficulty_calib.pdf}
   \caption{Difficulty calibration: distribution of accuracy across the
     16 configs at each level. The medians sit at L1 96\%, L2 70\%, L3
-    81\%, L4 60\%. The L2$<$L3 inversion is an artifact of the C4
-    re-label: many questions originally tagged L2 by their generator
-    were promoted to L3, leaving the residual L2 set comprising
-    items that were correctly tagged in the first place — a
-    smaller-but-truer L2 partition.}
+    81\%, L4 60\%.}
   \label{fig:difficulty-box}
-\end{figure}
-
-\begin{table}[h]
-  \centering
-  \footnotesize
-  \caption{Cost ledger and cost-per-correct-answer.}
-  \label{tab:cost-ledger}
-  \begin{tabular}{lrrr}
-    \toprule
-    Config & Total cost & Correct ans. & Cost / correct \\
-    \midrule
-    llama-3.1-8b               & \$0.01 & 1{,}976 & \$0.0000 \\
-    llama-3.3-70b              & \$0.04 & 2{,}190 & \$0.0000 \\
-    gemini-2.5-flash           & \$0.12 & 2{,}454 & \$0.0000 \\
-    deepseek-v3                & \$0.12 & 2{,}295 & \$0.0001 \\
-    qwen-2.5-7b                & \$0.12 & 1{,}860 & \$0.0001 \\
-    qwen-2.5-72b               & \$0.15 & 2{,}202 & \$0.0001 \\
-    claude-haiku-4.5           & \$0.44 & 1{,}741 & \$0.0003 \\
-    mistral-large-2411         & \$0.87 & 2{,}256 & \$0.0004 \\
-    gpt-5-mini                 & \$2.82 & 2{,}561 & \$0.0011 \\
-    claude-opus-4.7            & \$3.35 & 2{,}647 & \$0.0013 \\
-    claude-opus-4.7-thinking   & \$3.53 & 2{,}645 & \$0.0013 \\
-    deepseek-r1                & \$10.54 & 2{,}517 & \$0.0042 \\
-    o3                         & \$11.80 & 2{,}729 & \$0.0043 \\
-    gemini-2.5-pro-thinking    & \$13.06 & 2{,}698 & \$0.0048 \\
-    gpt-5                      & \$21.90 & 2{,}704 & \$0.0081 \\
-    gemini-2.5-pro             & \$29.47 & 2{,}669 & \$0.0110 \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-\subsection{Item analysis}
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=0.75\linewidth]{figures/fig_item_histogram.pdf}
-  \caption{Item-correctness distribution. The right tail (k$\geq$15
-    correct) holds 1{,}348 ceiling items (41\%); the left tail
-    (k$\leq$1) holds 99 items, 97 of which were audited post-eval.
-    The bulk of the mass sits in the discriminating middle (k=4--14).}
-  \label{fig:item-histogram}
-\end{figure}
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=0.5\linewidth]{figures/fig_zero_correct_donut.pdf}
-  \caption{Audit of 97 zero-correct items. We reviewed all 97
-    questions every model answered incorrectly: 54 were genuine corpus
-    defects (wrong key, all-correct options, duplicate or equivalent
-    options), 29 were borderline cases that warranted further review
-    (and were dropped after a second-pass review on 2026-05-04), and
-    14 were retained as legitimately hard. The defect rate (56\%
-    among zero-correct items) underlines the value of an empirical
-    post-eval audit alongside automated agents.}
-  \label{fig:zero-correct}
 \end{figure}
 
 \subsection{Self-preference bootstrap CIs}

@@ -2,49 +2,40 @@
 \label{sec:eval}
 
 We evaluate \textbf{16 frontier configurations} on the 3{,}266-question
-release in a single end-to-end run (run id
-\texttt{8b0a0864-f3c6-4ec5-8f3d-e30271b8c3a0}, 120m~34s wall, 52{,}256
-LLM calls, total cost \$98.33 effective). The slate (Slot~1--16)
-combines six within-family cost pairs (e.g.\ Claude Opus vs.\ Haiku,
-Gemini 2.5 Pro vs.\ Flash, GPT-5 vs.\ GPT-5-mini, Llama 3.3~70B vs.\
-3.1~8B, Qwen 2.5~72B vs.\ 7B), four reasoning-mode configurations
-(\texttt{o3}, \texttt{deepseek-r1}, \texttt{gemini-2.5-pro-thinking},
-\texttt{claude-opus-4.7-thinking}), and two additional standard models
-(\texttt{deepseek-v3}, \texttt{mistral-large-2411}). Every config sees
-the same 3{,}266 questions, with single-letter output (A--D) at
-\texttt{max\_tokens=5} and a five-stop fallback. We organise the
-evaluation around five questions, one per subsection.
+release in a single end-to-end run. The slate combines six within-family
+cost pairs (Claude Opus 4.7 vs.\ Claude Haiku 4.5, Gemini 2.5 Pro vs.\
+Gemini 2.5 Flash, GPT-5 vs.\ GPT-5-mini, Llama 3.3 70B vs.\ Llama 3.1
+8B, Qwen 2.5 72B vs.\ Qwen 2.5 7B), four reasoning-mode configurations
+(o3, DeepSeek R1, Gemini 2.5 Pro thinking, Claude Opus 4.7 thinking),
+and two additional standard models (DeepSeek V3, Mistral Large). Every
+config sees the same 3{,}266 questions, with single-letter output
+(A--D) at \texttt{max\_tokens=5} and a five-stop fallback. We organise
+the evaluation around five questions, one per subsection.
 
 \subsection{Overall capability ranking}
 \label{sec:eval-rank}
 
-\begin{figure}[t]
+\begin{figure}[h]
   \centering
   \includegraphics[width=0.86\linewidth]{figures/fig_leaderboard.pdf}
   \caption{Overall accuracy on the 3{,}266-question corpus across 16
-    configurations. Reasoning-mode configs are hatched. Random-baseline
-    (4-option MC) at 25\% is shown as a dotted line.}
+    configurations. Reasoning-mode configs are hatched.}
   \label{fig:leaderboard}
 \end{figure}
 
 OenoBench cleanly stratifies the slate (Figure~\ref{fig:leaderboard}).
-The top tier is led by \textbf{o3 at 83.6\%}, followed by GPT-5 (82.8\%),
-\texttt{gemini-2.5-pro-thinking} (82.6\%), Gemini 2.5 Pro standard
-(81.7\%), and Claude Opus 4.7 (81.0\%, tied between standard and
-thinking modes). A clear band separates frontier ($\geq$80\%) from
-mid-tier (mid-60s to high-70s: Mistral Large 69.1\%, Llama 70B 67.1\%,
-Qwen 72B 67.4\%, DeepSeek V3 70.3\%, Gemini Flash 75.1\%, GPT-5-mini
-78.4\%) and small-tier (low-50s to low-60s: Llama 8B 60.5\%, Qwen 7B
-57.0\%, Claude Haiku 53.3\%). No config performs at random; the spread
-between best and worst is 30~pp, comparable to the spread observed on
-GPQA \citep{rein2024gpqa} but on a domain corpus 30$\times$ smaller and
-fully provenance-tagged.
-
-The Haiku 4.5 result deserves a caveat: parse rate dropped to 80.3\%
-(vs.\ 96--100\% for every other config), driven by truncated outputs at
-\texttt{max\_tokens=5}. We treat unparseable responses as wrong;
-recovering the 19.7\% lost responses would lift Haiku into the
-mid-60s. Difficulty-stratified accuracies (Appendix~\ref{app:eval},
+The top tier is led by \textbf{o3 at 83.6\%}, followed by GPT-5
+(82.8\%), Gemini 2.5 Pro thinking (82.6\%), Gemini 2.5 Pro (81.7\%),
+and Claude Opus 4.7 (81.0\%, tied between standard and thinking modes).
+A clear band separates frontier ($\geq$80\%) from mid-tier (mid-60s
+to high-70s: Mistral Large 69.1\%, Llama 3.3 70B 67.1\%, Qwen 2.5 72B
+67.4\%, DeepSeek V3 70.3\%, Gemini 2.5 Flash 75.1\%, GPT-5-mini 78.4\%)
+and small-tier (low-50s to low-60s: Llama 3.1 8B 60.5\%, Qwen 2.5 7B
+57.0\%, Claude Haiku 4.5 53.3\%). No config performs at random; the
+spread between best and worst is 30~pp, comparable to the spread
+observed on GPQA \citep{rein2024gpqa} but on a domain corpus
+30$\times$ smaller and fully provenance-tagged.
+Difficulty-stratified accuracies (Appendix~\ref{app:eval},
 Table~\ref{tab:full-difficulty}) confirm clean stratification on
 re-labelled difficulty: from 93.6\% (L1) down to \textbf{58.7\% on L4
 expert items}, with frontier configs holding 68--71\% on L4 and small
@@ -53,28 +44,29 @@ configs at 39--45\%.
 \subsection{Reasoning-mode lift}
 \label{sec:eval-reasoning}
 
-\begin{figure}[t]
+\begin{figure}[h]
   \centering
   \includegraphics[width=0.78\linewidth]{figures/fig_reasoning_lift.pdf}
   \caption{Accuracy of reasoning-mode vs.\ standard configurations for
     four families. Numbers above bars: $\delta$ in pp with bootstrap
-    95\% CI from 1{,}000 resamples. Only DeepSeek shows a
-    statistically significant lift; for the other three, zero is inside
-    the CI.}
+    95\% CI from 1{,}000 resamples. Family colours match
+    Figure~\ref{fig:leaderboard}; the hatched bar is the reasoning
+    mode. Only DeepSeek shows a statistically significant lift; for
+    the other three, zero is inside the CI.}
   \label{fig:reasoning}
 \end{figure}
 
 Reasoning-mode lift is concentrated in one family
-(Figure~\ref{fig:reasoning}). \textbf{DeepSeek R1 vs.\ V3:} +6.8~pp
-(95\% CI [+4.6, +8.8]), the only paired contrast whose CI excludes
-zero. Each of \textbf{o3 vs.\ GPT-5} (+0.8~pp [-1.0, +2.6]),
-\textbf{Gemini 2.5 Pro thinking vs.\ standard} (+0.9~pp [-1.0, +2.8]),
-and \textbf{Claude Opus 4.7 thinking vs.\ standard} ($-$0.1~pp [-1.9,
-+1.8]) is statistically indistinguishable from zero. We attribute the
-DeepSeek result to V3 leaving substantial headroom on this domain
-(70.3\%) which R1's chain-of-thought can recover; the three frontier
-cases are likely already near the corpus ceiling on
-parametrically-recallable items. Per-difficulty breakdowns
+(Figure~\ref{fig:reasoning}). \textbf{DeepSeek R1 vs.\ DeepSeek V3:}
+$+$6.8~pp (95\% CI [+4.6, +8.8]), the only paired contrast whose CI
+excludes zero. Each of \textbf{o3 vs.\ GPT-5} ($+$0.8~pp [-1.0, +2.6]),
+\textbf{Gemini 2.5 Pro thinking vs.\ Gemini 2.5 Pro} ($+$0.9~pp [-1.0,
++2.8]), and \textbf{Claude Opus 4.7 thinking vs.\ Claude Opus 4.7}
+($-$0.1~pp [-1.9, +1.8]) is statistically indistinguishable from zero.
+We attribute the DeepSeek result to DeepSeek V3 leaving substantial
+headroom on this domain (70.3\%) which R1's chain-of-thought can
+recover; the three frontier cases are likely already near the corpus
+ceiling on parametrically-recallable items. Per-difficulty breakdowns
 (Appendix~\ref{app:eval}, Table~\ref{tab:reasoning-by-diff}) confirm
 this: reasoning helps DeepSeek across all four difficulty tiers, but
 the frontier reasoning configs are flat against their standard
@@ -85,7 +77,7 @@ domain except DeepSeek (Section~\ref{sec:eval-cost}).
 \subsection{Self-preference bias}
 \label{sec:eval-sps}
 
-\begin{figure}[t]
+\begin{figure}[h]
   \centering
   \begin{minipage}[t]{0.45\linewidth}
     \includegraphics[width=\linewidth]{figures/fig_sps_heatmap.pdf}
@@ -97,7 +89,8 @@ domain except DeepSeek (Section~\ref{sec:eval-cost}).
     matrix; rows are evaluator family, columns are question-generator
     family, diagonal entries are own-family. \emph{Right:} per-config
     Self-Preference Score $\delta = \mathrm{Acc}(\mathrm{own}) -
-    \mathrm{Acc}(\mathrm{other})$ with 95\% bootstrap CI.}
+    \mathrm{Acc}(\mathrm{other})$ with 95\% bootstrap CI; family
+    colours match Figure~\ref{fig:leaderboard}.}
   \label{fig:sps}
 \end{figure}
 
@@ -110,74 +103,67 @@ fingerprints should produce $|\mathrm{SPS}|$ near zero.
 
 The result (Figure~\ref{fig:sps}) is family-dependent.
 \textbf{Anthropic} models show a strong positive SPS:
-$+9.1$~pp~[+6.1,+12.1] for Opus standard, $+9.7$~pp~[+6.5,+13.1] for
-Opus thinking, $+10.0$~pp~[+5.7,+14.5] for Haiku.
+$+$9.1~pp~[+6.1,+12.1] for Claude Opus 4.7, $+$9.7~pp~[+6.5,+13.1] for
+Claude Opus 4.7 thinking, $+$10.0~pp~[+5.7,+14.5] for Claude Haiku 4.5.
 \textbf{OpenAI} is statistically indistinguishable from zero across o3,
-GPT-5, and GPT-5-mini ($-1.7$ to $+1.7$~pp).
+GPT-5, and GPT-5-mini ($-$1.7 to $+$1.7~pp).
 \textbf{Google} models show an unexpected \emph{negative} SPS:
-$-6.1$~pp~[-10.7,-1.8] for Gemini Pro, $-8.0$~pp [-12.3,-3.8] for
-Gemini Pro thinking, and $-10.4$~pp [-15.3,-5.6] for Gemini Flash.
+$-$6.1~pp~[$-$10.7,$-$1.8] for Gemini 2.5 Pro, $-$8.0~pp~[$-$12.3,$-$3.8]
+for Gemini 2.5 Pro thinking, and $-$10.4~pp~[$-$15.3,$-$5.6] for
+Gemini 2.5 Flash.
 The cross-family matrix (Figure~\ref{fig:sps}, left) traces the
 cause: Google-generated questions are uniformly harder for everyone
 (46--76\% across rows), while Anthropic-generated questions are
 uniformly easier for Anthropic (77.4\%) but typical for others
-(65--86\%). We interpret the Anthropic $+9$~pp gap as a residual
+(65--86\%). We interpret the Anthropic $+$9~pp gap as a residual
 stylistic fingerprint that pre-release paraphrase passes did not
-neutralise; the Google $-8$~pp gap suggests Google generators produce
+neutralise; the Google $-$8~pp gap suggests Google generators produce
 questions that are harder \emph{by phrasing}, not by leak. Both
-findings are first-class disclosures with the released
-corpus.
+findings are first-class disclosures with the released corpus.
 
 \subsection{Cost efficiency}
 \label{sec:eval-cost}
 
-\begin{figure}[t]
+\begin{figure}[h]
   \centering
   \includegraphics[width=0.86\linewidth]{figures/fig_pareto_cost.pdf}
   \caption{Total OpenRouter cost (log scale) versus accuracy on the
-    full 3{,}266-question slate. Pareto frontier (red dashed)
-    illustrates the cost-vs-quality trade-off: Llama-8B and Llama-70B
-    anchor the cheap end, GPT-5-mini at \$2.82 dominates everything
-    cheaper, and \texttt{o3} at \$11.80 dominates everything more
-    accurate.}
+    full 3{,}266-question slate. Family colours match
+    Figure~\ref{fig:leaderboard}; the Pareto frontier (red dashed)
+    illustrates the cost-vs-quality trade-off.}
   \label{fig:pareto}
 \end{figure}
 
 The 16-config slate spans nearly four orders of magnitude in evaluation
-cost: \texttt{llama-3.1-8b} costs \$0.01 for the full run while
-\texttt{gemini-2.5-pro} costs \$29.47 (Figure~\ref{fig:pareto}). The
-Pareto frontier consists of five configs: \textbf{Llama 3.1~8B}
-(60.5\%~/~\$0.01), \textbf{Gemini 2.5 Flash} (75.1\%~/~\$0.12),
-\textbf{GPT-5-mini} (78.4\%~/~\$2.82), \textbf{Claude Opus 4.7}
-(81.0\%~/~\$3.35), and \textbf{o3} (83.6\%~/~\$11.80). Two of the most
-expensive configs (Gemini 2.5 Pro standard at \$29.47 and GPT-5 at
-\$21.90) are dominated by cheaper Pareto neighbours --- Gemini Pro by
-o3, and GPT-5 by Opus / o3 / GPT-5-mini --- because their additional
-spend buys output tokens, not better wine answers. Reasoning-mode lift
+cost: Llama 3.1 8B costs \$0.01 for the full run while Gemini 2.5 Pro
+costs \$29.47 (Figure~\ref{fig:pareto}). The Pareto frontier consists
+of five configs: \textbf{Llama 3.1 8B} (60.5\%~/~\$0.01),
+\textbf{Gemini 2.5 Flash} (75.1\%~/~\$0.12), \textbf{GPT-5-mini}
+(78.4\%~/~\$2.82), \textbf{Claude Opus 4.7} (81.0\%~/~\$3.35), and
+\textbf{o3} (83.6\%~/~\$11.80). Two of the most expensive configs
+(Gemini 2.5 Pro at \$29.47 and GPT-5 at \$21.90) are dominated by
+cheaper Pareto neighbours --- Gemini 2.5 Pro by o3, and GPT-5 by
+Claude Opus 4.7 / o3 / GPT-5-mini --- because their additional spend
+buys output tokens, not better wine answers. Reasoning-mode lift
 (Section~\ref{sec:eval-reasoning}) translates into a Pareto win only
-for DeepSeek R1, which is itself dominated by GPT-5-mini in this corpus.
-The overall efficient-accuracy boundary therefore favours \emph{small
-proprietary} (GPT-5-mini, Opus standard) and one reasoning model (o3)
-over either reasoning-everywhere or scale-everywhere strategies.
+for DeepSeek R1, which is itself dominated by GPT-5-mini in this
+corpus. The overall efficient-accuracy boundary therefore favours
+\emph{small proprietary} (GPT-5-mini, Claude Opus 4.7) and one
+reasoning model (o3) over either reasoning-everywhere or
+scale-everywhere strategies.
 
 \subsection{Closed-book vs.\ source-grounded performance}
 \label{sec:eval-cb}
 
-\begin{figure}[t]
+\begin{figure}[h]
   \centering
-  \begin{minipage}[t]{0.58\linewidth}
-    \includegraphics[width=\linewidth]{figures/fig_cb_vs_source.pdf}
-  \end{minipage}\hfill
-  \begin{minipage}[t]{0.40\linewidth}
-    \includegraphics[width=\linewidth]{figures/fig_cb_scatter.pdf}
-  \end{minipage}
-  \caption{Performance partitioned by audit verdict.
-    \emph{Left:} Per-config accuracy on B2-flagged closed-book-solvable
-    questions ($n{=}1601$, yellow) vs.\ contextual / source-grounded
-    questions ($n{=}1665$, blue). \emph{Right:} same data as a
-    scatter; the diagonal is parity. Every config sits well above
-    parity, with $\delta$ ranging from $+26.6$~pp (GPT-5) to
-    $+39.6$~pp (DeepSeek V3).}
+  \includegraphics[width=0.78\linewidth]{figures/fig_cb_vs_source.pdf}
+  \caption{Performance partitioned by audit verdict. Per-config
+    accuracy on B2-flagged closed-book-solvable questions
+    ($n{=}1{,}601$, yellow) vs.\ contextual / source-grounded
+    questions ($n{=}1{,}665$, blue). Every config gains substantially
+    on the closed-book slice, with $\delta$ ranging from $+$26.6~pp
+    (GPT-5) to $+$39.6~pp (DeepSeek V3).}
   \label{fig:cb}
 \end{figure}
 
@@ -193,17 +179,18 @@ per-config accuracy on each slice.
 
 The contrast (Figure~\ref{fig:cb}) is the largest single effect we
 observe in the entire evaluation. The mean per-config $\delta$
-(closed-book minus contextual) is \textbf{+32.6~pp}, ranging from
-$+26.6$~pp (GPT-5) to $+39.6$~pp (DeepSeek V3), with every CI excluding
-zero. Two interpretations are mutually consistent. \emph{First}, the
-B2-flagged slice is meaningfully easier --- not because all 1{,}601
-questions are trivial, but because they overlap heavily with the
-parametric wine knowledge that frontier models acquired during
-pre-training. \emph{Second}, the contextual slice is where wine
-knowledge actually has to be reasoned through the source fact:
-\textbf{Claude Opus and o3 score $\sim$70\% on the contextual slice,
-the small models drop to $\approx$45\%}, and the inter-config spread
-widens from 27~pp on the easy slice to 33~pp on the hard slice. For
+(closed-book minus contextual) is \textbf{$+$32.6~pp}, ranging from
+$+$26.6~pp (GPT-5) to $+$39.6~pp (DeepSeek V3), with every CI
+excluding zero. Two interpretations are mutually consistent.
+\emph{First}, the B2-flagged slice is meaningfully easier --- not
+because all 1{,}601 questions are trivial, but because they overlap
+heavily with the parametric wine knowledge that frontier models
+acquired during pre-training. \emph{Second}, the contextual slice is
+where wine knowledge actually has to be reasoned through the source
+fact: \textbf{Claude Opus 4.7 and o3 score $\sim$70\% on the
+contextual slice, the small models drop to $\approx$45\%}, and the
+inter-config spread widens from 27~pp on the easy slice to 33~pp on
+the hard slice. For
 benchmark consumers, the contextual slice is the more discriminative
 test of wine reasoning capability; for benchmark contributors, the
 B2-flagged slice is a calibrated indicator of how much of any given

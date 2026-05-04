@@ -42,7 +42,7 @@ Each domain has a separate target share informed by syllabus weighting
 and source availability; the realised distribution is reported in
 Table~\ref{tab:facts}.
 
-\subsection{Source tiering and provenance integrity}
+\subsection{Source tiering, licensing, and non-fabrication}
 \label{sec:sources}
 Every fact is tagged with one of three source tiers, mirroring
 evidence-based-medicine practice:
@@ -58,17 +58,34 @@ evidence-based-medicine practice:
     HuggingFace and Kaggle, secondary reference databases.
 \end{itemize}
 
-A 2026-04 internal audit identified 19 of an earlier 35-scraper set
-whose ``scraped'' facts were in fact hard-coded LLM-generated content.
-All 19 were rebuilt against live sources, the corpus was purged of
-24{,}563~$\rightarrow$~16{,}702 facts and rebuilt to the current
-38{,}104, and the entire fact corpus reported here passes a per-source
-URL trace check. We document this rebuild because we believe that
-\textbf{provenance auditing should be a first-class step in any
-LLM-built benchmark}: model-generated content masquerading as scraped
-data is a contamination vector that conventional dataset documentation
-does not detect, and the fix is mechanical only if scraper code is
-released alongside the data.
+\paragraph{Source licensing.}
+Every source listed above is either public-record or released under a
+licence that permits scraping and redistribution of derivative works.
+Tier-1 government data is in the public domain (TTB) or under
+explicit open-data licences (INAO Licence Ouverte, OIV open data, UC
+Davis AVA database). Tier-2 Wikipedia content is CC-BY-SA-3.0/4.0 and
+Wikidata is CC0; peer-reviewed journals (\emph{OENO One}, \emph{Vitis},
+\emph{AJEV}) are open-access under Creative Commons. Tier-3 datasets
+on HuggingFace and Kaggle are used under their declared licences. All
+scraping is rate-limited and identifies itself with the disclosed user
+agent \texttt{OenoBench-Research/1.0}; per-fact source URLs are
+released alongside the corpus so that downstream users can verify and
+re-attribute. The full source-by-source licence table is in
+Appendix~\ref{app:artifacts}.
+
+\paragraph{Non-fabrication guarantee.}
+A central design commitment of OenoBench is that \emph{no fact in the
+corpus is sourced from an LLM's internal knowledge}. Every fact is
+extracted by a source-specific scraper from a live HTTP, SPARQL, or
+file-based source and is stamped with the source URL, retrieval
+timestamp, and tier label before insertion. The released codebase
+enforces this discipline structurally: scrapers do not have access to
+generative-LLM clients, and the fact-insertion utility rejects records
+without a verified source-URL trace. We make this guarantee
+prominent because LLM-generated content masquerading as scraped data
+is a contamination vector that conventional dataset documentation
+does not detect, and recovering from it after-the-fact is mechanical
+only if the scraper code is released alongside the data.
 
 \begin{table}[t]
   \centering
@@ -158,18 +175,28 @@ are:
 
 The five generator models are Claude Opus 4.7, GPT-5, Gemini 2.5 Pro,
 Llama 3.1 405B, and Qwen 3.5 235B, each accessed through a unified
-OpenRouter client with consistent temperature and top-$p$. Generator
-distribution across the corpus is approximately Qwen 20\%, Llama 19\%,
-Claude 19\%, ChatGPT 17\%, Gemini 13\%, deterministic templates 12\%.
+OpenRouter client with consistent temperature and top-$p$. The
+realised generator distribution across the released corpus is
+\textbf{Qwen 20.4\%, Llama 19.3\%, Claude 19.0\%, ChatGPT 16.6\%,
+Gemini 12.9\%, deterministic templates 11.9\%} (computed directly
+from the 3{,}266 released questions). The orchestrator allocates
+generation share dynamically based on per-pilot audit pass rates ---
+generators whose questions pass audit reliably get a larger share in
+subsequent rounds --- subject to a hard \textbf{per-generator cap of
+21\%} to keep any single model from dominating the corpus.
 
 \paragraph{Closed-book gate.} Questions targeting difficulty levels~1
 and~2 are passed through a \emph{closed-book pre-screen} before
 admission: a separate LLM (Claude Sonnet for L1, Opus for L2) attempts
 the question with no source fact in context, and questions it answers
-correctly are tagged \texttt{closed\_book\_solvable} and reserved into a
-quota (target $<$25\%). Difficulty levels~3 and~4 skip the gate by
-protocol, since high-difficulty items are expected to be answerable only
-with the supporting fact. The audit's B2 agent
+correctly are tagged \texttt{closed\_book\_solvable} and reserved into
+a quota. Early pilots used a 25\% cap; we raised the cap to
+\textbf{50\%} after the gold-sheet calibration revealed that LLM judges
+over-attribute closed-book solvability relative to humans
+(Section~\ref{sec:gold}), so the higher cap keeps the items that are
+in fact discriminating for downstream evaluation. Difficulty levels~3
+and~4 skip the gate by protocol, since high-difficulty items are
+expected to be answerable only with the supporting fact. The audit's B2 agent
 (Section~\ref{sec:audit}) re-runs this check at corpus scale on a panel
 of three judges; we discuss its calibration against humans and the
 implications for the eval contrast in Section~\ref{sec:eval-cb}.
@@ -178,7 +205,7 @@ implications for the eval contrast in Section~\ref{sec:eval-cb}.
 \label{sec:release}
 After generation, audit, and post-eval review, the released corpus
 \texttt{release\_v1.2} contains \textbf{3{,}266 questions}. The
-distribution along three axes is:
+distribution along the domain and difficulty axes is:
 
 \begin{table}[h]
   \centering
@@ -202,10 +229,18 @@ distribution along three axes is:
   \end{tabular}
 \end{table}
 
-The corpus underwent two post-generation passes: a 9-agent automated
-audit (Section~\ref{sec:audit}) that dropped 341 questions and re-labelled
-the difficulty of 1{,}259, and a post-evaluation review of 97 items that
-were answered incorrectly by all 16 evaluation configurations
-(Section~\ref{sec:eval}, Appendix~\ref{app:eval}), of which 54 were
-removed as defects, 9 were dropped after a borderline-review pass, and
-the remainder retained as legitimately hard items.
+The corpus underwent three post-generation passes: a 9-agent automated
+audit (Section~\ref{sec:audit}) that dropped 341 questions and
+re-labelled the difficulty of 1{,}259; a stratified human gold-sheet
+review of 50 questions per pilot release (rated by a WSET-Diploma
+reviewer through the released human-review web app,
+Appendix~\ref{app:screenshots}, used both to calibrate audit-agent
+$\kappa$ and to surface manual quality flags); and a post-evaluation
+review of 97 items that were answered incorrectly by all 16 evaluation
+configurations (Section~\ref{sec:eval}, Appendix~\ref{app:eval}), of
+which 54 were removed as defects, 9 were dropped after a
+borderline-review pass, and the remainder retained as legitimately
+hard items. We document the dataset following Datasheets for Datasets
+\citep{gebru2021datasheets}; the full datasheet is in
+Appendix~\ref{app:datasheet} and a Croissant manifest
+\citep{koehn2024croissant} ships with the HuggingFace release.

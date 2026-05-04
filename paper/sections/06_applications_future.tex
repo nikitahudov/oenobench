@@ -8,21 +8,26 @@ feasibility.
 
 \subsection{Closing the wine-knowledge gap in low-cost models}
 The cost-vs-accuracy frontier (Section~\ref{sec:eval-cost}) shows that
-small open-weight models (Llama 8B, Qwen 7B, Llama 70B) trail
-proprietary frontier models by 20--30~pp on this benchmark, even though
-the gap shrinks to 10--15~pp on broad benchmarks like MMLU. The
+small open-weight models (Llama 3.1 8B, Qwen 2.5 7B, Llama 3.3 70B)
+trail proprietary frontier models by 20--30~pp on this benchmark, even
+though the gap shrinks to 10--15~pp on broad benchmarks like MMLU. The
 38{,}104-fact corpus, with paragraph-length explanations grounded in
-source URLs, is a natural supervised-fine-tuning target for a
-\emph{wine-specialist} small model. Our preliminary plan is a two-stage
-recipe: (i) continued pre-training on the atomic-fact corpus to inject
-named-entity coverage, and (ii) supervised fine-tuning on the held-out
-quartile of OenoBench questions plus their fact provenance. The
-contextual / source-grounded slice (Section~\ref{sec:eval-cb}) provides
-a clean evaluation surface that is harder to game by parametric
-memorisation, so the gain measured against frontier models is a
-faithful proxy for genuine wine reasoning. We expect a Llama-70B-class
-model to recover the bulk of the GPT-5-mini gap at $\approx$1\% of
-proprietary inference cost, opening realistic deployment paths for
+source URLs, is a natural \emph{supervised fine-tuning} target for a
+wine-specialist small model. Our preliminary plan is a two-stage
+recipe: (i) instruction-style fine-tuning on a held-out quartile of
+the released questions paired with their supporting facts, so the
+model learns to consume a source fact and reason through it; and (ii)
+LoRA adaptation on the full 38{,}104-fact corpus, which the released
+schema exposes as ready-made fact-question-source triples. Both
+stages are accessible to anyone with consumer GPUs and the released
+data --- they do not require pre-training compute or proprietary
+weights. The contextual / source-grounded slice
+(Section~\ref{sec:eval-cb}) provides a clean evaluation surface that
+is harder to game by parametric memorisation, so the gain measured
+against frontier models is a faithful proxy for genuine wine
+reasoning. We expect a Llama-3.3-70B-class model adapted this way to
+recover the bulk of the GPT-5-mini gap at $\approx$1\% of proprietary
+inference cost, opening realistic deployment paths for
 sommelier-tooling and wine-education applications that are
 cost-sensitive at high volume.
 
@@ -43,10 +48,12 @@ in collaboration with industry partners along three personas:
     context; model outputs a blending plan; rated by working
     winemakers on technical correctness, regulatory compliance, and
     stylistic intent.
-  \item \emph{Buyer / merchant $\rightarrow$ vintage strategy.} Market
-    data, weather records, and producer context; model outputs an
-    allocation recommendation; rated by experienced buyers against
-    actual market outcomes the following season.
+  \item \emph{Viticulturist $\rightarrow$ vineyard decisions.}
+    Multi-year weather records, soil and disease-pressure reports,
+    canopy and yield data fed in as context; the model recommends
+    canopy-management, irrigation, harvest-timing, and pest-control
+    interventions; rated by working viticulturists against the
+    decisions actually taken in the same vintage.
 \end{itemize}
 
 Such a dataset cannot be built from scraped facts alone --- it requires
@@ -69,12 +76,9 @@ enforcement, (iii) multi-strategy multi-model question generation with
 a per-model quota, (iv) an automated multi-agent audit calibrated
 against humans via $\kappa$, and (v) a closed-book pre-screen that
 isolates parametric leakage --- are domain-agnostic. We have
-implemented them as separable modules with clear interfaces
-(\texttt{src/scrapers/\_fact\_processing.py},
-\texttt{src/generators/orchestrator.py}, \texttt{src/qa/orchestrator.py},
-\texttt{src/review\_app/}); replacing the source-tier configuration
-and the domain taxonomy is sufficient to retarget to a different
-field.
+implemented them as separable modules with clear interfaces;
+replacing the source-tier configuration and the domain taxonomy is
+sufficient to retarget the pipeline to a different field.
 
 We see three near-term targets. First, \emph{horticulture and
 agronomy} share many of wine's structural features (regulated

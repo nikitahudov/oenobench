@@ -1,6 +1,18 @@
 \section{Additional Methodology Detail}
 \label{app:methodology}
 
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figures/diagram_quality_assurance.png}
+  \caption{Multi-agent audit architecture. Candidate questions are
+    fanned out to four teams; each team independently emits per-question
+    verdicts. Critical \textsc{fail} signals route the question to the
+    drop pool; C4 difficulty disagreements route to relabel; otherwise
+    the question is kept in \texttt{release\_v1.2}. Every agent is
+    calibrated against the human gold sheet via Cohen's $\kappa$.}
+  \label{fig:audit-app}
+\end{figure}
+
 \subsection{Atomic fact extraction pipeline}
 The atomic-fact extractor (\texttt{src/scrapers/\_fact\_processing.py})
 applies five sequential filters to each candidate sentence:
@@ -88,11 +100,16 @@ runs a per-difficulty model:
     be answerable only with the source fact.
 \end{itemize}
 
-The gate's role in generation is to enforce a corpus-level cap of 25\%
-on closed-book-solvable items; the audit's B2 agent later re-runs the
-check at corpus scale on a tri-judge panel. Failures are not dropped;
-they are reserved into the closed-book slice and used for the
-analytic partition in Section~\ref{sec:eval-cb}.
+The gate's role in generation is to enforce a corpus-level cap on
+closed-book-solvable items; early pilots used a 25\% cap, but it was
+\textbf{raised to 50\%} after the gold-sheet calibration revealed that
+the LLM panel over-attributes closed-book solvability relative to
+humans (Section~\ref{sec:gold}), so the higher cap retains the items
+that are in fact discriminating in evaluation. The audit's B2 agent
+later re-runs the check at corpus scale on a tri-judge panel.
+Failures are not dropped; they are reserved into the closed-book
+slice and used for the analytic partition in
+Section~\ref{sec:eval-cb}.
 
 \subsection{Audit agent specifications}
 Each agent is a versioned Python module under \texttt{src/qa/agents/}.

@@ -12,10 +12,8 @@
     remain accessible via revision tags.
   \item \textbf{Code (GitHub).}
     \url{https://github.com/nikitahudov/oenobench} — full pipeline:
-    35 scrapers, 5 question generators, 9 audit agents, the human
+    35 scrapers, 5 question generators, 14 audit agents, the human
     review web app, and the monitoring dashboard. Apache 2.0.
-  \item \textbf{Pipeline diagrams.} Included in
-    \texttt{docs/figures/} as Mermaid (.mmd), PNG, and SVG.
   \item \textbf{Process log.} \texttt{docs/PROCESS\_LOG.md} —
     chronological lab-notebook of every phase shipped, with sources,
     methodology, quality-control counts, and decision rationale, in
@@ -89,35 +87,50 @@ Figure~\ref{fig:schema}.
 
 The full evaluation reported in Section~\ref{sec:eval} ran in
 \textbf{120 minutes 34 seconds} on a single VM driving 16 OpenRouter
-configurations in parallel. Total LLM API spend across construction
-was approximately:
-\begin{itemize}\itemsep -1pt
-  \item Generation pipeline: \$160 (across audit pilots v1--v16 and
-    the final \texttt{release\_v1} build).
-  \item Audit pipeline (release\_v1.2 cycle): \$76.
-  \item Evaluation (16 configs × 3{,}266 Q): \$98.33 effective
-    OpenRouter cost.
-\end{itemize}
-No GPU compute was used; all model inference was via OpenRouter (a
-unified API gateway). The release artefacts include all per-call
-telemetry (provider, tokens, reasoning configuration, p50/p95
-latency, OR-authoritative cost) for the full evaluation run.
+configurations in parallel. \textbf{Total LLM API spend across the
+entire project was \$783}, paid out-of-pocket to OpenRouter and
+covering all generation pilots, audit cycles, gold-sheet calibration
+runs, and the final 16-config evaluation. No GPU compute was used;
+all model inference was via OpenRouter (a unified API gateway). The
+release artefacts include all per-call telemetry (provider, tokens,
+reasoning configuration, p50/p95 latency, OR-authoritative cost) for
+the full evaluation run; the per-config cost ledger is reproduced
+inline as Table~\ref{tab:cost-ledger-app}.
+
+\begin{table}[h]
+  \centering
+  \footnotesize
+  \caption{Per-config cost ledger for the full 16-config evaluation
+    (3{,}266 questions per config). Effective OpenRouter spend.}
+  \label{tab:cost-ledger-app}
+  \begin{tabular}{lrrr}
+    \toprule
+    Config & Total cost & Correct ans. & Cost / correct \\
+    \midrule
+    llama-3.1-8b               & \$0.01 & 1{,}976 & \$0.0000 \\
+    llama-3.3-70b              & \$0.04 & 2{,}190 & \$0.0000 \\
+    gemini-2.5-flash           & \$0.12 & 2{,}454 & \$0.0000 \\
+    deepseek-v3                & \$0.12 & 2{,}295 & \$0.0001 \\
+    qwen-2.5-7b                & \$0.12 & 1{,}860 & \$0.0001 \\
+    qwen-2.5-72b               & \$0.15 & 2{,}202 & \$0.0001 \\
+    claude-haiku-4.5           & \$0.44 & 1{,}741 & \$0.0003 \\
+    mistral-large-2411         & \$0.87 & 2{,}256 & \$0.0004 \\
+    gpt-5-mini                 & \$2.82 & 2{,}561 & \$0.0011 \\
+    claude-opus-4.7            & \$3.35 & 2{,}647 & \$0.0013 \\
+    claude-opus-4.7-thinking   & \$3.53 & 2{,}645 & \$0.0013 \\
+    deepseek-r1                & \$10.54 & 2{,}517 & \$0.0042 \\
+    o3                         & \$11.80 & 2{,}729 & \$0.0043 \\
+    gemini-2.5-pro-thinking    & \$13.06 & 2{,}698 & \$0.0048 \\
+    gpt-5                      & \$21.90 & 2{,}704 & \$0.0081 \\
+    gemini-2.5-pro             & \$29.47 & 2{,}669 & \$0.0110 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
 \subsection{Test status}
 
 771 of 771 unit tests pass on \texttt{main} as of the camera-ready
 build. Tests cover the fact-processing pipeline, the five generation
-strategies, all nine audit agents, the orchestrator, the closed-book
+strategies, all 14 audit agents, the orchestrator, the closed-book
 gate, the eval harness (slot dispatch, cost computation,
 reasoning-mode prompt assembly), and the review-app endpoints.
-
-\subsection{Anonymisation note}
-
-For double-blind submission, the public-facing URLs in this paper are
-mirrored to anonymous fora as documented in \texttt{docs/ANONYMIZATION\_PLAN.md}.
-The HuggingFace dataset is mirrored at an anonymous handle, the
-GitHub repository is exposed via \texttt{anonymous.4open.science}, and
-all author/funding declarations are blanked in the OpenReview
-submission. The camera-ready will swap all anonymous URLs back to
-their canonical equivalents; the mapping is preserved in the
-anonymisation plan file in the released code.

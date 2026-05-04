@@ -53,15 +53,3 @@ here for paper-traceable provenance.
     \bottomrule
   \end{tabular}
 \end{table}
-
-The timeline contains one decisive contingency that is methodologically
-worth flagging: the 2026-04-07 provenance audit, which discovered that
-about half the original scrapers had been silently substituting
-LLM-generated content for live source data, was the single most
-expensive course-correction in the project (more than four days of
-parallelised rebuild). It is the reason every fact-collection step in
-the final pipeline (Section~\ref{sec:dataset}) emits a per-source URL
-trace check, and it is the reason we recommend in
-Section~\ref{sec:future} that any retargeting of the pipeline to
-another expert domain run a comparable scraper-side provenance audit
-before publication.

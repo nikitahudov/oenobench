@@ -46,14 +46,10 @@ when calibrated against a human gold sheet, reveals that LLM judges
 themselves over-report leakage by an order of magnitude --- a finding
 with broader implications for the LLM-as-judge paradigm.
 
-\paragraph{Dataset documentation.} We follow Datasheets for Datasets
-\citep{gebru2021datasheets}, ship a Croissant manifest
-\citep{koehn2024croissant} with the HuggingFace release, and publish a
-full audit findings table to support inspection in the spirit of Model
-Cards \citep{mitchell2019modelcards}. Wine specifically has appeared in
-NLP only as a substrate for review-text generation, recommendation
+\paragraph{Wine in NLP.} Wine has previously appeared in NLP only as a
+substrate for review-text generation, recommendation
 \citep{chen2014winerec}, taxonomy learning \citep{lefever2017winenlp},
-and judge-reliability studies \citep{hodgson2017winereviews}; OenoBench
-is the first benchmark that targets structured factual knowledge of
-viticulture, winemaking, and wine regions evaluated against frontier
-LLMs.
+and judge-reliability studies \citep{hodgson2017winereviews}.
+OenoBench is the first benchmark that targets \emph{structured factual
+knowledge} of viticulture, winemaking, and wine regions evaluated
+against frontier LLMs.

@@ -2,72 +2,81 @@
 \label{sec:audit}
 
 The audit pipeline runs every generated question through nine automated
-agents organised into four teams (Figure~\ref{fig:audit}). Each agent
-emits a per-question signal in $\{\textsc{pass}, \textsc{warn},
-\textsc{fail}\}$ and signals are calibrated against a human-reviewed
-gold sheet using Cohen's $\kappa$. Agents whose human agreement falls
-below threshold are downweighted to advisory-only, on the principle that
-an automated judge whose verdict humans cannot reproduce should not gate
-question admission. A separate human-review web application
+agents organised into four teams. Each agent emits a per-question
+signal in $\{\textsc{pass}, \textsc{warn}, \textsc{fail}\}$ and signals
+are calibrated against a human-reviewed gold sheet using Cohen's
+$\kappa$. Agents whose human agreement falls below threshold are
+downweighted to advisory-only, on the principle that an automated judge
+whose verdict humans cannot reproduce should not gate question
+admission. A separate human-review web application
 (Appendix~\ref{app:screenshots}) collects the gold-sheet ratings from
 WSET-Diploma reviewers and is itself part of the released artifact set.
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=0.92\linewidth]{figures/diagram_quality_assurance.png}
-  \caption{Five-layer quality assurance stack. Per-fact and per-scraper
-    checks (L1--L2) gate ingestion; cross-database consistency and
-    provenance audit (L3--L4) gate corpus-level promotion; the
-    multi-agent audit and human gold-sheet review (L5) gate the final
-    release. Each layer feeds rejection logs back to the source.}
-  \label{fig:audit}
-\end{figure}
+A team-by-team architecture diagram (Figure~\ref{fig:audit-app},
+Appendix~\ref{app:eval}) shows how candidate questions flow through
+the four teams to the drop / relabel / keep verdict.
 
 \subsection{Team architecture}
 \label{sec:audit-arch}
 
 \begin{table}[h]
   \centering
-  \caption{Nine audit agents across four teams. Static agents use no
+  \caption{All 14 audit agents across four teams. Static agents use no
     LLM; tri-judge agents use a panel of three frontier models with
-    majority voting.}
+    majority voting. The \emph{Run} column indicates whether the agent
+    is invoked on every question (\textsc{always}) or only when an
+    upstream agent flags a corpus-level concern (\textsc{esc}, for
+    \emph{escalation-gated}).}
   \label{tab:agents}
   \footnotesize
-  \begin{tabular}{llp{0.55\linewidth}}
+  \begin{tabular}{lllp{0.46\linewidth}}
     \toprule
-    Team & Agent & Function \\
+    Team & Agent & Run & Function \\
     \midrule
-    \multirow{4}{*}{A. Static}    & A1 LexicalHygiene      & Regex sweep for vague phrasing, marketing language, meta-questions. \\
-                                  & A2 BiasStats           & $\chi^2$ on correct-answer position; Mann--Whitney $U$ on correct-vs-distractor length. \\
-                                  & A3 FactEcho            & Longest-common-substring ratio between question text and source fact (\textsc{fail} at LCS$\geq$0.65). \\
-                                  & A4 TemplateFingerprint & POS-bigram logistic regression detector for template-induced stylistic regularities (held-out AUC 0.84). \\
+    \multirow{4}{*}{A. Static}
+      & A1 LexicalHygiene        & \textsc{always} & Regex sweep for vague phrasing, marketing language, meta-questions. \\
+      & A2 BiasStats             & \textsc{always} & $\chi^2$ on correct-answer position; Mann--Whitney $U$ on correct-vs-distractor length. \\
+      & A3 FactEcho              & \textsc{always} & Longest-common-substring ratio between question text and source fact (\textsc{fail} at LCS$\geq$0.65). \\
+      & A4 TemplateFingerprint   & \textsc{always} & POS-bigram logistic regression detector for template-induced stylistic regularities (held-out AUC 0.84). \\
     \midrule
-    \multirow{2}{*}{B. Tri-judge} & B1 TriJudgeAnswer      & Claude / GPT / Gemini panel reads question + source fact and votes on the marked-correct option. \\
-                                  & B2 ClosedBookSolvability & Same panel, source fact \emph{withheld}: can the question be answered from world knowledge alone? \\
+    \multirow{5}{*}{B. Tri-judge}
+      & B1 TriJudgeAnswer        & \textsc{always} & Claude / GPT / Gemini panel reads question + source fact and votes on the marked-correct option. \\
+      & B2 ClosedBookSolvability & \textsc{always} & Same panel, source fact \emph{withheld}: can the question be answered from world knowledge alone? \\
+      & B3 UbiquityRisk          & \textsc{always} & Internationally-grown grape stem $\times$ region-class answer $\Rightarrow$ ambiguity flag. \\
+      & B4 Ambiguity             & \textsc{esc}    & Tri-judge re-read flags questions with $>$1 defensible answer; invoked when B1 dissent rate elevated. \\
+      & B5 VerifierSkip          & \textsc{esc}    & Self-consistency probe across re-prompted panels; invoked on disputed B1 verdicts. \\
     \midrule
-    \multirow{2}{*}{C. Determ.}   & C2 CategoryLeak        & Wine-type distractor validation; flags red/white/sparkling category mismatches. \\
-                                  & C4 DifficultyAudit     & Gemini Pro re-rates difficulty; \textsc{fail/warn} when delta $\geq$2 from assigned. \\
+    \multirow{4}{*}{C. Determin.}
+      & C1 DistractorDifficulty  & \textsc{esc}    & Embedding-distance distractor analysis; invoked when A2 reports length skew. \\
+      & C2 CategoryLeak          & \textsc{always} & Wine-type distractor validation; flags red/white/sparkling category mismatches. \\
+      & C3 SourceSwap            & \textsc{esc}    & Substitutes alternate source facts to test answer stability; invoked on B1/B2 disagreement. \\
+      & C4 DifficultyAudit       & \textsc{always} & Gemini Pro re-rates difficulty; \textsc{fail/warn} when delta $\geq$2 from assigned. \\
     \midrule
-    D. Population                  & D1/D3 Skew \& SPS      & Country/sub-domain over-representation; per-generator self-vs-other accuracy. \\
-                                  & B3 UbiquityRisk        & Internationally-grown grape stem $\times$ region-class answer $\Rightarrow$ ambiguity flag. \\
+    \multirow{3}{*}{D. Corpus stats}
+      & D1 SelfPreference        & \textsc{always} & Per-generator-family own-vs-other accuracy on a held-out probe; corpus-level signal. \\
+      & D2 DedupCalibration      & \textsc{esc}    & Near-duplicate audit at cosine $\geq$0.92; invoked on suspicious cluster signals. \\
+      & D3 SkewAudit             & \textsc{always} & Country / sub-domain over-representation $\chi^2$. \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-Five additional agents (C1 DistractorDifficulty, C3 SourceSwap, B4
-Ambiguity, D2 DedupCalibration, plus an escalation-only B5 verifier) are
-implemented but \emph{escalation-gated}: they are invoked only when an
-upstream agent flags a corpus-level concern. This deferred-execution
-policy keeps routine audit cost bounded ($\sim$\$76 for the full corpus
-audit reported here, 5h~22m wall) while preserving full coverage when a
-defect class is suspected. The full audit code, prompts and thresholds
-are released alongside the corpus
-(Appendix~\ref{app:methodology}).
+Of the 14 agents, \textbf{nine are always-run} on every candidate
+question; the remaining \textbf{five are escalation-gated} and are
+invoked only when an upstream agent flags a corpus-level concern. This
+deferred-execution policy keeps routine audit cost bounded
+($\sim$\$76 for the full corpus audit reported here, 5h~22m wall)
+while preserving full coverage when a defect class is suspected. The
+full audit code, prompts, and thresholds are released alongside the
+corpus (Appendix~\ref{app:methodology}).
 
 \subsection{Gold-sheet calibration}
 \label{sec:gold}
 A human gold sheet of 50 stratified questions per release is rated by a
-WSET-Diploma reviewer against eight rubrics:
+WSET-Diploma reviewer through the released human-review web app
+(Appendix~\ref{app:screenshots}). \textbf{15+ gold-sheet rounds} have
+been completed across preliminary releases (audit pilots v1--v16) so
+that the agent thresholds and $\kappa$ values reported here represent
+calibration aggregated over an iterative cycle, not a single batch.
+Each round rates against eight rubrics:
 \texttt{answer\_correct}, \texttt{distractors\_plausible},
 \texttt{not\_ambiguous}, \texttt{source\_faithful},
 \texttt{needs\_source}, \texttt{no\_vague\_language},
@@ -92,8 +101,8 @@ calibrated diagnostic of memorisation reliance.
 
 \subsection{Release-cycle results}
 \label{sec:audit-results}
-The 9-agent audit on \texttt{release\_v1.1} (3{,}670 candidate questions,
-run \texttt{2ba38269}) produced the verdicts in Table~\ref{tab:audit_results}.
+The 9-agent audit on \texttt{release\_v1.1} (3{,}670 candidate
+questions) produced the verdicts in Table~\ref{tab:audit_results}.
 
 \begin{table}[h]
   \centering
