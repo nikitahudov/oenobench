@@ -1,0 +1,67 @@
+\section{Construction Timeline}
+\label{app:timeline}
+
+The full chronological lab notebook of construction is in
+\texttt{docs/PROCESS\_LOG.md}. We summarise the major dated milestones
+here for paper-traceable provenance.
+
+\begin{table}[h]
+  \centering
+  \footnotesize
+  \caption{Construction-and-evaluation timeline (selected milestones).}
+  \label{tab:timeline}
+  \begin{tabular}{llp{0.7\linewidth}}
+    \toprule
+    Phase & Dates & Milestone \\
+    \midrule
+    1   & 2026-03-12 -- 04-01 & 35 scrapers built; first 16{,}702-fact corpus assembled. \\
+    1.1 & 2026-04-07         & \emph{Provenance audit reveals 19 scrapers contained
+                               hardcoded LLM-generated facts}; corpus paused. \\
+    1.2 & 2026-04-08 -- 04-11 & Shared infrastructure
+                               (\texttt{\_fact\_processing.py},
+                               \texttt{\_web\_helpers.py},
+                               \texttt{\_wiki\_helpers.py}) shipped;
+                               Phase~1 rebuild fixes 8 quality-issue scrapers; Phase~2
+                               rebuild replaces all 17 hardcoded scrapers with genuine
+                               Wikipedia + SPARQL + official sources. \emph{38{,}104
+                               fact corpus restored, all provenance-traceable.} \\
+    2   & 2026-04-12 -- 04-22 & Five generation strategies built and iteratively
+                               tuned; multi-model orchestrator with quota management;
+                               closed-book gate v2 wired into all five generators. \\
+    2c  & 2026-04-19 -- 05-02 & Nine-agent audit framework shipped across 4 teams;
+                               sixteen audit pilots (v1--v16) tune thresholds and
+                               speedups; 472/472 → 771/771 tests pass. \\
+    2g  & 2026-04-28 -- 05-02 & Ten generation-pipeline speedup levers shipped
+                               (LLM cache, in-process dispatch, ThreadPool dispatch,
+                               substantiveness filter, circuit breaker, tier-aware
+                               gate). v9 build wall: 18~min vs.\ v8's 11.4~h. \\
+    2j  & 2026-05-03         & \texttt{release\_v1.1} (3{,}670 candidate questions)
+                               assembled from staged generation runs and the curated
+                               sample-DB. Audit cycle drops 341 questions on critical
+                               FAILs and re-labels difficulty for 1{,}259 (51\%
+                               L3+L4 vs.\ prior 14\%). Cycle cost \$76 / 5h~22m. \\
+    4   & 2026-05-03         & Human-review web app shipped on port 5556 with
+                               separate \texttt{human\_reviews} schema and
+                               multi-reviewer IRR support. \\
+    5   & 2026-05-03 -- 05-04 & Full evaluation: 16 configs $\times$ 3{,}329 questions
+                               in 120m~34s for \$98.33; post-eval audit of 97
+                               zero-correct items removes 54 defects + 9
+                               borderline-review drops; \texttt{release\_v1.2}
+                               locked at 3{,}266 questions. \\
+    HF  & 2026-05-04         & Dataset card + Croissant manifest + Parquet test
+                               split published; this paper drafted. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The timeline contains one decisive contingency that is methodologically
+worth flagging: the 2026-04-07 provenance audit, which discovered that
+about half the original scrapers had been silently substituting
+LLM-generated content for live source data, was the single most
+expensive course-correction in the project (more than four days of
+parallelised rebuild). It is the reason every fact-collection step in
+the final pipeline (Section~\ref{sec:dataset}) emits a per-source URL
+trace check, and it is the reason we recommend in
+Section~\ref{sec:future} that any retargeting of the pipeline to
+another expert domain run a comparable scraper-side provenance audit
+before publication.

@@ -1,0 +1,75 @@
+\section{Application Screenshots}
+\label{app:screenshots}
+
+This appendix shows screenshots of two interfaces released alongside the
+corpus: the human-review web application
+(\texttt{src/review\_app/}, port 5556) used to collect WSET-Diploma
+gold-sheet ratings, and the project monitoring dashboard
+(\texttt{src/dashboard/}, port 5555) used during construction.
+
+\subsection{Human-review web application}
+
+The review app is a Flask application with two layers of authentication
+(outer HTTP Basic for shared-link access, inner per-reviewer session
+cookies) and writes ratings into a separate \texttt{human\_reviews}
+Postgres table to keep gold-sheet labels independent of automated
+audit findings. Each reviewer is associated with a WSET certification
+level recorded at registration; the app supports multi-reviewer IRR
+($\kappa$) computation out of the box.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.86\linewidth]{figures/screenshots/review_login.png}
+  \caption{Sign-in / register screen. Outer HTTP Basic Auth gates
+    shared-link access; the inner form establishes a per-reviewer
+    session for IRR attribution.}
+  \label{fig:review-login}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.86\linewidth]{figures/screenshots/review_dashboard.png}
+  \caption{Reviewer dashboard. Active batches are listed; clicking a
+    batch enters the rubric-scoring flow. The reviewer guide is linked
+    permanently in the sidebar.}
+  \label{fig:review-dashboard}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.86\linewidth]{figures/screenshots/review_form.png}
+  \caption{Rubric-scoring form. The left pane shows the question, the
+    options with the keyed answer, the source fact, the generator
+    metadata, and the audit findings (in collapsible boxes); the right
+    pane is the eight-rubric scoring grid (\textsc{pass} /
+    \textsc{warn} / \textsc{fail}). Each rubric carries inline guidance
+    drawn from the reviewer guide. Time-on-page is tracked per
+    submission.}
+  \label{fig:review-form}
+\end{figure}
+
+\subsection{Monitoring dashboard}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figures/screenshots/dashboard_phases.png}
+  \caption{Project monitoring dashboard. Phase tracker (top) shows
+    completion status for the six phases of construction; per-domain
+    progress bars indicate how each pillar tracks against its target;
+    scraper-by-scraper status, audit roll-up, evaluation telemetry, and
+    infrastructure health are presented inline. The dashboard auto-refreshes
+    every 30~s during long-running pipeline operations.}
+  \label{fig:dashboard}
+\end{figure}
+
+\subsection{HuggingFace dataset card}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.92\linewidth]{figures/screenshots/huggingface_preview.png}
+  \caption{HuggingFace dataset card (preview). The release ships a
+    full datasheet, a Croissant manifest \citep{koehn2024croissant},
+    the 3{,}266-question Parquet test split, and per-fact source
+    URLs.}
+  \label{fig:hf-card}
+\end{figure}

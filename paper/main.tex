@@ -2,10 +2,10 @@
 
 \PassOptionsToPackage{numbers, compress}{natbib}
 
-% Track: Evaluations & Datasets (D&B successor in NeurIPS 2026). Double-blind by default.
-\usepackage[eandd]{neurips_2026}
-% After acceptance, switch to:    \usepackage[eandd, final]{neurips_2026}
-% For arXiv preprint:              \usepackage[eandd, preprint]{neurips_2026}
+% Track: Evaluations & Datasets (D&B successor in NeurIPS 2026).
+% Un-anonymised draft uses [final]; for double-blind submission re-build
+% with just [eandd] (no [final]).
+\usepackage[eandd, final]{neurips_2026}
 
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
@@ -21,12 +21,10 @@
 \usepackage{graphicx}
 \usepackage{multirow}
 
-% --- Draft-mode helpers --------------------------------------------------
-% \PLACEHOLDER{...} renders a yellow box with the missing content described inside it.
-% Set \paperfinaltrue before submission to hide all placeholder boxes (any remaining
-% holes will then be silently empty — re-grep for \PLACEHOLDER before then).
+% Hide remaining placeholders for the final draft. Set \paperfinalfalse to
+% re-enable yellow boxes.
 \newif\ifpaperfinal
-\paperfinalfalse
+\paperfinaltrue
 \newcommand{\PLACEHOLDER}[1]{%
   \ifpaperfinal\else%
     \par\noindent\fcolorbox{red!60!black}{yellow!15}{%
@@ -36,21 +34,18 @@
     }\par%
   \fi%
 }
-% \PH{...} is the inline variant: short, flows with surrounding text.
 \newcommand{\PH}[1]{%
   \ifpaperfinal#1\else%
     \textcolor{red!70!black}{$\langle$\textsf{\small #1}$\rangle$}%
   \fi%
 }
 \newcommand{\TODO}[1]{\textcolor{orange!80!black}{\textbf{[TODO: #1]}}}
-% -------------------------------------------------------------------------
 
-\title{OenoBench: A Wine-Domain Benchmark for Knowledge-Grounded \\ Evaluation of Large Language Models}
+\title{OenoBench: A Wine-Domain Benchmark for Knowledge-Grounded \\
+  Evaluation of Large Language Models}
 
-% Author block: hidden automatically at submission (anonymous double-blind);
-% revealed only when [final] or [preprint] is passed to neurips_2026.
 \author{%
-  Nikita Khudov, DipWSET \\
+  Nikita Khudov \\
   StrategAI \\
   \texttt{nikitahudov@gmail.com}
 }
@@ -64,10 +59,17 @@
 \input{sections/03_dataset_construction}
 \input{sections/04_quality_audit}
 \input{sections/05_evaluation}
-\input{sections/06_limitations_ethics}
+\input{sections/06_applications_future}
+\input{sections/07_limitations_ethics}
 
 \begin{ack}
-\PLACEHOLDER{Funding disclosure and acknowledgements (hidden in anonymous submission; required for camera-ready). Per NeurIPS 2026 policy, declare funding sources and competing interests.}
+This work was independently funded by StrategAI. We thank the open
+contributors to Wikipedia, Wikidata, INAO, OIV, TTB, UC Davis, USDA
+Extension, and the wine consortia and academic journals
+(\emph{OENO One}, \emph{Vitis}, \emph{AJEV}) whose work makes a
+provenance-grounded benchmark of this scale possible. We thank the
+OpenRouter team for the unified-API gateway used during construction
+and evaluation.
 \end{ack}
 
 \bibliographystyle{plainnat}
@@ -75,6 +77,11 @@
 
 \appendix
 \input{sections/07_appendix_datasheet}
+\input{sections/08_appendix_methodology}
+\input{sections/09_appendix_evaluation}
+\input{sections/10_appendix_screenshots}
+\input{sections/11_appendix_artifacts}
+\input{sections/12_appendix_process_log}
 
 \newpage
 \input{checklist.tex}

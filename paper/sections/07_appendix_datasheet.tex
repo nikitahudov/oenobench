@@ -1,73 +1,148 @@
 \section{Datasheet for OenoBench}
 \label{app:datasheet}
 
-We follow the datasheet template of \citet{TODOgebrudatasheets}.
+We follow the datasheet template of \citet{gebru2021datasheets}.
 
 \subsection{Motivation}
 \paragraph{For what purpose was the dataset created?}
-To evaluate factual knowledge of large language models on a multi-disciplinary, externally-validated domain (wine), and to provide a benchmark whose construction includes explicit bias controls (multi-model generation, multi-agent audit, self-preference scoring, expert-authored control set).
+To evaluate factual knowledge of large language models on a multi-disciplinary,
+externally-validated domain (wine), and to provide a benchmark whose
+construction includes explicit bias controls (multi-model generation,
+multi-agent audit, self-preference scoring, closed-book vs.\ source-grounded
+partition).
 
 \paragraph{Who created the dataset?}
-\PLACEHOLDER{De-anonymised author and affiliation; the lead author holds the WSET Diploma in Wines.}
+The dataset was created by Nikita Khudov (StrategAI) for the NeurIPS 2026
+Evaluations \& Datasets Track. The lead author holds the WSET Diploma in
+Wines (the highest pre-Master-of-Wine qualification of the Wine \& Spirit
+Education Trust) and produced the gold-sheet ratings used to calibrate
+the audit agents.
 
 \paragraph{Funding.}
-\PLACEHOLDER{Funding sources, hidden in anonymous submission.}
+Independently funded by StrategAI. No external research grants were
+received. OpenRouter API costs (\$236 cumulative across audit pilots and
+the final run, plus \$98 for the eval) were paid out-of-pocket.
 
 \subsection{Composition}
 \paragraph{What do the instances represent?}
-Each instance is a benchmark question with: question text, multiple-choice options (where applicable) with marked-correct answer, supporting fact(s) with source URL and tier, generator model identifier, generation strategy, audit-agent verdicts, and (for the gold-sheet subset) human reviewer ratings.
+Each instance is a multiple-choice benchmark question with: question
+text, 4~options with marked-correct answer, supporting fact(s) with
+source URL and tier label, generator model identifier, generation
+strategy, audit-agent verdicts (per-agent pass/warn/fail signals), and
+(for the gold-sheet subset) human-reviewer ratings on eight rubrics.
 
-\paragraph{How many instances are there in total?}
-\PLACEHOLDER{Final question count, target 5{,}000. Pilot at submission time: 146 questions in \texttt{audit\_pilot\_v13} (112 active, 34 \texttt{cb\_reserve}).}
+\paragraph{How many instances are there?}
+\textbf{3{,}266} questions in \texttt{release\_v1.2}. By strategy:
+fact-to-question 1{,}909, distractor mining 405, template 389,
+scenario 319, comparative 244. By difficulty (post-relabel):
+L1 694, L2 894, L3 678, L4 1{,}001. By domain: wine regions 1{,}108,
+grape varieties 766, producers 515, viticulture 502, wine business 250,
+winemaking 187. The corpus is built from 38{,}104 atomic facts across
+35 scrapers and 580 unique source URLs.
 
 \paragraph{What data does each instance consist of?}
-Structured records over Postgres with columns described in Section~\ref{sec:dataset}.
+Structured Postgres records mirroring the schema documented in
+Section~\ref{sec:dataset} and Appendix~\ref{app:methodology}.
 
-\paragraph{Are there recommended data splits?}
-Yes, four (Section~\ref{sec:eval}): full corpus, per-generator held-out, closed-book reserve, expert control.
+\paragraph{Recommended data splits.}
+The dataset ships as a single \texttt{test} split (this is an
+evaluation-only benchmark). Two analytic partitions are documented and
+recommended for use:
+(i) the \emph{closed-book} slice (1{,}601 questions tagged
+\texttt{closed\_book\_solvable}) and the \emph{contextual} slice
+(1{,}665 remaining questions), partitioned by audit agent B2; and
+(ii) per-generator held-out splits for self-preference analysis
+(Section~\ref{sec:eval-sps}), defined dynamically by the
+\texttt{generator\_family} column.
 
 \paragraph{Errors, noise, redundancies?}
-Documented in Section~\ref{sec:audit}. Per-agent fail rates and $\kappa$ versus the human gold sheet are released alongside the corpus.
+Documented in Section~\ref{sec:audit}. Per-agent fail rates and
+$\kappa$ versus the human gold sheet are released alongside the
+corpus. The 1{,}601 B2-flagged questions are kept with disclosure
+because LLM-judge calibration with humans on closed-book solvability
+is unreliable ($\kappa \approx 0.007$).
 
 \paragraph{Self-contained, or relies on external resources?}
-Self-contained: question text, supporting facts, and source URLs are all included. Source URLs may rot over time; we mitigate by archiving Tier-1 source pages and recording the access timestamp.
+Self-contained: question text, supporting facts, and source URLs are
+all included. Source URLs may rot over time; we mitigate by archiving
+Tier-1 source pages and recording the access timestamp.
 
 \subsection{Collection process}
 \paragraph{How was the data acquired?}
-35 provenance-verified web scrapers (released as \texttt{src/scrapers/}). Sources span government registries, inter-governmental bodies (OIV), university research groups, Wikipedia/Wikidata, peer-reviewed journals, and curated open datasets. Scraping was rate-limited and used a research-disclosed user agent.
+By 35 provenance-verified web scrapers (released in
+\texttt{src/scrapers/}). Sources span government registries (INAO,
+TTB, OIV), inter-governmental bodies, university research groups
+(notably UC Davis, USDA Extension), Wikipedia, Wikidata, peer-reviewed
+journals (\emph{OENO One}, \emph{Vitis}, \emph{AJEV}), and curated
+open datasets. Scraping was rate-limited and used the disclosed user
+agent \texttt{OenoBench-Research/1.0 (academic wine benchmark)}.
 
 \paragraph{Time frame.}
-Fact extraction: 2026-03 through 2026-04. Question generation: 2026-04 through 2026-05.
+Fact extraction: 2026-03 through 2026-04. Question generation:
+2026-04 through 2026-05-03. Evaluation: 2026-05-03.
 
 \paragraph{Ethical review.}
-\PLACEHOLDER{IRB / ethics-board status, if any.}
+The work is non-IRB-eligible at our institution because (a) no human
+subjects were enrolled in research, (b) the gold-sheet reviewer is
+also the lead author, and (c) all source data is public-record
+information about commercial wine entities. Human review of
+LLM-generated questions is treated as data-quality assurance, not as
+human-subjects research.
 
 \subsection{Preprocessing / cleaning / labelling}
-Atomic-fact extraction with entity tagging; per-source paraphrase to avoid verbatim copy; near-duplicate suppression; nine-agent automated audit; human gold-sheet rating on a 130-question subset.
+Atomic-fact extraction with entity tagging; per-source paraphrase to
+avoid verbatim copy; near-duplicate suppression at cosine~$\geq 0.92$;
+nine-agent automated audit; human gold-sheet rating on a stratified
+50-question subset per release.
 
 \subsection{Uses}
-\paragraph{Recommended uses.} Evaluation of LLM factual knowledge in the wine domain; ablation of bias-mitigation techniques in benchmark construction; study of self-preference effects in LLM-as-judge pipelines.
-\paragraph{Discouraged uses.} Direct deployment as a wine-recommendation or purchasing system without separate alignment and age-gating; fine-tuning on the benchmark itself for ranking purposes (would invalidate the benchmark for the trained model).
+\paragraph{Recommended uses.} Evaluation of LLM factual knowledge in
+the wine domain; ablation studies of bias-mitigation techniques in
+benchmark construction; study of self-preference effects in
+LLM-as-judge pipelines; calibration of automated multi-agent QA
+frameworks against expert human review.
+
+\paragraph{Discouraged uses.} Direct deployment as a wine-recommendation
+or purchasing system without separate alignment, age-gating, and
+jurisdictional advertising review; fine-tuning on the benchmark itself
+for ranking purposes (would invalidate the benchmark for the trained
+model). The scrape-to-audit pipeline should not be retargeted to
+high-stakes domains (medicine, law) without comparable expert human
+review of the retargeted source taxonomy.
 
 \subsection{Distribution}
-\paragraph{Will the dataset be distributed?} Yes, under \PH{license TBD}. Hosting: \PH{HuggingFace Datasets URL pending de-anonymisation}.
-\paragraph{Citation.} \PLACEHOLDER{BibTeX entry after de-anonymisation.}
+\paragraph{Will the dataset be distributed?}
+Yes, under \textbf{CC-BY-SA-4.0} on HuggingFace at
+\url{https://huggingface.co/datasets/oenobench/oenobench}. A Croissant
+manifest is included \citep{koehn2024croissant}. The construction
+code is on GitHub at \url{https://github.com/nikitahudov/oenobench}.
+
+\paragraph{Citation.}
+\begin{verbatim}
+@inproceedings{khudov2026oenobench,
+  title  = {OenoBench: A Wine-Domain Benchmark for Knowledge-Grounded
+            Evaluation of Large Language Models},
+  author = {Khudov, Nikita},
+  booktitle = {Advances in Neural Information Processing Systems
+               (NeurIPS), Datasets and Benchmarks Track},
+  year   = {2026}
+}
+\end{verbatim}
 
 \subsection{Maintenance}
-\paragraph{Maintainer.} \PLACEHOLDER{Maintainer name and contact.}
-\paragraph{Update cadence.} Wine regulation changes on a multi-year cadence; we plan annual re-extraction. Scraper code is released so the community can re-extract independently.
-\paragraph{Errata.} A public errata log will be maintained at \PH{URL TBD}; corrections to questions, facts, or audit verdicts will be versioned.
+\paragraph{Maintainer.}
+Nikita Khudov, \texttt{nikitahudov@gmail.com}.
 
-\section{Additional Methodology Detail}
+\paragraph{Update cadence.}
+Wine regulation changes on a multi-year cadence; we plan annual
+re-extraction. Scraper code is released so the community can
+re-extract independently. Corpus versioning follows
+\texttt{release\_vX.Y} (major release / minor patch) with all prior
+versions retained on HuggingFace.
 
-\subsection{Audit agent implementations}
-\PLACEHOLDER{Per-agent algorithmic detail, prompt templates for tri-judge agents, threshold values for each warn/fail boundary, training data and held-out AUC for the A4 TemplateFingerprint classifier.}
-
-\subsection{Generation prompts}
-\PLACEHOLDER{Per-strategy generation prompts (fact-to-question, comparative, scenario, distractor mining), with per-model temperature and top-$p$ settings.}
-
-\subsection{Full per-domain evaluation tables}
-\PLACEHOLDER{Per-pillar, per-model, per-prompting-strategy accuracy tables with bootstrap CIs.}
-
-\subsection{Per-country and per-region skew detail}
-\PLACEHOLDER{Distribution of facts and questions by country and region; over-representation ratios; comparison to OIV global production statistics as an external baseline for ``neutral'' coverage.}
+\paragraph{Errata.}
+A public errata log will be maintained alongside the HuggingFace
+release; corrections to questions, facts, audit verdicts, or
+difficulty labels will be versioned and dated. Reports of factual
+errors are accepted via GitHub issues and will be evaluated against
+the source URL.
