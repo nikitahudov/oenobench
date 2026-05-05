@@ -1,6 +1,16 @@
 \section{Dataset Construction}
 \label{sec:dataset}
 
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figures/diagram_pipeline.png}
+  \caption{End-to-end pipeline. Authoritative sources (top) are scraped
+    by 35 source-specific extractors that share an atomic-fact decomposition
+    and validation pass. Generated questions are gated by a closed-book
+    pre-screen and a nine-agent audit before being tagged for release.}
+  \label{fig:pipeline}
+\end{figure}
+
 OenoBench is constructed by an LLM-driven pipeline (Figure~\ref{fig:pipeline})
 in two stages: (1) a \emph{fact-collection} stage that builds a corpus of
 atomic, provenance-tagged statements from authoritative sources, and (2) a
@@ -12,16 +22,6 @@ source of truth. Every fact in the corpus traces to a URL with a tier-of-authori
 label, every question is anchored in one or more such facts, and every
 question is scored by a nine-agent automated audit (Section~\ref{sec:audit})
 before release.
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=0.95\linewidth]{figures/diagram_pipeline.png}
-  \caption{End-to-end pipeline. Authoritative sources (top) are scraped
-    by 35 source-specific extractors that share an atomic-fact decomposition
-    and validation pass. Generated questions are gated by a closed-book
-    pre-screen and a nine-agent audit before being tagged for release.}
-  \label{fig:pipeline}
-\end{figure}
 
 \subsection{Domain taxonomy}
 We organise wine knowledge into six \emph{domain pillars}, chosen to align
@@ -87,7 +87,7 @@ is a contamination vector that conventional dataset documentation
 does not detect, and recovering from it after-the-fact is mechanical
 only if the scraper code is released alongside the data.
 
-\begin{table}[t]
+\begin{table}[h]
   \centering
   \caption{Atomic-fact corpus: 38{,}104 facts from 35 scrapers, six
     domain pillars, three source tiers.}
@@ -113,7 +113,8 @@ only if the scraper code is released alongside the data.
 \subsection{Atomic fact extraction}
 \label{sec:extraction}
 Source pages are decomposed into atomic facts by a five-stage pipeline
-(Figure~\ref{fig:fact_processing}): (1) sentence splitting at
+(Figure~\ref{fig:fact_processing}, Appendix~\ref{app:fact-extraction}):
+(1) sentence splitting at
 conjunctions and clause boundaries, (2) reference resolution (pronouns
 and demonstratives are replaced with their entity referents from article
 context), (3) domain classification into one of the six pillars, (4) a
@@ -126,16 +127,6 @@ country relations (\texttt{P17}) rather than transitive administrative
 parents (\texttt{P131*}); the latter caused severe cross-region leakage
 in early scrapers and is documented as a cautionary case in
 Appendix~\ref{app:methodology}.
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=0.85\linewidth]{figures/diagram_fact_processing.png}
-  \caption{Atomic-fact extraction pipeline. Inputs are heterogeneous
-    (HTML pages, RDF graphs, SPARQL responses, CSV dumps); outputs are
-    uniform single-assertion sentences with entity tags, domain label,
-    source URL and tier.}
-  \label{fig:fact_processing}
-\end{figure}
 
 Facts are required to be (a) \emph{atomic}, one assertion per sentence;
 (b) \emph{entity-tagged}, with subject and object linked to canonical
