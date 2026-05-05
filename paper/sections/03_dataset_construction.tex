@@ -163,16 +163,6 @@ generators whose questions pass audit reliably get a larger share in
 subsequent rounds --- subject to a hard \textbf{per-generator cap of
 21\%} to keep any single model from dominating the corpus.
 
-\paragraph{Closed-book gate.} L1 and L2 questions pass through a
-\emph{closed-book pre-screen} (Claude Sonnet for L1, Opus for L2):
-correct hits without the source fact are tagged
-\texttt{closed\_book\_solvable} and quota-reserved. We raised the cap
-from 25\% to \textbf{50\%} after the gold-sheet calibration showed
-LLM judges over-attribute solvability relative to humans
-(Section~\ref{sec:gold}). L3 and L4 skip the gate. The B2 audit agent
-re-runs this at corpus scale on a tri-judge panel, feeding the
-closed-book vs.\ contextual contrast in Section~\ref{sec:eval-cb}.
-
 \subsection{Final corpus: \texttt{release\_v1.2}}
 \label{sec:release}
 After generation, audit, and post-eval review, the released corpus
@@ -201,18 +191,6 @@ distribution along the domain and difficulty axes is:
   \end{tabular}
 \end{table}
 
-The corpus underwent three post-generation passes: a 9-agent automated
-audit (Section~\ref{sec:audit}) that dropped 341 questions and
-re-labelled the difficulty of 1{,}259; a stratified human gold-sheet
-review of 50 questions per pilot release (rated by a WSET-Diploma
-reviewer through the released human-review web app,
-Appendix~\ref{app:screenshots}, used both to calibrate audit-agent
-$\kappa$ and to surface manual quality flags); and a post-evaluation
-review of 97 items that were answered incorrectly by all 16 evaluation
-configurations (Section~\ref{sec:eval}, Appendix~\ref{app:eval}), of
-which 54 were removed as defects, 9 were dropped after a
-borderline-review pass, and the remainder retained as legitimately
-hard items. We document the dataset following Datasheets for Datasets
-\citep{gebru2021datasheets}; the full datasheet is in
-Appendix~\ref{app:datasheet} and a Croissant manifest
-\citep{koehn2024croissant} ships with the HuggingFace release.
+\texttt{release\_v1.2} ships under CC-BY-SA-4.0 on HuggingFace with a
+Croissant manifest \citep{koehn2024croissant} and a full Datasheet
+\citep{gebru2021datasheets} in Appendix~\ref{app:datasheet}.

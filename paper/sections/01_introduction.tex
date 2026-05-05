@@ -45,33 +45,25 @@ taster, winemaker, or buyer from a memorised glossary.
 
 \paragraph{Contributions.}
 \begin{enumerate}\itemsep -1pt
-  \item \textbf{A 3{,}266-question wine benchmark} covering six pillars
-        (regions, varieties, viticulture, winemaking, producers,
-        business), built from 38{,}104 atomic facts whose provenance is
-        recorded down to the source URL and tier of authority
-        (Section~\ref{sec:dataset}).
-  \item \textbf{An LLM-driven, fact-grounded question-generation
-        pipeline} that combines five generation strategies and five
-        generator models. The LLM's role is reformatting verified facts,
-        \emph{not} providing them; an explicit closed-book gate flags
-        questions solvable from world knowledge alone, and a per-strategy
-        quota prevents pipeline mono-culture.
-  \item \textbf{A nine-agent automated quality audit}
-        (Section~\ref{sec:audit}) consisting of static, statistical, and
-        tri-judge agents organised into four teams, calibrated against a
-        human gold sheet using Cohen's $\kappa$. The audit removed 341
-        questions and re-labelled the difficulty of 1{,}259 in the final
-        release. Crucially, the audit also revealed that one of its own
-        agents (closed-book solvability) over-reports leakage relative
-        to humans; we kept the affected questions with explicit
-        disclosure rather than dropping them, and demonstrate the
-        consequences in the evaluation.
+  \item \textbf{A 3{,}266-question wine benchmark} across six pillars
+        and four difficulty tiers, built from 38{,}104 atomic
+        provenance-tagged facts (Section~\ref{sec:dataset}).
+  \item \textbf{An LLM-driven, fact-grounded generation pipeline} with
+        five strategies $\times$ five generator models, per-strategy
+        quotas, and an explicit closed-book pre-screen --- LLMs
+        reformat verified facts, never supply them.
+  \item \textbf{A nine-agent automated audit} (Section~\ref{sec:audit})
+        calibrated against a human gold sheet via Cohen's $\kappa$;
+        the audit removed 341 questions and re-labelled difficulty on
+        1{,}259, and surfaced one agent (closed-book solvability) that
+        over-reports leakage relative to humans, which we keep with
+        explicit disclosure rather than drop.
   \item \textbf{A bias-aware evaluation across sixteen frontier
         configurations} (Section~\ref{sec:eval}) reporting overall
-        accuracy, reasoning-mode lift, a Self-Preference Score that
-        quantifies own-vs-other-generator gaps, a cost-efficiency Pareto
-        analysis, and a closed-book vs.\ source-grounded contrast that
-        isolates parametric memorisation from contextual reasoning.
+        accuracy, reasoning-mode lift, a Self-Preference Score,
+        cost-efficiency Pareto, and a closed-book vs.\ source-grounded
+        contrast that isolates parametric recall from contextual
+        reasoning.
 \end{enumerate}
 
 \noindent OenoBench, the construction and audit pipelines, the
