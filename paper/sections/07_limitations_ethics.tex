@@ -10,18 +10,14 @@ metadata so this is mechanically reproducible.
 
 \paragraph{Closed-book audit calibration.} The B2 ClosedBookSolvability
 agent shows $\kappa\approx0.007$ with humans on the gold sheet
-(Section~\ref{sec:gold}). Rather than drop the affected questions, we
+(Section~\ref{sec:gold}). Rather than drop the affected questions we
 keep them with explicit disclosure and report the closed-book vs.\
-contextual contrast in Section~\ref{sec:eval-cb}. Downstream users who
-prefer a strictly source-grounded subset can use the contextual slice;
-those who want pure recall can use the closed-book slice. The
-documentation is a load-bearing part of the dataset, not a footnote.
+contextual contrast (Section~\ref{sec:eval-cb}) as a calibrated
+memorisation-reliance diagnostic.
 
 \paragraph{Self-preference is not fully neutralised.} The Anthropic
-$+9$~pp positive SPS (Section~\ref{sec:eval-sps}) implies the
-multi-model generation strategy did not fully neutralise stylistic
-fingerprints. We disclose per-config SPS as a first-class diagnostic
-rather than removing the affected items, but downstream comparisons
-between Anthropic and other-family models on the full corpus should
-be treated with the SPS in mind.
+$+9$~pp positive SPS (Section~\ref{sec:eval-sps}) shows the
+multi-model strategy did not fully neutralise stylistic fingerprints;
+downstream Anthropic-vs-other comparisons on the full corpus should
+be read with the per-config SPS in mind.
 
