@@ -45,17 +45,17 @@
 \item {\bf Code of ethics}
     \item[] Question: Does the research conducted in the paper conform, in every respect, with the NeurIPS Code of Ethics?
     \item[] Answer: \answerYes{}
-    \item[] Justification: All sources used are public-record; no human subjects research was conducted (the gold-sheet reviewer is the lead author); responsible-use guidance is given in Section~\ref{sec:ethics}.
+    \item[] Justification: All sources used are public-record; no human subjects research was conducted (the gold-sheet reviewer is the lead author); responsible-use guidance is given in the Datasheet (Appendix~\ref{app:datasheet}, ``Uses'') and in Section~\ref{sec:limitations}.
 
 \item {\bf Broader impacts}
     \item[] Question: Does the paper discuss both potential positive societal impacts and negative societal impacts of the work performed?
     \item[] Answer: \answerYes{}
-    \item[] Justification: Section~\ref{sec:ethics} discusses the alcohol-context, source-licensing, personal-data, and misuse considerations; Section~\ref{sec:future} discusses positive applications including specialist-model fine-tuning and pipeline retargeting to other expert domains.
+    \item[] Justification: The Datasheet (Appendix~\ref{app:datasheet}) covers alcohol-context and discouraged uses; source-licensing and the non-fabrication guarantee are documented in Section~\ref{sec:sources}; personal-data scope and the no-private-individuals constraint are in the Datasheet ``Composition''. Section~\ref{sec:future} discusses positive applications including specialist-model fine-tuning and pipeline retargeting to other expert domains.
 
 \item {\bf Safeguards}
     \item[] Question: Does the paper describe safeguards that have been put in place for responsible release of data or models that have a high risk for misuse?
     \item[] Answer: \answerYes{}
-    \item[] Justification: The dataset is text-only multiple-choice questions with public-record entity names; no scraped images or personal-data risks. We document discouraged uses (Section~\ref{sec:ethics}, Appendix~\ref{app:datasheet}) including the recommendation against retargeting the pipeline to high-stakes domains without expert review.
+    \item[] Justification: The dataset is text-only multiple-choice questions with public-record entity names; no scraped images or personal-data risks. We document discouraged uses in the Datasheet (Appendix~\ref{app:datasheet}, ``Uses'') including the recommendation against retargeting the pipeline to high-stakes domains without expert review.
 
 \item {\bf Licenses for existing assets}
     \item[] Question: Are the creators or original owners of assets used in the paper properly credited and are the license and terms of use explicitly mentioned and properly respected?
@@ -80,6 +80,6 @@
 \item {\bf Declaration of LLM usage}
     \item[] Question: Does the paper describe the usage of LLMs if it is an important, original, or non-standard component of the core methods in this research?
     \item[] Answer: \answerYes{}
-    \item[] Justification: LLMs are central to the methodology (multi-strategy question generation across five model families, nine-agent automated audit including a tri-judge panel, closed-book solvability pre-screen). Section~\ref{sec:dataset} and Section~\ref{sec:audit} describe their usage; Section~\ref{sec:ethics} and Appendix~\ref{app:methodology} document the explicit fact-grounding constraint that prevents LLMs from being used as the source of factual claims.
+    \item[] Justification: LLMs are central to the methodology (multi-strategy question generation across five model families, nine-agent automated audit including a tri-judge panel, closed-book solvability pre-screen). Section~\ref{sec:dataset} and Section~\ref{sec:audit} describe their usage; Section~\ref{sec:sources} and Appendix~\ref{app:methodology} document the explicit fact-grounding constraint that prevents LLMs from being used as the source of factual claims.
 
 \end{enumerate}
