@@ -1,9 +1,13 @@
 \section{Full Evaluation Tables}
 \label{app:eval}
 
-We give the full per-domain, per-strategy, and per-difficulty
-breakdowns referenced in Section~\ref{sec:eval}, plus the cost ledger
-and per-config self-preference detail.
+This appendix gives the per-config tables and supporting figures
+behind each Section~\ref{sec:eval} subsection: per-domain (C.1),
+per-strategy (C.2), and per-difficulty (C.3) breakdowns of the
+overall ranking; reasoning-mode lift (C.4); self-preference
+bootstrap CIs (C.5); and the closed-book vs.\ source-grounded
+contrast (C.6). The cost ledger that supports
+Section~\ref{sec:eval-cost} is in Appendix~\ref{app:artifacts}.
 
 \subsection{Per-domain breakdown}
 
@@ -96,7 +100,7 @@ and per-config self-preference detail.
   \label{fig:strategy-heatmap}
 \end{figure}
 
-\subsection{Per-difficulty breakdown and reasoning lift}
+\subsection{Per-difficulty breakdown}
 
 \begin{table}[h]
   \centering
@@ -129,6 +133,15 @@ and per-config self-preference detail.
   \end{tabular}
 \end{table}
 
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.65\linewidth]{figures/fig_difficulty_calib.pdf}
+  \caption{Difficulty calibration: distribution of accuracy across the
+    16 configs at each level. The medians sit at L1 96\%, L2 70\%, L3
+    81\%, L4 60\%.}
+  \label{fig:difficulty-box}
+\end{figure}
+
 \paragraph{On the L2 / L3 / L4 means in Table~\ref{tab:full-difficulty}.}
 Two features of the column averages deserve comment. First, the L2
 mean (68.8\%) is \emph{below} the L3 mean (78.7\%) --- an apparent
@@ -146,6 +159,9 @@ question; that fall is also where the inter-config spread is widest
 (Section~\ref{sec:eval-rank}), making L4 the most discriminating slice
 for distinguishing models. Both effects are intended outcomes of the
 audit-driven difficulty re-label rather than miscalibration.
+
+\subsection{Reasoning-mode lift}
+\label{app:reasoning}
 
 \begin{figure}[h]
   \centering
@@ -172,15 +188,6 @@ audit-driven difficulty re-label rather than miscalibration.
     \bottomrule
   \end{tabular}
 \end{table}
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=0.65\linewidth]{figures/fig_difficulty_calib.pdf}
-  \caption{Difficulty calibration: distribution of accuracy across the
-    16 configs at each level. The medians sit at L1 96\%, L2 70\%, L3
-    81\%, L4 60\%.}
-  \label{fig:difficulty-box}
-\end{figure}
 
 \subsection{Self-preference bootstrap CIs}
 
