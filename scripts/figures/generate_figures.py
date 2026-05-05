@@ -326,25 +326,26 @@ def fig_leaderboard():
     colors = [FAMILY_COLORS.get(f, "#888") for f in families]
     hatch = ["//" if r != "standard" else "" for r in reasoning]
 
-    fig, ax = plt.subplots(figsize=(6.0, 5.0))
+    fig, ax = plt.subplots(figsize=(5.2, 3.6))
     y = np.arange(len(labels))
     bars = ax.barh(y, accs, color=colors, edgecolor="black", linewidth=0.4)
     for b, h in zip(bars, hatch):
         b.set_hatch(h)
     for i, a in enumerate(accs):
-        ax.text(a + 0.5, i, f"{a:.1f}%", va="center", fontsize=7.5)
+        ax.text(a + 0.5, i, f"{a:.1f}%", va="center", fontsize=6.5)
     ax.set_yticks(y)
-    ax.set_yticklabels(labels)
+    ax.set_yticklabels(labels, fontsize=7)
     ax.invert_yaxis()
     ax.set_xlim(40, 95)
-    ax.set_xlabel("Accuracy (%) on 3,266 wine MC questions")
-    ax.set_title("Overall capability ranking — 16-config slate")
+    ax.tick_params(axis="x", labelsize=7)
+    ax.set_xlabel("Accuracy (%) on 3,266 wine MC questions", fontsize=8)
+    ax.set_title("Overall capability ranking — 16-config slate", fontsize=9)
 
     # legend
     fams = sorted(set(families), key=lambda f: list(FAMILY_COLORS).index(f) if f in FAMILY_COLORS else 99)
     handles = [Patch(facecolor=FAMILY_COLORS.get(f, "#888"), edgecolor="black", label=f) for f in fams]
     handles.append(Patch(facecolor="white", edgecolor="black", hatch="//", label="reasoning mode"))
-    ax.legend(handles=handles, loc="lower right", frameon=False, fontsize=7)
+    ax.legend(handles=handles, loc="lower right", frameon=False, fontsize=6.5)
     save(fig, "fig_leaderboard")
 
 
