@@ -69,34 +69,28 @@ corpus (Appendix~\ref{app:methodology}).
 \FloatBarrier
 \subsection{Gold-sheet calibration}
 \label{sec:gold}
-A human gold sheet of 50 stratified questions per release is rated by a
-WSET-Diploma reviewer through the released human-review web app
-(Appendix~\ref{app:screenshots}). \textbf{15+ gold-sheet rounds} have
-been completed across preliminary releases (audit pilots v1--v16) so
-that the agent thresholds and $\kappa$ values reported here represent
-calibration aggregated over an iterative cycle, not a single batch.
-Each round rates against eight rubrics:
-\texttt{answer\_correct}, \texttt{distractors\_plausible},
-\texttt{not\_ambiguous}, \texttt{source\_faithful},
-\texttt{needs\_source}, \texttt{no\_vague\_language},
-\texttt{labels\_correct}, and \texttt{verbatim\_copy}. For each
-automated agent we compute Cohen's $\kappa$ against the corresponding
-human rubric on the gold sheet. \textbf{Agent signals with $\kappa<0.6$
-are downweighted to advisory-only and excluded from gating decisions.}
+A human gold sheet of 50 stratified questions per release is rated by
+a WSET-Diploma reviewer through the released human-review web app
+(Appendix~\ref{app:screenshots}); \textbf{15+ rounds} (audit pilots
+v1--v16) cover an iterative calibration cycle. Each round rates eight
+rubrics (answer-correctness, distractor plausibility, ambiguity,
+source-faithfulness, needs-source, vague language, label correctness,
+verbatim copying). For each automated agent we compute Cohen's
+$\kappa$ against the corresponding rubric; \textbf{signals with
+$\kappa<0.6$ are downweighted to advisory-only and excluded from
+gating decisions.}
 
-The most consequential calibration result concerns agent
-\textbf{B2~ClosedBookSolvability}: against the human reviewer, who
-solved only $\approx$12\% of the gold-sheet questions without seeing the
-source fact, the LLM tri-judge panel reported $\approx$83\% solvability,
-yielding $\kappa\approx0.007$. We interpret this not as a defect of the
-benchmark but as a property of the \emph{evaluator}: frontier LLM judges
-have absorbed enough wine knowledge during pre-training to over-attribute
-``world knowledge'' to questions that humans find non-trivial. We
-therefore retain the 1{,}601 B2-flagged questions in the released
-corpus, document the finding in the datasheet, and report a
-closed-book vs.\ source-grounded contrast in
-Section~\ref{sec:eval-cb} that turns the audit's blind spot into a
-calibrated diagnostic of memorisation reliance.
+The most consequential result concerns agent
+\textbf{B2~ClosedBookSolvability}: the human reviewer solved
+$\approx$12\% of gold-sheet questions without the source fact while
+the LLM tri-judge panel reported $\approx$83\%, yielding
+$\kappa\approx0.007$. We read this as a property of the
+\emph{evaluator} --- frontier LLM judges have absorbed enough wine
+knowledge during pre-training to over-attribute ``world knowledge''
+to questions humans find non-trivial. We retain the 1{,}601
+B2-flagged questions with disclosure and turn the audit's blind spot
+into a calibrated diagnostic of memorisation reliance via the
+closed-book vs.\ source-grounded contrast (Section~\ref{sec:eval-cb}).
 
 \subsection{Release-cycle results}
 \label{sec:audit-results}

@@ -101,26 +101,21 @@ detect.
 \label{sec:extraction}
 Source pages are decomposed into atomic facts by a five-stage pipeline
 (Figure~\ref{fig:fact_processing}, Appendix~\ref{app:fact-extraction}):
-(1) sentence splitting at
-conjunctions and clause boundaries, (2) reference resolution (pronouns
-and demonstratives are replaced with their entity referents from article
-context), (3) domain classification into one of the six pillars, (4) a
-length-and-predicate validator that rejects facts shorter than five
-words, longer than fifty words, missing a verb, or carrying dangling
-references, and (5) an on-topic filter parameterised by region-specific
-keyword sets to prevent cross-contamination (e.g.\ Austrian content
-appearing in a Bordeaux scraper). Wikidata SPARQL queries use direct
-country relations (\texttt{P17}) rather than transitive administrative
-parents (\texttt{P131*}); the latter caused severe cross-region leakage
-in early scrapers and is documented as a cautionary case in
-Appendix~\ref{app:methodology}.
+sentence splitting; reference resolution (pronouns replaced by their
+entity referents); domain classification into one of the six pillars;
+a length/predicate validator (5--50 words, must contain a verb, no
+dangling references); and a region-keyword on-topic filter that
+prevents cross-contamination (e.g.\ Austrian content in a Bordeaux
+scraper). Wikidata SPARQL queries use direct country relations
+(\texttt{P17}) rather than transitive parents (\texttt{P131*}), the
+latter having caused severe cross-region leakage in early scrapers
+(Appendix~\ref{app:methodology}).
 
-Facts are required to be (a) \emph{atomic}, one assertion per sentence;
-(b) \emph{entity-tagged}, with subject and object linked to canonical
-IDs in the wine knowledge graph; and (c) \emph{source-faithful}, a
-paraphrase of the original, never a verbatim copy. This last constraint
-is enforced both at extraction time and at audit time
-(Section~\ref{sec:audit}, agent A3).
+Facts are required to be \emph{atomic} (one assertion per sentence),
+\emph{entity-tagged} (subject and object linked to canonical
+knowledge-graph IDs), and \emph{source-faithful} (a paraphrase, never
+a verbatim copy); the last is enforced at extraction and re-checked
+at audit time by agent~A3.
 
 \subsection{Question generation: five strategies, five models}
 \label{sec:generation}
