@@ -4,10 +4,9 @@
 \begin{figure}[t]
   \centering
   \includegraphics[width=0.95\linewidth]{figures/diagram_pipeline.png}
-  \caption{End-to-end pipeline. Authoritative sources (top) are scraped
-    by 35 source-specific extractors that share an atomic-fact decomposition
-    and validation pass. Generated questions are gated by a closed-book
-    pre-screen and a nine-agent audit before being tagged for release.}
+  \caption{End-to-end OenoBench pipeline: authoritative sources $\rightarrow$
+    35 scrapers $\rightarrow$ atomic facts $\rightarrow$ closed-book gate
+    $\rightarrow$ nine-agent audit $\rightarrow$ release.}
   \label{fig:pipeline}
 \end{figure}
 
@@ -58,34 +57,21 @@ evidence-based-medicine practice:
     HuggingFace and Kaggle, secondary reference databases.
 \end{itemize}
 
-\paragraph{Source licensing.}
-Every source listed above is either public-record or released under a
-licence that permits scraping and redistribution of derivative works.
-Tier-1 government data is in the public domain (TTB) or under
-explicit open-data licences (INAO Licence Ouverte, OIV open data, UC
-Davis AVA database). Tier-2 Wikipedia content is CC-BY-SA-3.0/4.0 and
-Wikidata is CC0; peer-reviewed journals (\emph{OENO One}, \emph{Vitis},
-\emph{AJEV}) are open-access under Creative Commons. Tier-3 datasets
-on HuggingFace and Kaggle are used under their declared licences. All
-scraping is rate-limited and identifies itself with the disclosed user
-agent \texttt{OenoBench-Research/1.0}; per-fact source URLs are
-released alongside the corpus so that downstream users can verify and
-re-attribute. The full source-by-source licence table is in
-Appendix~\ref{app:artifacts}.
-
-\paragraph{Non-fabrication guarantee.}
-A central design commitment of OenoBench is that \emph{no fact in the
-corpus is sourced from an LLM's internal knowledge}. Every fact is
-extracted by a source-specific scraper from a live HTTP, SPARQL, or
-file-based source and is stamped with the source URL, retrieval
-timestamp, and tier label before insertion. The released codebase
-enforces this discipline structurally: scrapers do not have access to
-generative-LLM clients, and the fact-insertion utility rejects records
-without a verified source-URL trace. We make this guarantee
-prominent because LLM-generated content masquerading as scraped data
-is a contamination vector that conventional dataset documentation
-does not detect, and recovering from it after-the-fact is mechanical
-only if the scraper code is released alongside the data.
+\paragraph{Licensing and non-fabrication.}
+Every source is public-record or released under a licence that permits
+scraping and redistribution: Tier-1 government data under explicit
+open-data licences (INAO Licence Ouverte, OIV, UC Davis AVA, TTB
+public-domain), Tier-2 Wikipedia/Wikidata under CC-BY-SA / CC0 and
+journals (\emph{OENO One}, \emph{Vitis}, \emph{AJEV}) open-access; the
+full per-source licence table is in Appendix~\ref{app:artifacts}.
+A central design commitment is that \emph{no fact in the corpus comes
+from an LLM's internal knowledge}: every fact is extracted by a
+source-specific scraper, stamped with source URL, retrieval timestamp,
+and tier label before insertion, and the fact-insertion utility
+rejects records without a verified source-URL trace. We emphasise
+this because LLM-generated content masquerading as scraped data is a
+contamination vector that conventional dataset documentation does not
+detect.
 
 \begin{table}[h]
   \centering

@@ -217,3 +217,17 @@ to 51\% L3+L4.
     \bottomrule
   \end{tabular}
 \end{table}
+
+\subsection{Calibration philosophy}
+\label{app:calibration-philosophy}
+We emphasise the design choice underlying these numbers. A naive
+``automated audit'' interpretation would have dropped all 1{,}601
+B2-flagged questions, which would have removed nearly half the corpus
+and biased the remainder toward whatever idiosyncratic items the LLM
+panel happened not to know. By calibrating B2 against humans and
+treating it as an evaluator-side signal, we preserve dataset value while
+giving downstream users a principled way to interpret leakage. The
+audit's role, on this reading, is not to be the final arbiter of
+quality, but to surface signals \emph{that humans validate} as
+quality-relevant, and to disclose clearly the signals where humans and
+LLMs disagree.
