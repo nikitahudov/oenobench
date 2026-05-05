@@ -160,38 +160,29 @@ scale-everywhere strategies.
   \label{fig:cb}
 \end{figure}
 
-Section~\ref{sec:gold} described the calibration finding that the audit's
-B2 ClosedBookSolvability agent reports leakage at $\sim$83\% while
-human reviewers solve only $\sim$12\% of the same items closed-book.
-That gap is itself a measurement: it tells us what a panel of frontier
-LLMs already \emph{know} about wine, separately from what the questions
-test. We exploit this by partitioning the corpus into the 1{,}601
-B2-flagged questions (\emph{closed-book solvable} per the LLM panel)
-and the 1{,}665 contextual / source-grounded questions, and reporting
-per-config accuracy on each slice.
+The audit's B2 agent reported $\sim$83\% closed-book solvability
+against the human reviewer's $\sim$12\% (Section~\ref{sec:gold}).
+That disagreement is itself a measurement of what frontier LLMs
+already \emph{know} about wine. We exploit it by partitioning the
+corpus into the 1{,}601 B2-flagged questions and the 1{,}665
+contextual / source-grounded questions, and reporting per-config
+accuracy on each slice.
 
 The contrast (Figure~\ref{fig:cb}) is the largest single effect we
-observe in the entire evaluation. The mean per-config $\delta$
-(closed-book minus contextual) is \textbf{$+$32.6~pp}, ranging from
-$+$26.6~pp (GPT-5) to $+$39.6~pp (DeepSeek V3), with every CI
-excluding zero. Two interpretations are mutually consistent.
-\emph{First}, the B2-flagged slice is meaningfully easier --- not
-because all 1{,}601 questions are trivial, but because they overlap
-heavily with the parametric wine knowledge that frontier models
-acquired during pre-training. \emph{Second}, the contextual slice is
-where wine knowledge actually has to be reasoned through the source
-fact: \textbf{Claude Opus 4.7 and o3 score $\sim$70\% on the
-contextual slice, the small models drop to $\approx$45\%}, and the
-inter-config spread widens from 27~pp on the easy slice to 33~pp on
-the hard slice. For
-benchmark consumers, the contextual slice is the more discriminative
-test of wine reasoning capability; for benchmark contributors, the
-B2-flagged slice is a calibrated indicator of how much of any given
-LLM's apparent ``wine knowledge'' is parametric recall versus
-in-context reasoning.
+observe. The mean per-config closed-book minus contextual gap is
+\textbf{$+$32.6~pp}, ranging from $+$26.6~pp (GPT-5) to $+$39.6~pp
+(DeepSeek V3), every CI excluding zero. Two readings are mutually
+consistent: the B2-flagged slice overlaps heavily with parametric
+wine knowledge acquired in pre-training, while the contextual slice
+is where wine knowledge has to be reasoned through the source fact
+--- \textbf{Claude Opus 4.7 and o3 hold $\sim$70\% on the contextual
+slice while small models drop to $\approx$45\%}, and the inter-config
+spread widens from 27 to 33~pp.
 
-We close the loop on the audit (Section~\ref{sec:audit}) here: the
-methodological consequence of releasing both slices is that downstream
-users can choose to evaluate only on the contextual slice if their
-research question is reasoning-with-context, or on the union if it is
-total wine capability. The corpus supports both readings.
+The methodological consequence is that downstream users can evaluate
+on the contextual slice if their research question is
+reasoning-with-context, or on the union if it is total wine capability.
+The contextual slice is the more discriminative test of wine
+reasoning, while the B2-flagged slice is a calibrated indicator of
+how much apparent ``wine knowledge'' is parametric recall versus
+in-context reasoning.
