@@ -1,25 +1,6 @@
 \section{Limitations}
 \label{sec:limitations}
 
-\paragraph{Language and cultural scope.} OenoBench is currently
-English-only. The Tier-2 source mix (Wikipedia 34\%, Wikidata 31\%) is
-itself English-skewed, and the corpus inherits a geographic bias toward
-European (especially French, Italian, Spanish) and New-World canonical
-regions. Emerging wine cultures (China, India, much of Eastern Europe)
-are under-represented in absolute counts. Multilingual extension is
-the largest single gap and is the most natural next-version target.
-
-\paragraph{Source skew within domains.} Producer and wine-business
-domains are smaller (515 and 250 questions respectively) than wine
-regions (1{,}108) and grape varieties (766) because authoritative
-producer-level and business-level open data is scarcer than
-appellation-level data. The C4 difficulty re-label
-(Section~\ref{sec:audit}) shifted the corpus toward harder items but
-cannot create coverage that did not exist; the per-domain accuracy
-ceiling on \emph{wine\_business} (\textbf{56.5\% mean across 16 configs},
-vs.\ 79\% on producers) reflects both the hardness of the domain and
-its sparser fact pool.
-
 \paragraph{Snapshot vs.\ moving target.} Wine regulation,
 classifications, and producer ownership change on a multi-year cadence
 (INAO appellation revisions, DOCG promotions, estate sales). The
