@@ -39,17 +39,9 @@ small configs at 39--45\%.
 \subsection{Reasoning-mode lift}
 \label{sec:eval-reasoning}
 
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=0.78\linewidth]{figures/fig_reasoning_lift.pdf}
-  \caption{Reasoning-mode vs.\ standard accuracy for four families;
-    $\delta$ in pp with 95\% bootstrap CI (1{,}000 resamples). Only
-    DeepSeek's CI excludes zero.}
-  \label{fig:reasoning}
-\end{figure}
-
 Reasoning-mode lift is concentrated in a single family
-(Figure~\ref{fig:reasoning}). Only \textbf{DeepSeek R1 vs.\ V3}
+(Figure~\ref{fig:reasoning}, Appendix~\ref{app:eval}). Only
+\textbf{DeepSeek R1 vs.\ V3}
 ($+$6.8\,pp [+4.6, +8.8]) has a CI excluding zero; the three frontier
 pairs (o3 vs.\ GPT-5, Gemini Pro thinking vs.\ Pro, Claude Opus
 thinking vs.\ Opus) are all statistically indistinguishable from zero.
@@ -129,39 +121,25 @@ model over reasoning-everywhere or scale-everywhere strategies.
 \subsection{Closed-book vs.\ source-grounded performance}
 \label{sec:eval-cb}
 
-\begin{figure}[!htbp]
-  \centering
-  \includegraphics[width=0.78\linewidth]{figures/fig_cb_vs_source.pdf}
-  \caption{Per-config accuracy on B2-flagged closed-book-solvable
-    questions ($n{=}1{,}601$) vs.\ contextual / source-grounded
-    questions ($n{=}1{,}665$); every config gains $+26.6$ to
-    $+39.6$~pp on the closed-book slice.}
-  \label{fig:cb}
-\end{figure}
-
 The audit's B2 agent reported $\sim$83\% closed-book solvability
-against the human reviewer's $\sim$12\% (Section~\ref{sec:gold}).
-That disagreement is itself a measurement of what frontier LLMs
-already \emph{know} about wine. We exploit it by partitioning the
-corpus into the 1{,}601 B2-flagged questions and the 1{,}665
-contextual / source-grounded questions, and reporting per-config
-accuracy on each slice.
+against the human reviewer's $\sim$12\% (Section~\ref{sec:gold}) ---
+itself a measurement of what frontier LLMs already \emph{know} about
+wine. We exploit it by partitioning the corpus into the 1{,}601
+B2-flagged questions and the 1{,}665 contextual / source-grounded
+questions, and reporting per-config accuracy on each slice
+(Figure~\ref{fig:cb}, Appendix~\ref{app:cb-figure}).
 
-The contrast (Figure~\ref{fig:cb}) is the largest single effect we
-observe. The mean per-config closed-book minus contextual gap is
-\textbf{$+$32.6~pp}, ranging from $+$26.6~pp (GPT-5) to $+$39.6~pp
-(DeepSeek V3), every CI excluding zero. Two readings are mutually
-consistent: the B2-flagged slice overlaps heavily with parametric
-wine knowledge acquired in pre-training, while the contextual slice
-is where wine knowledge has to be reasoned through the source fact
---- \textbf{Claude Opus 4.7 and o3 hold $\sim$70\% on the contextual
-slice while small models drop to $\approx$45\%}, and the inter-config
-spread widens from 27 to 33~pp.
-
-The methodological consequence is that downstream users can evaluate
-on the contextual slice if their research question is
-reasoning-with-context, or on the union if it is total wine capability.
-The contextual slice is the more discriminative test of wine
-reasoning, while the B2-flagged slice is a calibrated indicator of
-how much apparent ``wine knowledge'' is parametric recall versus
-in-context reasoning.
+The contrast is the largest single effect we observe. The mean
+per-config closed-book minus contextual gap is \textbf{$+$32.6~pp}
+(range $+26.6$ to $+39.6$~pp, every CI above zero). Two readings are
+mutually consistent: the B2-flagged slice overlaps heavily with
+parametric wine knowledge acquired in pre-training, while the
+contextual slice is where wine knowledge has to be reasoned through
+the source fact --- \textbf{Claude Opus 4.7 and o3 hold $\sim$70\% on
+the contextual slice, small models drop to $\approx$45\%}, and the
+inter-config spread widens from 27 to 33~pp. Downstream users can
+therefore evaluate on the contextual slice for reasoning-with-context,
+or on the union for total wine capability; the contextual slice is
+the more discriminative test, while the B2-flagged slice is a
+calibrated indicator of how much apparent ``wine knowledge'' is
+parametric recall.

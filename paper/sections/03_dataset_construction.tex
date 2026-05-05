@@ -1,15 +1,6 @@
 \section{Dataset Construction}
 \label{sec:dataset}
 
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=0.95\linewidth]{figures/diagram_pipeline.png}
-  \caption{End-to-end OenoBench pipeline: authoritative sources $\rightarrow$
-    35 scrapers $\rightarrow$ atomic facts $\rightarrow$ closed-book gate
-    $\rightarrow$ nine-agent audit $\rightarrow$ release.}
-  \label{fig:pipeline}
-\end{figure}
-
 OenoBench is constructed by an LLM-driven pipeline (Figure~\ref{fig:pipeline})
 in two stages: (1) a \emph{fact-collection} stage that builds a corpus of
 atomic, provenance-tagged statements from authoritative sources, and (2) a
@@ -23,6 +14,16 @@ question is scored by a nine-agent automated audit (Section~\ref{sec:audit})
 before release.
 
 \subsection{Domain taxonomy}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figures/diagram_pipeline.png}
+  \caption{End-to-end OenoBench pipeline: authoritative sources $\rightarrow$
+    35 scrapers $\rightarrow$ atomic facts $\rightarrow$ closed-book gate
+    $\rightarrow$ nine-agent audit $\rightarrow$ release.}
+  \label{fig:pipeline}
+\end{figure}
+
 We organise wine knowledge into six \emph{domain pillars}, chosen to align
 with the WSET Level~3 and Diploma syllabi:
 (i) \textbf{wine regions} (appellations, classifications, geography,
@@ -162,21 +163,15 @@ generators whose questions pass audit reliably get a larger share in
 subsequent rounds --- subject to a hard \textbf{per-generator cap of
 21\%} to keep any single model from dominating the corpus.
 
-\paragraph{Closed-book gate.} Questions targeting difficulty levels~1
-and~2 are passed through a \emph{closed-book pre-screen} before
-admission: a separate LLM (Claude Sonnet for L1, Opus for L2) attempts
-the question with no source fact in context, and questions it answers
-correctly are tagged \texttt{closed\_book\_solvable} and reserved into
-a quota. Early pilots used a 25\% cap; we raised the cap to
-\textbf{50\%} after the gold-sheet calibration revealed that LLM judges
-over-attribute closed-book solvability relative to humans
-(Section~\ref{sec:gold}), so the higher cap keeps the items that are
-in fact discriminating for downstream evaluation. Difficulty levels~3
-and~4 skip the gate by protocol, since high-difficulty items are
-expected to be answerable only with the supporting fact. The audit's B2 agent
-(Section~\ref{sec:audit}) re-runs this check at corpus scale on a panel
-of three judges; we discuss its calibration against humans and the
-implications for the eval contrast in Section~\ref{sec:eval-cb}.
+\paragraph{Closed-book gate.} L1 and L2 questions pass through a
+\emph{closed-book pre-screen} (Claude Sonnet for L1, Opus for L2):
+correct hits without the source fact are tagged
+\texttt{closed\_book\_solvable} and quota-reserved. We raised the cap
+from 25\% to \textbf{50\%} after the gold-sheet calibration showed
+LLM judges over-attribute solvability relative to humans
+(Section~\ref{sec:gold}). L3 and L4 skip the gate. The B2 audit agent
+re-runs this at corpus scale on a tri-judge panel, feeding the
+closed-book vs.\ contextual contrast in Section~\ref{sec:eval-cb}.
 
 \subsection{Final corpus: \texttt{release\_v1.2}}
 \label{sec:release}
