@@ -453,7 +453,7 @@ def fig_pareto_cost():
     eff = parse_cost_efficiency()
     cost_by_cfg = {e["config"]: e["cost"] for e in eff}
 
-    fig, ax = plt.subplots(figsize=(6.6, 4.6))
+    fig, ax = plt.subplots(figsize=(5.5, 3.7))
     points = []
     for c in cfgs:
         cost = max(cost_by_cfg.get(c["config"], c["cost"]), 0.01)
@@ -465,15 +465,11 @@ def fig_pareto_cost():
     xs = [p["cost"] for p in points]
     ys = [p["acc"] for p in points]
     cs = [p["color"] for p in points]
-    ax.scatter(xs, ys, c=cs, s=85, edgecolor="black",
+    ax.scatter(xs, ys, c=cs, s=70, edgecolor="black",
                linewidth=0.5, zorder=3)
 
-    # Manual label-offset table (offsets in points). Strategy: keep
-    # labels close in the sparse low-cost region, stagger vertically in
-    # the dense $3 and $10–13 clusters, and shift the rightmost few
-    # points leftward so labels don't clip the right edge.
+    # Sparse area: short right-of-dot labels.
     OFFSETS = {
-        # Sparse low-cost area: simple right-of-dot labels.
         "Llama 3.1 8B":            (8,  -3),
         "Llama 3.3 70B":           (8,   5),
         "Gemini 2.5 Flash":        (8,   5),
@@ -482,20 +478,23 @@ def fig_pareto_cost():
         "Qwen 2.5 72B":            (8,  -10),
         "Claude Haiku 4.5":        (8,  -3),
         "Mistral Large":           (8,   4),
-        # $3 cluster: stagger Opus pair, route GPT-5-mini leftward.
-        "GPT-5-mini":              (-65, -3),
-        "Claude Opus 4.7":         (8,  12),
-        "Claude Opus 4.7 (think)": (8, -14),
-        # Upper-right dense cluster (R1, o3, Pro-think, GPT-5, Pro): use
-        # leader-line annotations for the four dots that would otherwise
-        # collide. R1 is below the rest so its right-of-dot label is safe.
-        "DeepSeek R1":             (8,  -3),
     }
+    # Dense upper-right cluster: route every label with a leader line so
+    # nothing sits on top of a neighbouring dot or the Pareto dashed.
+    # Left-column labels park around x=$0.7 (gap between sparse-low and
+    # dense clusters); right-column labels park around x=$45 (open
+    # right edge). Vertical stagger avoids label-on-label collisions.
     LEADER = {
-        "o3":                      ((10.0, 88.5),  "left"),
-        "Gemini 2.5 Pro (think)":  ((45.0, 86.0),  "left"),
-        "GPT-5":                   ((45.0, 82.0),  "left"),
-        "Gemini 2.5 Pro":          ((60.0, 79.0),  "left"),
+        # Right column (anchored x=$45-65, decreasing y)
+        "o3":                      ((25.0, 90.0),  "left"),
+        "Gemini 2.5 Pro (think)":  ((55.0, 87.0),  "left"),
+        "GPT-5":                   ((55.0, 83.5),  "left"),
+        "Gemini 2.5 Pro":          ((55.0, 80.0),  "left"),
+        "DeepSeek R1":             ((55.0, 76.5),  "left"),
+        # Left column (anchored x=$0.6-0.8, decreasing y)
+        "Claude Opus 4.7":         ((0.6, 86.0),   "right"),
+        "Claude Opus 4.7 (think)": ((0.6, 82.5),   "right"),
+        "GPT-5-mini":              ((0.6, 79.0),   "right"),
     }
     for p in points:
         if p["label"] in LEADER:
@@ -525,7 +524,7 @@ def fig_pareto_cost():
 
     ax.set_xscale("log")
     ax.set_xlim(0.005, 100)
-    ax.set_ylim(48, 92)
+    ax.set_ylim(48, 94)
     ax.set_xlabel("Total evaluation cost (USD, 3,266 questions)")
     ax.set_ylabel("Accuracy (%)")
     ax.set_title("Cost-vs-accuracy Pareto frontier")
