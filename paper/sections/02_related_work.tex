@@ -27,11 +27,11 @@ OenoBench is the first such benchmark for the wine domain.
 \paragraph{LLM-as-judge bias and self-preference.} A growing literature
 documents that models tend to favour outputs stylistically similar to
 their own \citep{panickssery2024selfpref, zheng2023judging,
-sharma2024sycophancy}. This biases benchmarks where the same model
-generates and grades. We mitigate this in two ways: by distributing
-generation across five models (Claude, GPT, Gemini, Llama, Qwen) plus
-deterministic templates, and by reporting per-model self-vs-other
-accuracy gaps as a first-class diagnostic (Section~\ref{sec:eval-sps}).
+sharma2024sycophancy}, biasing benchmarks where the same model
+generates and grades. We mitigate by distributing generation across
+five generator families plus deterministic templates and by reporting
+per-model self-vs-other accuracy gaps as a first-class diagnostic
+(Section~\ref{sec:eval-sps}).
 
 \paragraph{Benchmark contamination and solvability.} Pre-training
 exposure inflates apparent capability \citep{sainz2023contamination,
@@ -46,10 +46,9 @@ when calibrated against a human gold sheet, reveals that LLM judges
 themselves over-report leakage by an order of magnitude --- a finding
 with broader implications for the LLM-as-judge paradigm.
 
-\paragraph{Wine in NLP.} Wine has previously appeared in NLP only as a
-substrate for review-text generation, recommendation
-\citep{chen2014winerec}, taxonomy learning \citep{lefever2017winenlp},
-and judge-reliability studies \citep{hodgson2017winereviews}.
-OenoBench is the first benchmark that targets \emph{structured factual
-knowledge} of viticulture, winemaking, and wine regions evaluated
-against frontier LLMs.
+\paragraph{Wine in NLP.} Wine has previously appeared in NLP via
+review-text recommendation \citep{chen2014winerec}, taxonomy learning
+\citep{lefever2017winenlp}, and judge-reliability studies
+\citep{hodgson2017winereviews}. OenoBench is the first benchmark
+targeting \emph{structured factual knowledge} of viticulture,
+winemaking, and wine regions evaluated against frontier LLMs.

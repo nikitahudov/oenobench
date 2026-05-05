@@ -1,19 +1,15 @@
 \section{Multi-Agent Quality Audit}
 \label{sec:audit}
 
-The audit pipeline runs every generated question through nine automated
-agents organised into four teams. Each agent emits a per-question
-signal in $\{\textsc{pass}, \textsc{warn}, \textsc{fail}\}$ and signals
-are calibrated against a human-reviewed gold sheet using Cohen's
-$\kappa$. Agents whose human agreement falls below threshold are
-downweighted to advisory-only, on the principle that an automated judge
-whose verdict humans cannot reproduce should not gate question
-admission. A separate human-review web application
-(Appendix~\ref{app:screenshots}) collects the gold-sheet ratings from
-WSET-Diploma reviewers and is itself part of the released artifact set.
-A team-by-team architecture diagram (Figure~\ref{fig:audit-app},
-Appendix~\ref{app:eval}) shows how candidate questions flow through
-the four teams to the drop / relabel / keep verdict.
+The audit pipeline runs every generated question through nine
+automated agents in four teams. Each agent emits a per-question
+$\{\textsc{pass}, \textsc{warn}, \textsc{fail}\}$ signal calibrated
+against a human-reviewed gold sheet via Cohen's $\kappa$; agents whose
+agreement falls below threshold are downweighted to advisory-only.
+The released human-review web app (Appendix~\ref{app:screenshots})
+collects the gold-sheet ratings, and the team-by-team architecture
+(Figure~\ref{fig:audit-app}, Appendix~\ref{app:eval}) traces the flow
+from candidate question to drop / relabel / keep verdict.
 
 \subsection{Team architecture}
 \label{sec:audit-arch}
@@ -69,28 +65,26 @@ corpus (Appendix~\ref{app:methodology}).
 \FloatBarrier
 \subsection{Gold-sheet calibration}
 \label{sec:gold}
-A human gold sheet of 50 stratified questions per release is rated by
-a WSET-Diploma reviewer through the released human-review web app
+A gold sheet of 50 stratified questions per release is rated by a
+WSET-Diploma reviewer through the released human-review web app
 (Appendix~\ref{app:screenshots}); \textbf{15+ rounds} (audit pilots
-v1--v16) cover an iterative calibration cycle. Each round rates eight
-rubrics (answer-correctness, distractor plausibility, ambiguity,
+v1--v16) form an iterative calibration cycle covering eight rubrics
+(answer-correctness, distractor plausibility, ambiguity,
 source-faithfulness, needs-source, vague language, label correctness,
-verbatim copying). For each automated agent we compute Cohen's
-$\kappa$ against the corresponding rubric; \textbf{signals with
-$\kappa<0.6$ are downweighted to advisory-only and excluded from
-gating decisions.}
+verbatim copying). For each agent we compute Cohen's $\kappa$ against
+the corresponding rubric; \textbf{signals with $\kappa<0.6$ are
+downweighted to advisory-only.}
 
-The most consequential result concerns agent
-\textbf{B2~ClosedBookSolvability}: the human reviewer solved
-$\approx$12\% of gold-sheet questions without the source fact while
-the LLM tri-judge panel reported $\approx$83\%, yielding
-$\kappa\approx0.007$. We read this as a property of the
+The most consequential result is agent \textbf{B2~ClosedBookSolvability}:
+the human solved $\approx$12\% of gold-sheet questions without the
+source fact while the LLM tri-judge panel reported $\approx$83\%
+($\kappa\approx0.007$). We read this as a property of the
 \emph{evaluator} --- frontier LLM judges have absorbed enough wine
 knowledge during pre-training to over-attribute ``world knowledge''
-to questions humans find non-trivial. We retain the 1{,}601
-B2-flagged questions with disclosure and turn the audit's blind spot
-into a calibrated diagnostic of memorisation reliance via the
-closed-book vs.\ source-grounded contrast (Section~\ref{sec:eval-cb}).
+to non-trivial questions. We retain the 1{,}601 B2-flagged questions
+with disclosure and turn the blind spot into a calibrated
+memorisation-reliance diagnostic via the closed-book vs.\
+source-grounded contrast (Section~\ref{sec:eval-cb}).
 
 \subsection{Release-cycle results}
 \label{sec:audit-results}

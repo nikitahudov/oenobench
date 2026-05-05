@@ -3,19 +3,18 @@
 
 Large language models are increasingly evaluated on knowledge-intensive
 benchmarks, but the most widely-used resources --- MMLU
-\citep{hendrycks2021mmlu}, GPQA \citep{rein2024gpqa}, and their successors
-\citep{srivastava2023bigbench, zhong2024agieval, phan2025hle} --- share
-three properties that limit their usefulness as the field matures: (i)
-they aggregate breadth at the expense of \emph{depth} within any single
-discipline, (ii) they are typically authored or curated by a small team
-using a single generation pipeline, exposing them to systematic
-blind-spots and stylistic regularities that frontier models can learn to
-exploit \citep{panickssery2024selfpref, zheng2023judging}, and (iii) the
+\citep{hendrycks2021mmlu}, GPQA \citep{rein2024gpqa}, and their
+successors \citep{srivastava2023bigbench, zhong2024agieval, phan2025hle}
+--- share three weaknesses: they aggregate breadth at the expense of
+\emph{depth} within any single discipline; they are typically authored
+by a small team using one generation pipeline, exposing systematic
+blind-spots and stylistic regularities that frontier models can learn
+to exploit \citep{panickssery2024selfpref, zheng2023judging}; and the
 questions are increasingly suspected of contamination through web-scale
-pre-training corpora \citep{sainz2023contamination, magar2022contamination,
-dodge2021documenting}. As models grow more capable, the marginal value of
-a benchmark depends increasingly on \emph{how} it was constructed, not
-only on what it contains.
+pre-training corpora \citep{sainz2023contamination,
+magar2022contamination, dodge2021documenting}. As models grow more
+capable, the marginal value of a benchmark depends increasingly on
+\emph{how} it was constructed.
 
 We argue that domain-specialised benchmarks built around bodies of
 knowledge that are \emph{externally validated by humans} --- through
@@ -27,19 +26,17 @@ extend this line of work to a domain that has so far received little
 attention from the benchmarking community, despite being unusually
 well-defined: \textbf{wine}.
 
-\paragraph{Why wine.} Wine is a multi-disciplinary subject that
-integrates plant biology, geology and climate science, organic chemistry,
-food microbiology, sensory neuroscience, regulatory law, and business
-economics. It is one of very few domains for which (a) authoritative
-governmental and inter-governmental sources publish structured taxonomic
-data (e.g.\ INAO, OIV, TTB, regional consortia), (b) university research
-groups (notably UC Davis, Geisenheim, Bordeaux Sciences Agro) produce
-open scholarly literature, and (c) professional certification bodies
-define a graded competence ladder (WSET Levels 1--4, Court of Master
-Sommeliers, Institute of Masters of Wine) whose published syllabi can be
-used to ground what ``expert'' should mean. Together these properties
-make it possible to build a benchmark in which every question is
-traceable to a verifiable source, while still spanning the
+\paragraph{Why wine.} Wine integrates plant biology, geology and
+climate science, organic chemistry, food microbiology, sensory
+neuroscience, regulatory law, and business economics. It is one of
+very few domains for which inter-governmental and governmental sources
+publish structured taxonomic data (INAO, OIV, TTB, regional consortia),
+university research groups (UC Davis, Geisenheim, Bordeaux Sciences
+Agro) produce open scholarly literature, and professional certification
+bodies (WSET Levels 1--4, Court of Master Sommeliers, Institute of
+Masters of Wine) define a graded competence ladder. These properties
+make it possible to build a benchmark whose every question is
+traceable to a verifiable source while still spanning the
 recall--reasoning--application spectrum that distinguishes a strong
 taster, winemaker, or buyer from a memorised glossary.
 
@@ -66,8 +63,7 @@ taster, winemaker, or buyer from a memorised glossary.
         reasoning.
 \end{enumerate}
 
-\noindent OenoBench, the construction and audit pipelines, the
-multi-agent audit findings, and the human-review web application are
-released under CC-BY-SA-4.0; see
-Appendix~\ref{app:artifacts} for dataset and code URLs and the
-double-blind anonymisation map.
+\noindent OenoBench --- corpus, audit findings, construction code, and
+human-review app --- ships under CC-BY-SA-4.0; URLs and the
+double-blind anonymisation map are in
+Appendix~\ref{app:artifacts}.

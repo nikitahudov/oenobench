@@ -121,25 +121,21 @@ model over reasoning-everywhere or scale-everywhere strategies.
 \subsection{Closed-book vs.\ source-grounded performance}
 \label{sec:eval-cb}
 
-The audit's B2 agent reported $\sim$83\% closed-book solvability
-against the human reviewer's $\sim$12\% (Section~\ref{sec:gold}) ---
-itself a measurement of what frontier LLMs already \emph{know} about
-wine. We exploit it by partitioning the corpus into the 1{,}601
-B2-flagged questions and the 1{,}665 contextual / source-grounded
-questions, and reporting per-config accuracy on each slice
-(Figure~\ref{fig:cb}, Appendix~\ref{app:cb-figure}).
+The B2 agent reported $\sim$83\% closed-book solvability against the
+human reviewer's $\sim$12\% (Section~\ref{sec:gold}) --- itself a
+measurement of what frontier LLMs already \emph{know} about wine. We
+exploit it by partitioning the corpus into 1{,}601 B2-flagged and
+1{,}665 contextual / source-grounded questions and reporting per-config
+accuracy on each slice (Figure~\ref{fig:cb}, Appendix~\ref{app:cb-figure}).
 
-The contrast is the largest single effect we observe. The mean
+The contrast is the largest single effect we observe: the mean
 per-config closed-book minus contextual gap is \textbf{$+$32.6~pp}
-(range $+26.6$ to $+39.6$~pp, every CI above zero). Two readings are
-mutually consistent: the B2-flagged slice overlaps heavily with
-parametric wine knowledge acquired in pre-training, while the
-contextual slice is where wine knowledge has to be reasoned through
-the source fact --- \textbf{Claude Opus 4.7 and o3 hold $\sim$70\% on
-the contextual slice, small models drop to $\approx$45\%}, and the
-inter-config spread widens from 27 to 33~pp. Downstream users can
-therefore evaluate on the contextual slice for reasoning-with-context,
-or on the union for total wine capability; the contextual slice is
-the more discriminative test, while the B2-flagged slice is a
-calibrated indicator of how much apparent ``wine knowledge'' is
-parametric recall.
+(range $+26.6$ to $+39.6$~pp, every CI above zero). The B2-flagged
+slice overlaps heavily with parametric wine knowledge acquired in
+pre-training; the contextual slice is where wine knowledge must be
+reasoned through the source fact --- \textbf{Claude Opus 4.7 and o3
+hold $\sim$70\% on the contextual slice, small models drop to
+$\approx$45\%}, and the inter-config spread widens from 27 to 33~pp.
+The contextual slice is the more discriminative test of wine reasoning;
+the B2-flagged slice is a calibrated indicator of how much apparent
+``wine knowledge'' is parametric recall.

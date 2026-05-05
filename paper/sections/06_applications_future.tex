@@ -1,68 +1,50 @@
 \section{Applications and Future Work}
 \label{sec:future}
 
-OenoBench is a benchmark first, but the construction pipeline behind
-it is intended to be reusable. We outline three threads that build on
-the released artifacts and methodology.
+The construction pipeline behind OenoBench is intended to be reusable.
+We outline three threads.
 
 \subsection{Closing the wine-knowledge gap in low-cost models}
-The cost-vs-accuracy frontier (Section~\ref{sec:eval-cost}) shows
-small open-weight models trailing proprietary frontier models by
-20--30\,pp here, where the gap on broad benchmarks like MMLU is only
-10--15\,pp. The 38{,}104-fact corpus is a natural \emph{supervised
-fine-tuning} target via a two-stage recipe: (i) instruction-style
-fine-tuning on a held-out quartile of question/source-fact pairs,
-teaching source-grounded reasoning; and (ii) LoRA adaptation on the
-full 38{,}104-fact corpus, exposed by the release schema as
-fact-question-source triples. Both run on consumer GPUs without
-proprietary weights or pre-training compute. The contextual slice
+Small open-weight models trail proprietary frontier ones by 20--30\,pp
+on this benchmark, while the broad-benchmark gap is only 10--15\,pp
+(Section~\ref{sec:eval-cost}). The 38{,}104-fact corpus is a natural
+supervised-fine-tuning target via a two-stage recipe: instruction
+tuning on held-out question/source-fact pairs, then LoRA adaptation
+on the full fact-question-source triples in the release schema. Both
+stages run on consumer GPUs without proprietary weights or
+pre-training compute. The contextual slice
 (Section~\ref{sec:eval-cb}) is the harder-to-game evaluation surface,
-so measured gain is a faithful proxy for genuine wine reasoning. We
-expect a Llama-3.3-70B-class adaptation to recover much of the
-GPT-5-mini gap at $\approx$1\% of proprietary inference cost, opening
-cost-sensitive deployment paths for sommelier-tooling and
-wine-education applications.
+so measured gain tracks genuine wine reasoning. A
+Llama-3.3-70B-class adaptation could plausibly close most of the
+GPT-5-mini gap at $\approx$1\% of proprietary inference cost.
 
 \subsection{Case-based evaluation with industry partners}
 Multiple-choice tests have ceilings: a perfect OenoBench score does
-not establish that a model can act usefully in real workflows. We are
-scoping an \textbf{applied case-based dataset} with industry partners
-along three personas:
+not establish useful behaviour in real workflows. We are scoping an
+\textbf{applied case-based dataset} with industry partners along three
+personas:
 \begin{itemize}\itemsep -1pt
-  \item \emph{Sommelier $\rightarrow$ customer service:} consumer
-    pairing prompts rated by certified sommeliers on recommendation,
-    justification, and substitutions.
+  \item \emph{Sommelier $\rightarrow$ customer service:} pairing
+    prompts rated on recommendation, justification, and substitutions.
   \item \emph{Winemaker $\rightarrow$ blending decisions:} vintage
     write-ups, lab analyses, and regulatory constraints in context;
-    outputs rated on technical correctness, regulatory compliance,
-    and stylistic intent.
+    rated on technical correctness, compliance, and stylistic intent.
   \item \emph{Viticulturist $\rightarrow$ vineyard decisions:}
-    weather, soil/disease, canopy/yield records; canopy, irrigation,
-    harvest-timing, and pest-control recommendations rated against
-    decisions actually taken in the same vintage.
+    weather, soil/disease, canopy/yield records; recommendations
+    rated against decisions actually taken in the same vintage.
 \end{itemize}
-This requires expert annotation of free-form outputs, but the
-OenoBench pipeline (multi-strategy generation, multi-agent audit,
-gold-sheet calibration) and the IRR-aware human-review app
-(Appendix~\ref{app:screenshots}) carry over. We treat OenoBench as
-the \emph{factual-recall floor}: factual knowledge must be
-near-saturated before applied reasoning can be validly measured.
+The OenoBench audit-and-review tooling (Appendix~\ref{app:screenshots})
+carries over directly.
 
-\subsection{Generalising the LLM-driven scrape-to-audit pipeline}
-The pipeline elements --- (i) tier-of-authority source taxonomy,
-(ii) atomic-fact extraction with paraphrase enforcement,
-(iii) multi-strategy multi-model generation with per-model quotas,
-(iv) automated multi-agent audit calibrated against humans by
-$\kappa$, and (v) closed-book pre-screen for parametric leakage ---
-are domain-agnostic, implemented as separable modules. Swapping the
-source-tier configuration and domain taxonomy is sufficient to
-retarget. Three near-term targets share wine's structural features:
-\emph{horticulture/agronomy} (regulated appellations, peer-reviewed
-journals, certification ladders); \emph{regulated medicine} (clinical
-guidelines and drug formularies --- the strongest tier-of-authority
-structure of any field, where current benchmarks rely on board-exam
-questions misaligned with practice); and \emph{financial regulation}
-(FASB, IFRS, jurisdictional filings; CFA/CPA ladders). In each case
-the released code reduces a months-long expert-authoring effort to a
-weeks-long curation effort, given careful tier-of-authority
-configuration.
+\subsection{Generalising the scrape-to-audit pipeline}
+The pipeline modules --- tier-of-authority taxonomy, atomic-fact
+extraction, multi-strategy multi-model generation with per-model
+quotas, $\kappa$-calibrated multi-agent audit, and closed-book
+pre-screen --- are domain-agnostic. Three near-term targets share
+wine's structural features: \emph{horticulture/agronomy} (regulated
+appellations, peer-reviewed journals, certification ladders);
+\emph{regulated medicine} (clinical guidelines, drug formularies;
+current benchmarks rely on board-exam questions misaligned with
+practice); and \emph{financial regulation} (FASB, IFRS, jurisdictional
+filings; CFA/CPA ladders). The released code reduces months of
+expert authoring to weeks of curation.
