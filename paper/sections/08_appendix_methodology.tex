@@ -1,17 +1,11 @@
 \section{Additional Methodology Detail}
 \label{app:methodology}
 
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=0.95\linewidth]{figures/diagram_quality_assurance.png}
-  \caption{Multi-agent audit architecture. Candidate questions are
-    fanned out to four teams; each team independently emits per-question
-    verdicts. Critical \textsc{fail} signals route the question to the
-    drop pool; C4 difficulty disagreements route to relabel; otherwise
-    the question is kept in \texttt{release\_v1.2}. Every agent is
-    calibrated against the human gold sheet via Cohen's $\kappa$.}
-  \label{fig:audit-app}
-\end{figure}
+This appendix expands the dataset-construction and audit pipelines:
+the atomic-fact extractor (B.1), the Wikidata SPARQL choice (B.2),
+question-generation prompts (B.3), the closed-book gate (B.4), and
+audit architecture, agent specifications, and release-cycle results
+(B.5--B.7), with the calibration philosophy that informs them (B.8).
 
 \subsection{Atomic fact extraction pipeline}
 \label{app:fact-extraction}
@@ -123,8 +117,22 @@ Failures are not dropped; they are reserved into the closed-book
 slice and used for the analytic partition in
 Section~\ref{sec:eval-cb}.
 
+\subsection{Audit architecture}
+\label{app:audit-architecture}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figures/diagram_quality_assurance.png}
+  \caption{Multi-agent audit architecture. Candidate questions are
+    fanned out to four teams; each team independently emits per-question
+    verdicts. Critical \textsc{fail} signals route the question to the
+    drop pool; C4 difficulty disagreements route to relabel; otherwise
+    the question is kept in \texttt{release\_v1.2}. Every agent is
+    calibrated against the human gold sheet via Cohen's $\kappa$.}
+  \label{fig:audit-app}
+\end{figure}
+
 \subsection{Audit agent specifications}
-\label{app:audit-agents}
 Each agent is a versioned Python module under \texttt{src/qa/agents/}.
 Agents emit
 \texttt{(question\_id, agent\_id, version, severity, payload\_json)}
@@ -165,7 +173,9 @@ the agent as a measurement of the LLM panel's prior, and report the
 contextual / closed-book partition (Section~\ref{sec:eval-cb}) that
 turns the disagreement into a useful diagnostic.
 
-\paragraph{Release-cycle audit findings.}
+\subsection{Release-cycle results}
+\label{app:audit-agents}
+
 Table~\ref{tab:audit_results} summarises the verdicts produced when
 the 9-agent audit was applied to \texttt{release\_v1.1} (3{,}670
 candidate questions); these are the numbers cited in
@@ -196,7 +206,6 @@ Section~\ref{sec:audit-results}.
   \end{tabular}
 \end{table}
 
-\paragraph{Difficulty distribution before and after C4 re-label.}
 Table~\ref{tab:difficulty-shift} shows the corpus-level effect of the
 C4 difficulty re-label, which shifted the corpus from 14\% L3+L4 items
 to 51\% L3+L4.
