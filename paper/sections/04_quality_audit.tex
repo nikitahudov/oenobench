@@ -14,11 +14,21 @@ from candidate question to drop / relabel / keep verdict.
 \subsection{Team architecture}
 \label{sec:audit-arch}
 
-\begin{table}[h]
+Of the 14 agents (Tables~\ref{tab:agents-ab}--\ref{tab:agents-cd}),
+\textbf{nine are always-run} on every candidate question; the remaining
+\textbf{five are escalation-gated} and are invoked only when an upstream
+agent flags a corpus-level concern. This deferred-execution policy
+keeps routine audit cost bounded ($\sim$\$76 for the full corpus audit
+reported here, 5h~22m wall) while preserving full coverage when a
+defect class is suspected. The full audit code, prompts, and thresholds
+are released alongside the corpus (Appendix~\ref{app:methodology}).
+
+\begin{table}[H]
   \centering
-  \caption{The 14 audit agents across four teams. \textsc{always}:
-    run on every question. \textsc{esc}: escalation-gated.}
-  \label{tab:agents}
+  \caption{Audit agents (1/2): static and tri-judge teams.
+    \textsc{always}: run on every question. \textsc{esc}:
+    escalation-gated.}
+  \label{tab:agents-ab}
   \scriptsize
   \setlength{\tabcolsep}{4pt}
   \renewcommand{\arraystretch}{0.95}
@@ -38,6 +48,21 @@ from candidate question to drop / relabel / keep verdict.
       & B3 UbiquityRisk          & \textsc{always} & Internationally-grown grape stem $\times$ region-class answer $\Rightarrow$ ambiguity flag. \\
       & B4 Ambiguity             & \textsc{esc}    & Tri-judge re-read flags questions with $>$1 defensible answer; invoked when B1 dissent rate elevated. \\
       & B5 VerifierSkip          & \textsc{esc}    & Self-consistency probe across re-prompted panels; invoked on disputed B1 verdicts. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \caption{Audit agents (2/2): deterministic and corpus-statistics
+    teams.}
+  \label{tab:agents-cd}
+  \scriptsize
+  \setlength{\tabcolsep}{4pt}
+  \renewcommand{\arraystretch}{0.95}
+  \begin{tabular}{lllp{0.50\linewidth}}
+    \toprule
+    Team & Agent & Run & Function \\
     \midrule
     \multirow{4}{*}{C. Determin.}
       & C1 DistractorDifficulty  & \textsc{esc}    & Embedding-distance distractor analysis; invoked when A2 reports length skew. \\
@@ -52,15 +77,6 @@ from candidate question to drop / relabel / keep verdict.
     \bottomrule
   \end{tabular}
 \end{table}
-
-Of the 14 agents, \textbf{nine are always-run} on every candidate
-question; the remaining \textbf{five are escalation-gated} and are
-invoked only when an upstream agent flags a corpus-level concern. This
-deferred-execution policy keeps routine audit cost bounded
-($\sim$\$76 for the full corpus audit reported here, 5h~22m wall)
-while preserving full coverage when a defect class is suspected. The
-full audit code, prompts, and thresholds are released alongside the
-corpus (Appendix~\ref{app:methodology}).
 
 \FloatBarrier
 \subsection{Gold-sheet calibration}
