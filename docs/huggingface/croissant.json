@@ -194,9 +194,25 @@
           "@id": "questions/options",
           "name": "options",
           "description": "List of {id: A|B|C|D, text: str} multiple-choice options.",
-          "dataType": "sc:Text",
           "repeated": true,
-          "source": {"fileObject": {"@id": "test-parquet"}, "extract": {"column": "options"}}
+          "subField": [
+            {
+              "@type": "cr:Field",
+              "@id": "questions/options/id",
+              "name": "id",
+              "description": "Option letter (A, B, C, or D).",
+              "dataType": "sc:Text",
+              "source": {"fileObject": {"@id": "test-parquet"}, "extract": {"column": "options"}, "transform": {"jsonPath": "id"}}
+            },
+            {
+              "@type": "cr:Field",
+              "@id": "questions/options/text",
+              "name": "text",
+              "description": "Option text.",
+              "dataType": "sc:Text",
+              "source": {"fileObject": {"@id": "test-parquet"}, "extract": {"column": "options"}, "transform": {"jsonPath": "text"}}
+            }
+          ]
         },
         {
           "@type": "cr:Field",
@@ -243,9 +259,41 @@
           "@id": "questions/source_facts",
           "name": "source_facts",
           "description": "List of {fact_id, fact_text, source_name, source_url} — externally-verified atomic facts the question is grounded in.",
-          "dataType": "sc:Text",
           "repeated": true,
-          "source": {"fileObject": {"@id": "test-parquet"}, "extract": {"column": "source_facts"}}
+          "subField": [
+            {
+              "@type": "cr:Field",
+              "@id": "questions/source_facts/fact_id",
+              "name": "fact_id",
+              "description": "UUID of the source atomic fact in the OenoBench fact pool.",
+              "dataType": "sc:Text",
+              "source": {"fileObject": {"@id": "test-parquet"}, "extract": {"column": "source_facts"}, "transform": {"jsonPath": "fact_id"}}
+            },
+            {
+              "@type": "cr:Field",
+              "@id": "questions/source_facts/fact_text",
+              "name": "fact_text",
+              "description": "The atomic fact text.",
+              "dataType": "sc:Text",
+              "source": {"fileObject": {"@id": "test-parquet"}, "extract": {"column": "source_facts"}, "transform": {"jsonPath": "fact_text"}}
+            },
+            {
+              "@type": "cr:Field",
+              "@id": "questions/source_facts/source_name",
+              "name": "source_name",
+              "description": "Human-readable source name (e.g. 'Wikipedia: Burgundy wine').",
+              "dataType": "sc:Text",
+              "source": {"fileObject": {"@id": "test-parquet"}, "extract": {"column": "source_facts"}, "transform": {"jsonPath": "source_name"}}
+            },
+            {
+              "@type": "cr:Field",
+              "@id": "questions/source_facts/source_url",
+              "name": "source_url",
+              "description": "URL of the source.",
+              "dataType": "sc:URL",
+              "source": {"fileObject": {"@id": "test-parquet"}, "extract": {"column": "source_facts"}, "transform": {"jsonPath": "source_url"}}
+            }
+          ]
         },
         {
           "@type": "cr:Field",

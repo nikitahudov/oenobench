@@ -81,14 +81,15 @@ are released alongside the corpus (Appendix~\ref{app:methodology}).
 \FloatBarrier
 \subsection{Gold-sheet calibration}
 \label{sec:gold}
-A gold sheet of 50 stratified questions per release is rated by a
-WSET-Diploma reviewer through the released human-review web app
+A gold sheet of 50 stratified questions per release is rated independently
+by three WSET-certified reviewers (Diploma, Level~3, Level~2 --- the
+Diploma rater is the lead author) through the human-review web app
 (Appendix~\ref{app:screenshots}); \textbf{15+ rounds} (audit pilots
-v1--v16) form an iterative calibration cycle covering eight rubrics
+v1--v16) form a calibration cycle covering eight rubrics
 (answer-correctness, distractor plausibility, ambiguity,
 source-faithfulness, needs-source, vague language, label correctness,
 verbatim copying). For each agent we compute Cohen's $\kappa$ against
-the corresponding rubric; \textbf{signals with $\kappa<0.6$ are
+the rubric; \textbf{signals with $\kappa<0.6$ are
 downweighted to advisory-only.}
 
 The most consequential result is agent \textbf{B2~ClosedBookSolvability}:
@@ -109,7 +110,7 @@ questions) produced the verdicts summarised in
 Table~\ref{tab:audit_results} (Appendix~\ref{app:audit-agents}): A1, A3,
 B1, C2 and B3 between them flagged 341 distinct questions for
 \textsc{drop}, while C4 re-labelled difficulty on 1{,}259 questions
-and B2 flagged 1{,}601 as closed-book-solvable but kept them with
+and B2 flagged 1{,}601 as closed-book solvable but kept them with
 disclosure.
 
 After drops, a follow-up post-evaluation pass (Section~\ref{sec:eval}

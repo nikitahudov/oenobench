@@ -56,29 +56,81 @@ Appendix~\ref{app:artifacts}.
   \centering
   \footnotesize
   \caption{Per-config Self-Preference Score with 95\% bootstrap CI
-    (1{,}000 resamples). DeepSeek and Mistral have no own-family
-    questions in \texttt{release\_v1.2} and are omitted.}
+    (1{,}000 resamples). $n$ columns are the question counts in each
+    pool: own~$=$~questions whose generator family matches the
+    config's family; other~$=$~questions whose generator is a
+    different non-template LLM. Templates ($n{=}389$) are excluded
+    from both pools, so own~$+$~other~$=$~2{,}877 across every row.
+    DeepSeek and Mistral have no own-family questions in
+    \texttt{release\_v1.2} and are omitted.}
   \label{tab:sps-full}
-  \begin{tabular}{llrrrr}
+  \begin{tabular}{lrrrrrr}
     \toprule
-    Config & Family & own (\%) & other (\%) & $\delta$ (pp) & 95\% CI \\
+    Config & own $n$ & other $n$ & own (\%) & other (\%) & $\delta$ (pp) & 95\% CI \\
     \midrule
-    claude-haiku-4.5             & anthropic & 58.8 & 48.8 & $+10.0$ & [$+5.7$, $+14.5$] \\
-    claude-opus-4.7              & anthropic & 86.6 & 77.5 & $+9.1$  & [$+6.1$, $+12.1$] \\
-    claude-opus-4.7-thinking     & anthropic & 86.9 & 77.2 & $+9.7$  & [$+6.5$, $+13.1$] \\
-    qwen-2.5-7b                  & qwen      & 60.9 & 51.9 & $+9.0$  & [$+4.5$, $+13.2$] \\
-    qwen-2.5-72b                 & qwen      & 66.1 & 64.1 & $+2.0$  & [$-2.1$, $+6.0$] \\
-    llama-3.3-70b                & meta      & 65.5 & 63.6 & $+1.9$  & [$-2.3$, $+6.1$] \\
-    gpt-5-mini                   & openai    & 77.9 & 76.1 & $+1.7$  & [$-2.4$, $+5.4$] \\
-    o3                           & openai    & 81.9 & 82.1 & $-0.1$  & [$-3.9$, $+3.3$] \\
-    gpt-5                        & openai    & 79.7 & 81.4 & $-1.7$  & [$-5.4$, $+2.1$] \\
-    llama-3.1-8b                 & meta      & 54.2 & 57.2 & $-3.0$  & [$-7.3$, $+1.4$] \\
-    gemini-2.5-pro               & google    & 75.0 & 81.1 & $-6.1$  & [$-10.7$, $-1.8$] \\
-    gemini-2.5-pro-thinking      & google    & 74.0 & 82.0 & $-8.0$  & [$-12.3$, $-3.8$] \\
-    gemini-2.5-flash             & google    & 64.3 & 74.7 & $-10.4$ & [$-15.3$, $-5.6$] \\
+    claude-haiku-4.5             & 619 & 2{,}258 & 58.8 & 48.8 & $+10.0$ & [$+5.7$, $+14.5$] \\
+    claude-opus-4.7              & 619 & 2{,}258 & 86.6 & 77.5 & $+9.1$  & [$+6.1$, $+12.1$] \\
+    claude-opus-4.7-thinking     & 619 & 2{,}258 & 86.9 & 77.2 & $+9.7$  & [$+6.5$, $+13.1$] \\
+    qwen-2.5-7b                  & 667 & 2{,}210 & 60.9 & 51.9 & $+9.0$  & [$+4.5$, $+13.2$] \\
+    qwen-2.5-72b                 & 667 & 2{,}210 & 66.1 & 64.1 & $+2.0$  & [$-2.1$, $+6.0$] \\
+    llama-3.3-70b                & 629 & 2{,}248 & 65.5 & 63.6 & $+1.9$  & [$-2.3$, $+6.1$] \\
+    gpt-5-mini                   & 542 & 2{,}335 & 77.9 & 76.1 & $+1.7$  & [$-2.4$, $+5.4$] \\
+    o3                           & 542 & 2{,}335 & 81.9 & 82.1 & $-0.1$  & [$-3.9$, $+3.3$] \\
+    gpt-5                        & 542 & 2{,}335 & 79.7 & 81.4 & $-1.7$  & [$-5.4$, $+2.1$] \\
+    llama-3.1-8b                 & 629 & 2{,}248 & 54.2 & 57.2 & $-3.0$  & [$-7.3$, $+1.4$] \\
+    gemini-2.5-pro               & 420 & 2{,}457 & 75.0 & 81.1 & $-6.1$  & [$-10.7$, $-1.8$] \\
+    gemini-2.5-pro-thinking      & 420 & 2{,}457 & 74.0 & 82.0 & $-8.0$  & [$-12.3$, $-3.8$] \\
+    gemini-2.5-flash             & 420 & 2{,}457 & 64.3 & 74.7 & $-10.4$ & [$-15.3$, $-5.6$] \\
     \bottomrule
   \end{tabular}
 \end{table}
+
+\begin{table}[H]
+  \centering
+  \footnotesize
+  \caption{Per-tier Self-Preference Score $\delta$ (pp). The overall
+    SPS in Table~\ref{tab:sps-full} is decomposed by the question's
+    post-relabel difficulty tier; each cell is own-Acc minus other-Acc
+    on the questions of that tier. \textbf{Bold} marks cells whose
+    95\% bootstrap CI excludes zero.}
+  \label{tab:sps-by-tier}
+  \begin{tabular}{llrrrr}
+    \toprule
+    Config & Family & L1 $\delta$ & L2 $\delta$ & L3 $\delta$ & L4 $\delta$ \\
+    \midrule
+    claude-haiku-4.5         & anthropic & $+3.1$           & $\mathbf{+10.2}$ & $+2.0$           & $+8.2$            \\
+    claude-opus-4.7          & anthropic & $+0.2$           & $\mathbf{+8.5}$  & $+4.1$           & $\mathbf{+9.5}$   \\
+    claude-opus-4.7-thinking & anthropic & $-0.6$           & $\mathbf{+10.2}$ & $+3.4$           & $\mathbf{+10.9}$  \\
+    qwen-2.5-7b              & qwen      & $\mathbf{+12.3}$ & $+6.6$           & $+7.2$           & $\mathbf{+10.4}$  \\
+    qwen-2.5-72b             & qwen      & $+2.4$           & $-4.3$           & $+0.0$           & $\mathbf{+7.7}$   \\
+    llama-3.3-70b            & meta      & $-0.8$           & $-3.8$           & $-5.5$           & $+6.8$            \\
+    gpt-5-mini               & openai    & $\mathbf{+3.1}$  & $\mathbf{+10.7}$ & $+4.4$           & $-0.7$            \\
+    o3                       & openai    & $\mathbf{+2.6}$  & $\mathbf{+6.9}$  & $+4.0$           & $-3.2$            \\
+    gpt-5                    & openai    & $\mathbf{+2.9}$  & $\mathbf{+7.2}$  & $+0.8$           & $-6.9$            \\
+    llama-3.1-8b             & meta      & $-1.3$           & $\mathbf{-14.6}$ & $-6.9$           & $+1.9$            \\
+    gemini-2.5-pro           & google    & $-1.0$           & $+4.5$           & $+0.7$           & $\mathbf{-10.3}$  \\
+    gemini-2.5-pro-thinking  & google    & $\mathbf{+1.3}$  & $-0.3$           & $+5.8$           & $\mathbf{-14.1}$  \\
+    gemini-2.5-flash         & google    & $-0.2$           & $-6.3$           & $-0.8$           & $\mathbf{-10.6}$  \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Per-tier reading.} The Anthropic positive SPS is
+\emph{not} concentrated at any single difficulty tier — it spikes at
+both L2 ($+8.5$ to $+10.2$ across the three Claude configs, all CIs
+above zero) and L4 ($+9.5$ to $+10.9$, two of three CIs above zero),
+while L1 (near ceiling) and L3 are flat. A pure question-difficulty
+asymmetry would predict the gap to widen monotonically as accuracy
+falls; instead the gap appears at \emph{both} ends of the non-trivial
+range, which is more consistent with a residual stylistic fingerprint
+than with Anthropic having generated easier questions. Google's
+negative SPS is overwhelmingly an L4 phenomenon (Gemini Pro / Pro
+thinking / Flash all $-10$ to $-14$~pp at L4, with CIs excluding zero;
+L1--L3 within $\pm 6$~pp), consistent with Gemini-authored hardest-tier
+questions being uniformly hard rather than the model being penalised
+on its own style. OpenAI's near-zero overall SPS is the result of
+positive L1/L2 and negative L4 cells averaging out, not stylistic
+neutrality.
 
 \FloatBarrier
 \subsection{Closed-book vs.\ source-grounded performance}
@@ -87,12 +139,62 @@ Appendix~\ref{app:artifacts}.
 \begin{figure}[H]
   \centering
   \includegraphics[width=0.7\linewidth]{figures/fig_cb_vs_source.pdf}
-  \caption{Per-config accuracy on B2-flagged closed-book-solvable
+  \caption{Per-config accuracy on B2-flagged closed-book solvable
     questions ($n{=}1{,}601$) vs.\ contextual / source-grounded
     questions ($n{=}1{,}665$); every config gains $+26.6$ to
     $+39.6$~pp on the closed-book slice.}
   \label{fig:cb}
 \end{figure}
+
+\begin{table}[H]
+  \centering
+  \footnotesize
+  \caption{Closed-book vs.\ contextual accuracy gap (pp) within each
+    difficulty tier. A positive gap means the model scores higher on
+    B2-flagged closed-book solvable items than on contextual items at
+    the same tier. Per-tier B2-flagged / contextual question counts:
+    L1 680 / 13, L2 333 / 561, L3 472 / 206, L4 116 / 885. The Mean
+    row reports 95\% bootstrap CIs (1{,}000 resamples;
+    question-level resampling within each pool).}
+  \label{tab:cb-by-tier}
+  \begin{tabular}{lrrrr}
+    \toprule
+    Config & L1 gap & L2 gap & L3 gap & L4 gap \\
+    \midrule
+    claude-opus-4.7              & $+5.8$  & $+30.0$ & $+35.3$ & $+31.0$ \\
+    claude-haiku-4.5             & $+13.0$ & $+33.5$ & $+22.6$ & $+25.4$ \\
+    gpt-5                        & $-1.8$  & $+23.2$ & $+21.0$ & $+28.0$ \\
+    gpt-5-mini                   & $-2.1$  & $+32.8$ & $+24.0$ & $+26.1$ \\
+    gemini-2.5-pro               & $-1.5$  & $+28.4$ & $+27.8$ & $+27.8$ \\
+    gemini-2.5-flash             & $+11.0$ & $+33.9$ & $+27.4$ & $+28.5$ \\
+    llama-3.3-70b                & $+7.4$  & $+37.4$ & $+23.7$ & $+19.1$ \\
+    llama-3.1-8b                 & $-15.4$ & $+29.0$ & $+17.2$ & $+11.6$ \\
+    deepseek-v3                  & $+3.6$  & $+41.0$ & $+26.6$ & $+31.4$ \\
+    qwen-2.5-72b                 & $-6.9$  & $+38.0$ & $+25.0$ & $+31.5$ \\
+    qwen-2.5-7b                  & $-2.7$  & $+30.9$ & $+14.4$ & $+21.3$ \\
+    mistral-large-2411           & $+2.1$  & $+34.4$ & $+28.6$ & $+23.7$ \\
+    o3                           & $-1.6$  & $+24.8$ & $+22.4$ & $+29.6$ \\
+    gemini-2.5-pro-thinking      & $-0.9$  & $+27.2$ & $+25.1$ & $+26.8$ \\
+    deepseek-r1                  & $-2.5$  & $+33.5$ & $+28.5$ & $+28.2$ \\
+    claude-opus-4.7-thinking     & $+13.9$ & $+30.7$ & $+32.3$ & $+32.6$ \\
+    \midrule
+    \textbf{Mean (16 configs)}        & \textbf{$+1.3$}  & \textbf{$+31.8$} & \textbf{$+25.1$} & \textbf{$+26.4$} \\
+    \footnotesize 95\% bootstrap CI    & \scriptsize [$-4.6$, $+8.6$] & \scriptsize [$+28.8$, $+34.8$] & \scriptsize [$+20.8$, $+29.1$] & \scriptsize [$+22.5$, $+30.0$] \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\paragraph{Within-tier reading.} The $+32.6$~pp aggregate gap is
+preserved at L2--L4 ($+31.8$, $+25.1$, $+26.4$~pp; every CI above
+zero) and effectively vanishes only at L1, where the contextual pool
+collapses to $n{=}13$ questions and ceiling effects dominate. The L4
+result is the most informative: the contextual pool is large
+($n{=}885$) and the gap is still $+26.4$~pp with a tight CI, so the
+closed-book vs.\ source-grounded contrast is not an artefact of
+difficulty composition --- it is a stable property of the slice
+across non-trivial tiers, consistent with B2 identifying questions
+recoverable from pre-training rather than questions that happen to be
+easier-stated.
 
 \FloatBarrier
 \subsection{Per-domain breakdown}
