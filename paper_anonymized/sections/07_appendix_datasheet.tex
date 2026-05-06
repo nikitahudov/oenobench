@@ -1,0 +1,167 @@
+\section{Datasheet for OenoBench}
+\label{app:datasheet}
+
+We follow the datasheet template of \citet{gebru2021datasheets}.
+
+\subsection{Motivation}
+\paragraph{For what purpose was the dataset created?}
+To evaluate factual knowledge of large language models on a multi-disciplinary,
+externally-validated domain (wine), and to provide a benchmark whose
+construction includes explicit bias controls (multi-model generation,
+multi-agent audit, self-preference scoring, closed-book vs.\ source-grounded
+partition).
+
+\paragraph{Who created the dataset?}
+The dataset was created by the anonymous author(s) for the NeurIPS 2026
+Evaluations \& Datasets Track. One of the authors holds the WSET Diploma
+in Wines, the highest pre-Master-of-Wine qualification of the Wine \&
+Spirit Education Trust. Gold-sheet ratings used to calibrate the nine
+audit agents were produced by \textbf{three WSET-certified reviewers}
+(Diploma, Level~3, Level~2), one of whom is among the authors. Author
+identities are withheld for double-blind review.
+
+\paragraph{Funding.}
+The work was independently funded by the authors' affiliated
+organisation; no external research grants were received. Total
+OpenRouter API cost across the entire project --- generation pilots,
+audit cycles, and the final 16-config evaluation --- was \textbf{\$783},
+paid out-of-pocket.
+
+\subsection{Composition}
+\paragraph{What do the instances represent?}
+Each instance is a multiple-choice benchmark question with: question
+text, 4~options with marked-correct answer, supporting fact(s) with
+source URL and tier label, generator model identifier, generation
+strategy, audit-agent verdicts (per-agent pass/warn/fail signals), and
+(for the gold-sheet subset) human-reviewer ratings on eight rubrics.
+
+\paragraph{How many instances are there?}
+\textbf{3{,}266} questions in \texttt{release\_v1.2}. By strategy:
+fact-to-question 1{,}909, distractor mining 405, template 389,
+scenario 319, comparative 244. By difficulty (post-relabel):
+L1 694, L2 894, L3 678, L4 1{,}001. By domain: wine regions 1{,}108,
+grape varieties 766, producers 515, viticulture 502, wine business 250,
+winemaking 187. The corpus is built from 38{,}104 atomic facts across
+35 scrapers and 4{,}295 individually-tracked source records
+spanning 56 unique top-level domains.
+
+\paragraph{What data does each instance consist of?}
+Structured Postgres records mirroring the schema documented in
+Section~\ref{sec:dataset} and Appendix~\ref{app:methodology}.
+
+\paragraph{Recommended data splits.}
+The dataset ships as a single \texttt{test} split (this is an
+evaluation-only benchmark). Two analytic partitions are documented and
+recommended for use:
+(i) the \emph{closed-book} slice (1{,}601 questions tagged
+\texttt{closed\_book\_solvable}) and the \emph{contextual} slice
+(1{,}665 remaining questions), partitioned by audit agent B2; and
+(ii) per-generator held-out splits for self-preference analysis
+(Section~\ref{sec:eval-sps}), defined dynamically by the
+\texttt{generator\_family} column.
+
+\paragraph{Errors, noise, redundancies?}
+Documented in Section~\ref{sec:audit}. Per-agent fail rates and
+$\kappa$ versus the human gold sheet are released alongside the
+corpus. The 1{,}601 B2-flagged questions are kept with disclosure
+because LLM-judge calibration with humans on closed-book solvability
+is unreliable ($\kappa \approx 0.007$).
+
+\paragraph{Self-contained, or relies on external resources?}
+Self-contained: question text, supporting facts, and source URLs are
+all included. Source URLs may rot over time; we mitigate by archiving
+Tier-1 source pages and recording the access timestamp.
+
+\subsection{Collection process}
+\paragraph{How was the data acquired?}
+By 35 provenance-verified web scrapers (released in
+\texttt{src/scrapers/}). Sources span government registries (INAO,
+TTB, OIV), inter-governmental bodies, university research groups
+(notably UC Davis, USDA Extension), Wikipedia, Wikidata, peer-reviewed
+journals (\emph{OENO One}, \emph{Vitis}, \emph{AJEV}), and curated
+open datasets. Scraping was rate-limited and used the disclosed user
+agent \texttt{OenoBench-Research/1.0 (academic wine benchmark)}.
+
+\paragraph{Time frame.}
+Fact extraction: 2026-03 through 2026-04. Question generation:
+2026-04 through 2026-05-03. Evaluation: 2026-05-03.
+
+\paragraph{Ethical review.}
+The work is non-IRB-eligible at the authors' institution because
+(a) no human subjects were enrolled in research, (b) gold-sheet
+ratings were produced by three WSET-certified reviewers, one of whom
+is among the authors, and (c) all source data is public-record
+information about commercial wine entities. Human review of
+LLM-generated questions is treated as data-quality assurance, not as
+human-subjects research.
+
+\subsection{Preprocessing / cleaning / labelling}
+Atomic-fact extraction with entity tagging; per-source paraphrase to
+avoid verbatim copy; near-duplicate suppression at cosine~$\geq 0.92$;
+nine-agent automated audit; human gold-sheet rating on a stratified
+50-question subset per release, produced independently by three
+WSET-certified reviewers (Diploma, Level~3, Level~2) with the senior
+domain-expert reviewer resolving disagreements.
+
+\subsection{Uses}
+\paragraph{Recommended uses.} Evaluation of LLM factual knowledge in
+the wine domain; ablation studies of bias-mitigation techniques in
+benchmark construction; study of self-preference effects in
+LLM-as-judge pipelines; calibration of automated multi-agent QA
+frameworks against expert human review.
+
+\paragraph{Discouraged uses.} Direct deployment as a wine-recommendation
+or purchasing system without separate alignment, age-gating, and
+jurisdictional advertising review; fine-tuning on the benchmark itself
+for ranking purposes (would invalidate the benchmark for the trained
+model). The scrape-to-audit pipeline should not be retargeted to
+high-stakes domains (medicine, law) without comparable expert human
+review of the retargeted source taxonomy.
+
+\paragraph{Alcohol context.} Wine is an alcoholic beverage. OenoBench
+is a knowledge-evaluation tool, not a consumer-facing product. A
+high OenoBench score reflects factual / reasoning capability about
+wine; it does not endorse downstream deployment as a
+drinking-recommendation system, which would require separate
+alignment for health information, age-gating, and jurisdictional
+advertising rules.
+
+\subsection{Distribution}
+\paragraph{Will the dataset be distributed?}
+Yes, under \textbf{CC-BY-SA-4.0}. The dataset, the Croissant manifest
+\citep{koehn2024croissant}, and the construction code are hosted at
+anonymous-review URLs disclosed in Appendix~\ref{app:artifacts}; the
+canonical post-acceptance HuggingFace dataset URL and GitHub code
+URL will be added to the camera-ready version.
+
+\paragraph{Citation.}
+\begin{verbatim}
+@inproceedings{anonymous2026oenobench,
+  title  = {OenoBench: A Wine-Domain Benchmark for Knowledge-Grounded
+            Evaluation of Large Language Models},
+  author = {Anonymous Author(s)},
+  booktitle = {Advances in Neural Information Processing Systems
+               (NeurIPS), Track on Evaluations and Datasets},
+  year   = {2026},
+  note   = {Under double-blind review; author identities withheld.}
+}
+\end{verbatim}
+
+\subsection{Maintenance}
+\paragraph{Maintainer.}
+Anonymous Author(s) during review; canonical maintainer contact will
+be disclosed in the camera-ready version.
+
+\paragraph{Update cadence.}
+Wine regulation changes on a multi-year cadence; we plan annual
+re-extraction. Scraper code is released so the community can
+re-extract independently. Corpus versioning follows
+\texttt{release\_vX.Y} (major release / minor patch) with all prior
+versions retained on HuggingFace.
+
+\paragraph{Errata.}
+A public errata log will be maintained alongside the HuggingFace
+release; corrections to questions, facts, audit verdicts, or
+difficulty labels will be versioned and dated. Reports of factual
+errors are accepted via GitHub issues and will be evaluated against
+the source URL.

@@ -1,0 +1,129 @@
+\section{Multi-Agent Quality Audit}
+\label{sec:audit}
+
+The audit pipeline runs every generated question through nine
+automated agents in four teams. Each agent emits a per-question
+$\{\textsc{pass}, \textsc{warn}, \textsc{fail}\}$ signal calibrated
+against a human-reviewed gold sheet via Cohen's $\kappa$; agents whose
+agreement falls below threshold are downweighted to advisory-only.
+The released human-review web app (Appendix~\ref{app:screenshots})
+collects the gold-sheet ratings, and the team-by-team architecture
+(Figure~\ref{fig:audit-app}, Appendix~\ref{app:eval}) traces the flow
+from candidate question to drop / relabel / keep verdict.
+
+\subsection{Team architecture}
+\label{sec:audit-arch}
+
+Of the 14 agents (Tables~\ref{tab:agents-ab}--\ref{tab:agents-cd}),
+\textbf{nine are always-run} on every candidate question; the remaining
+\textbf{five are escalation-gated} and are invoked only when an upstream
+agent flags a corpus-level concern. This deferred-execution policy
+keeps routine audit cost bounded ($\sim$\$76 for the full corpus audit
+reported here, 5h~22m wall) while preserving full coverage when a
+defect class is suspected. The full audit code, prompts, and thresholds
+are released alongside the corpus (Appendix~\ref{app:methodology}).
+
+\begin{table}[H]
+  \centering
+  \caption{Audit agents (1/2): static and tri-judge teams.
+    \textsc{always}: run on every question. \textsc{esc}:
+    escalation-gated.}
+  \label{tab:agents-ab}
+  \scriptsize
+  \setlength{\tabcolsep}{4pt}
+  \renewcommand{\arraystretch}{0.95}
+  \begin{tabular}{lllp{0.50\linewidth}}
+    \toprule
+    Team & Agent & Run & Function \\
+    \midrule
+    \multirow{4}{*}{A. Static}
+      & A1 LexicalHygiene        & \textsc{always} & Regex sweep for vague phrasing, marketing language, meta-questions. \\
+      & A2 BiasStats             & \textsc{always} & $\chi^2$ on correct-answer position; Mann--Whitney $U$ on correct-vs-distractor length. \\
+      & A3 FactEcho              & \textsc{always} & Longest-common-substring ratio between question text and source fact (\textsc{fail} at LCS$\geq$0.65). \\
+      & A4 TemplateFingerprint   & \textsc{always} & POS-bigram logistic regression detector for template-induced stylistic regularities (held-out AUC 0.84). \\
+    \midrule
+    \multirow{5}{*}{B. Tri-judge}
+      & B1 TriJudgeAnswer        & \textsc{always} & Claude / GPT / Gemini panel reads question + source fact and votes on the marked-correct option. \\
+      & B2 ClosedBookSolvability & \textsc{always} & Same panel, source fact \emph{withheld}: can the question be answered from world knowledge alone? \\
+      & B3 UbiquityRisk          & \textsc{always} & Internationally-grown grape stem $\times$ region-class answer $\Rightarrow$ ambiguity flag. \\
+      & B4 Ambiguity             & \textsc{esc}    & Tri-judge re-read flags questions with $>$1 defensible answer; invoked when B1 dissent rate elevated. \\
+      & B5 VerifierSkip          & \textsc{esc}    & Self-consistency probe across re-prompted panels; invoked on disputed B1 verdicts. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[h]
+  \centering
+  \caption{Audit agents (2/2): deterministic and corpus-statistics
+    teams.}
+  \label{tab:agents-cd}
+  \scriptsize
+  \setlength{\tabcolsep}{4pt}
+  \renewcommand{\arraystretch}{0.95}
+  \begin{tabular}{lllp{0.50\linewidth}}
+    \toprule
+    Team & Agent & Run & Function \\
+    \midrule
+    \multirow{4}{*}{C. Determin.}
+      & C1 DistractorDifficulty  & \textsc{esc}    & Embedding-distance distractor analysis; invoked when A2 reports length skew. \\
+      & C2 CategoryLeak          & \textsc{always} & Wine-type distractor validation; flags red/white/sparkling category mismatches. \\
+      & C3 SourceSwap            & \textsc{esc}    & Substitutes alternate source facts to test answer stability; invoked on B1/B2 disagreement. \\
+      & C4 DifficultyAudit       & \textsc{always} & Gemini Pro re-rates difficulty; \textsc{fail/warn} when delta $\geq$2 from assigned. \\
+    \midrule
+    \multirow{3}{*}{D. Corpus stats}
+      & D1 SelfPreference        & \textsc{always} & Per-generator-family own-vs-other accuracy on a held-out probe; corpus-level signal. \\
+      & D2 DedupCalibration      & \textsc{esc}    & Near-duplicate audit at cosine $\geq$0.92; invoked on suspicious cluster signals. \\
+      & D3 SkewAudit             & \textsc{always} & Country / sub-domain over-representation $\chi^2$. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\FloatBarrier
+\subsection{Gold-sheet calibration}
+\label{sec:gold}
+A gold sheet of 50 stratified questions per release is rated independently
+by three WSET-certified reviewers (Diploma, Level~3, Level~2 --- one of
+whom is among the authors) through the human-review web app
+(Appendix~\ref{app:screenshots}); \textbf{15+ rounds} (audit pilots
+v1--v16) form a calibration cycle covering eight rubrics
+(answer-correctness, distractor plausibility, ambiguity,
+source-faithfulness, needs-source, vague language, label correctness,
+verbatim copying). For each agent we compute Cohen's $\kappa$ against
+the rubric; \textbf{signals with $\kappa<0.6$ are
+downweighted to advisory-only.}
+
+The most consequential result is agent \textbf{B2~ClosedBookSolvability}:
+the human solved $\approx$12\% of gold-sheet questions without the
+source fact while the LLM tri-judge panel reported $\approx$83\%
+($\kappa\approx0.007$). We read this as a property of the
+\emph{evaluator} --- frontier LLM judges have absorbed enough wine
+knowledge during pre-training to over-attribute ``world knowledge''
+to non-trivial questions. We retain the 1{,}601 B2-flagged questions
+with disclosure and turn the blind spot into a calibrated
+memorisation-reliance diagnostic via the closed-book vs.\
+source-grounded contrast (Section~\ref{sec:eval-cb}).
+
+\subsection{Release-cycle results}
+\label{sec:audit-results}
+The 9-agent audit on \texttt{release\_v1.1} (3{,}670 candidate
+questions) produced the verdicts summarised in
+Table~\ref{tab:audit_results} (Appendix~\ref{app:audit-agents}): A1, A3,
+B1, C2 and B3 between them flagged 341 distinct questions for
+\textsc{drop}, while C4 re-labelled difficulty on 1{,}259 questions
+and B2 flagged 1{,}601 as closed-book solvable but kept them with
+disclosure.
+
+After drops, a follow-up post-evaluation pass (Section~\ref{sec:eval}
+and Appendix~\ref{app:eval}) audited the 97 questions that all 16
+evaluation configs answered incorrectly: 54 were removed as defects
+(wrong ground truth, all-correct options, duplicate options), 9 were
+dropped on borderline-review and the remaining 34 retained as
+legitimately hard. The final released corpus is 3{,}266 questions.
+
+The C4-driven difficulty re-label was decisive: it shifted the corpus
+from 14\% L3+L4 items (the original generator-assigned distribution) to
+\textbf{51\% L3+L4} (Table~\ref{tab:difficulty-shift},
+Appendix~\ref{app:audit-agents}), bringing the hardest-tier counts above
+the entry-tier counts and substantially sharpening
+difficulty-stratified analyses (Section~\ref{sec:eval-rank}).
+

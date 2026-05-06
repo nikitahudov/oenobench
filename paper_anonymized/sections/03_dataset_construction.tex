@@ -1,0 +1,192 @@
+\section{Dataset Construction}
+\label{sec:dataset}
+
+OenoBench is constructed by an LLM-driven pipeline (Figure~\ref{fig:pipeline})
+in two stages: (1) a \emph{fact-collection} stage that builds a corpus of
+atomic, provenance-tagged statements from authoritative sources, and (2) a
+\emph{question-generation} stage that converts those facts into benchmark
+questions using five complementary strategies and five generator models.
+The pipeline is designed around a single methodological commitment: large
+language models are used as \emph{rephrasers and auditors}, never as the
+source of truth. Every fact in the corpus traces to a URL with a tier-of-authority
+label, every question is anchored in one or more such facts, and every
+question is scored by a nine-agent automated audit (Section~\ref{sec:audit})
+before release.
+
+\subsection{Domain taxonomy}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.78\linewidth]{figures/diagram_pipeline.png}
+  \caption{End-to-end OenoBench pipeline: authoritative sources $\rightarrow$
+    35 scrapers $\rightarrow$ atomic facts $\rightarrow$ closed-book gate
+    $\rightarrow$ nine-agent audit $\rightarrow$ release.}
+  \label{fig:pipeline}
+\end{figure}
+
+We organise wine knowledge into six \emph{domain pillars}, chosen to align
+with the WSET Level~3 and Diploma syllabi:
+(i) \textbf{wine regions} (appellations, classifications, geography,
+climate, soils);
+(ii) \textbf{grape varieties} (ampelography, parentage, regional
+distribution, sensory profile);
+(iii) \textbf{viticulture} (vineyard practice, training systems, pests
+and diseases, vintage effects);
+(iv) \textbf{winemaking} (vinification choices, fermentation, ageing,
+faults);
+(v) \textbf{producers} (estates, n\'egociants, co-operatives, key
+houses); and
+(vi) \textbf{wine business} (markets, regulation, distribution,
+economics).
+Each domain has a separate target share informed by syllabus weighting
+and source availability; the realised distribution is reported in
+Table~\ref{tab:facts}.
+
+\subsection{Source tiering, licensing, and non-fabrication}
+\label{sec:sources}
+Every fact is tagged with one of three source tiers, mirroring
+evidence-based-medicine practice:
+\begin{itemize}\itemsep -1pt
+  \item \textbf{Tier~1 (official, 19.6\%):} government registries and
+    inter-governmental bodies (INAO, OIV, TTB, regional consortia, the
+    UC Davis AVA database).
+  \item \textbf{Tier~2 (authoritative, 76.6\%):} Wikipedia, Wikidata
+    SPARQL, wine-body and consortium websites, peer-reviewed journals
+    (\emph{OENO One}, \emph{Vitis}, \emph{Australian Journal of Grape
+    and Wine Research}).
+  \item \textbf{Tier~3 (reliable, 3.8\%):} curated open datasets on
+    HuggingFace and Kaggle, secondary reference databases.
+\end{itemize}
+
+\paragraph{Licensing and non-fabrication.}
+Every source is public-record or released under a licence that permits
+scraping and redistribution: Tier-1 government data under explicit
+open-data licences (INAO Licence Ouverte, OIV, UC Davis AVA, TTB
+public-domain), Tier-2 Wikipedia/Wikidata under CC-BY-SA / CC0 and
+journals (\emph{OENO One}, \emph{Vitis}, \emph{AJEV}) open-access; the
+full per-source licence table is
+Table~\ref{tab:licensing} in Appendix~\ref{app:artifacts}.
+A central design commitment is that \emph{no fact in the corpus comes
+from an LLM's internal knowledge}: every fact is extracted by a
+source-specific scraper, stamped with source URL, retrieval timestamp,
+and tier label before insertion, and the fact-insertion utility
+rejects records without a verified source-URL trace. We emphasise
+this because LLM-generated content masquerading as scraped data is a
+contamination vector that conventional dataset documentation does not
+detect.
+
+\begin{table}[h]
+  \centering
+  \caption{Atomic-fact corpus: 38{,}104 facts from 35 scrapers, six
+    domain pillars, three source tiers.}
+  \label{tab:facts}
+  \small
+  \begin{tabular}{lrrrr}
+    \toprule
+    Domain pillar & Facts & Share & Tier~1 & Tier~2/3 \\
+    \midrule
+    Wine regions     & 18{,}943 & 49.7\% & 23.4\% & 76.6\% \\
+    Producers        &  6{,}215 & 16.3\% &  9.1\% & 90.9\% \\
+    Grape varieties  &  5{,}959 & 15.6\% & 18.8\% & 81.2\% \\
+    Viticulture      &  3{,}635 &  9.5\% & 12.0\% & 88.0\% \\
+    Wine business    &  1{,}985 &  5.2\% & 31.4\% & 68.6\% \\
+    Winemaking       &  1{,}367 &  3.6\% & 16.7\% & 83.3\% \\
+    \midrule
+    \textbf{Total}   & \textbf{38{,}104} & \textbf{100.0\%} &
+                       \textbf{19.6\%} & \textbf{80.4\%} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Atomic fact extraction}
+\label{sec:extraction}
+Source pages are decomposed into atomic facts by a five-stage pipeline
+(Figure~\ref{fig:fact_processing}, Appendix~\ref{app:fact-extraction}):
+sentence splitting; reference resolution (pronouns replaced by their
+entity referents); domain classification into one of the six pillars;
+a length/predicate validator (5--50 words, must contain a verb, no
+dangling references); and a region-keyword on-topic filter that
+prevents cross-contamination (e.g.\ Austrian content in a Bordeaux
+scraper). Wikidata SPARQL queries use direct country relations
+(\texttt{P17}) rather than transitive parents (\texttt{P131*}), the
+latter having caused severe cross-region leakage in early scrapers
+(Appendix~\ref{app:methodology}).
+
+Facts are required to be \emph{atomic} (one assertion per sentence),
+\emph{entity-tagged} (subject and object linked to canonical
+knowledge-graph IDs), and \emph{source-faithful} (a paraphrase, never
+a verbatim copy); the last is enforced at extraction and re-checked
+at audit time by agent~A3.
+
+\subsection{Question generation: five strategies, five models}
+\label{sec:generation}
+A single-strategy, single-model benchmark inherits the blind-spots of
+its pipeline. We mitigate this by combining \emph{five strategies} and
+\emph{five generator models}, with per-strategy and per-model quotas
+enforced by an orchestrator that resumes safely across runs. Strategies
+are:
+\begin{itemize}\itemsep -1pt
+  \item \textbf{Fact-to-question (58.4\%, 1{,}909 questions):} the LLM
+    rewrites a single verified fact as a multiple-choice question;
+    preserves grounding but tends toward recall.
+  \item \textbf{Distractor mining (12.4\%, 405):} confusable-entity
+    sampling produces wrong answers that share the right answer's
+    category and dimension, raising plausibility and forcing
+    fine-grained discrimination.
+  \item \textbf{Template (11.9\%, 389):} forty-five deterministic
+    parameterised templates across the six pillars; pure entity
+    substitution, zero LLM creativity --- a baseline against which
+    neural generation is measured.
+  \item \textbf{Scenario synthesis (9.8\%, 319):} coherent fact clusters
+    are converted into applied multi-fact reasoning prompts (e.g.\ a
+    sommelier service decision, a winemaker blending decision, a
+    viticulturist vintage call). Domain-specific scenario types prevent
+    persona-content mismatch.
+  \item \textbf{Comparative (7.5\%, 244):} entity-affinity scoring pairs
+    related entities (e.g.\ two Burgundy premiers crus, two Rh\^one
+    grapes) and asks ``which differs in X'' or ``what do both share''.
+\end{itemize}
+
+The five generator models are Claude Opus 4.7, GPT-5, Gemini 2.5 Pro,
+Llama 3.1 405B, and Qwen 3.5 235B, each accessed through a unified
+OpenRouter client with consistent temperature and top-$p$. The
+realised generator distribution across the released corpus is
+\textbf{Qwen 20.4\%, Llama 19.3\%, Claude 19.0\%, ChatGPT 16.6\%,
+Gemini 12.9\%, deterministic templates 11.9\%} (computed directly
+from the 3{,}266 released questions). The orchestrator allocates
+generation share dynamically based on per-pilot audit pass rates ---
+generators whose questions pass audit reliably get a larger share in
+subsequent rounds --- subject to a hard \textbf{per-generator cap of
+21\%} to keep any single model from dominating the corpus.
+
+\subsection{Final corpus: \texttt{release\_v1.2}}
+\label{sec:release}
+After generation, audit, and post-eval review, the released corpus
+\texttt{release\_v1.2} contains \textbf{3{,}266 questions}. The
+distribution along the domain and difficulty axes is:
+
+\begin{table}[h]
+  \centering
+  \caption{Composition of the released corpus.}
+  \label{tab:corpus}
+  \small
+  \begin{tabular}{lrrlrr}
+    \toprule
+    Domain & N & \% & Difficulty & N & \% \\
+    \midrule
+    Wine regions     & 1{,}108 & 33.9\% & L1 (entry)        & 694   & 21.2\% \\
+    Grape varieties  & 766     & 23.5\% & L2 (intermediate) & 894   & 27.4\% \\
+    Producers        & 515     & 15.8\% & L3 (advanced)     & 678   & 20.8\% \\
+    Viticulture      & 502     & 15.4\% & L4 (expert)       & 1{,}001 & 30.6\% \\
+    Wine business    & 250     &  7.7\% &                   &       &       \\
+    Winemaking       & 187     &  5.7\% &                   &       &       \\
+    \midrule
+    \textbf{Total}   & \textbf{3{,}266} & \textbf{100\%}
+                     & \textbf{Total}   & \textbf{3{,}266} & \textbf{100\%} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\texttt{release\_v1.2} ships under CC-BY-SA-4.0 on HuggingFace with a
+Croissant manifest \citep{koehn2024croissant} and a full Datasheet
+\citep{gebru2021datasheets} in Appendix~\ref{app:datasheet}.

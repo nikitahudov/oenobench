@@ -1,0 +1,47 @@
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Broad knowledge benchmarks.} MMLU
+\citep{hendrycks2021mmlu}, BIG-Bench \citep{srivastava2023bigbench},
+AGIEval \citep{zhong2024agieval}, GPQA \citep{rein2024gpqa}, HELM
+\citep{liang2023helm}, and Humanity's Last Exam \citep{phan2025hle}
+measure factual breadth and reasoning across many subjects. We instead
+maximise depth within a single externally-validated knowledge domain
+and treat \emph{construction-time bias control} as a first-class
+contribution rather than a downstream decontamination step.
+
+\paragraph{Domain-specific benchmarks.} MedQA
+\citep{jin2021medqa}, PubMedQA \citep{jin2019pubmedqa}, LegalBench
+\citep{guha2023legalbench}, and FinanceBench
+\citep{islam2023financebench} ground evaluation in regulated
+professions with clear sources of truth. We adopt their
+expert-syllabus / source-traceable backbone and add multi-model
+generation, multi-agent audit, and self-preference reporting.
+OenoBench is, to our knowledge, the first such benchmark for wine.
+
+\paragraph{LLM-as-judge bias and self-preference.} A growing literature
+documents that models tend to favour outputs stylistically similar to
+their own \citep{panickssery2024selfpref, zheng2023judging,
+sharma2024sycophancy}, biasing benchmarks where the same model
+generates and grades. We mitigate by distributing generation across
+five generator families plus deterministic templates and by reporting
+per-model self-vs-other accuracy gaps as a first-class diagnostic
+(Section~\ref{sec:eval-sps}).
+
+\paragraph{Benchmark contamination and solvability.} Pre-training
+exposure inflates apparent capability \citep{sainz2023contamination,
+magar2022contamination, dodge2021documenting}. We mitigate by
+generating from atomic facts (a fact-echo agent flags any question
+whose longest common substring with the source exceeds 65\%) and by
+running an explicit \emph{closed-book solvability} pre-screen and
+audit (Section~\ref{sec:eval-cb}). The same audit, calibrated against
+a human gold sheet, reveals that LLM judges over-report leakage by an
+order of magnitude --- a finding with broader implications for the
+LLM-as-judge paradigm.
+
+\paragraph{Wine in NLP.} Wine has previously appeared in NLP via
+review-text recommendation \citep{chen2014winerec}, taxonomy learning
+\citep{lefever2017winenlp}, and judge-reliability studies
+\citep{hodgson2017winereviews}. OenoBench is the first benchmark
+targeting \emph{structured factual knowledge} of viticulture,
+winemaking, and wine regions evaluated against frontier LLMs.

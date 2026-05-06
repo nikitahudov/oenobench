@@ -1,0 +1,35 @@
+\section{Application Screenshots}
+\label{app:screenshots}
+
+\subsection{Human-review web application}
+
+The human-review web application is the front-end through which
+WSET-Diploma reviewers rate stratified gold-sheet questions and the
+through which the agent-vs-human $\kappa$ values reported in
+Section~\ref{sec:gold} are collected. It is a Flask application with
+two layers of authentication (outer HTTP Basic for shared-link access,
+inner per-reviewer session cookies) and writes ratings into a separate
+\texttt{human\_reviews} Postgres table to keep gold-sheet labels
+independent of automated audit findings. Each reviewer is associated
+with a WSET certification level recorded at registration, and the app
+supports multi-reviewer inter-rater agreement ($\kappa$) computation
+out of the box.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.62\linewidth]{figures/screenshots/review_login.png}
+  \caption{Sign-in / register screen. Outer HTTP Basic Auth gates
+    shared-link access; the inner form establishes a per-reviewer
+    session for IRR attribution.}
+  \label{fig:review-login}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.62\linewidth]{figures/screenshots/review_dashboard.png}
+  \caption{Reviewer dashboard. Active batches are listed; clicking a
+    batch enters the rubric-scoring flow (eight-rubric grid with
+    \textsc{pass}/\textsc{warn}/\textsc{fail} per rubric, inline
+    reviewer-guide hints, and time-on-page tracking).}
+  \label{fig:review-dashboard}
+\end{figure}

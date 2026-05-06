@@ -1,0 +1,110 @@
+\documentclass{article}
+
+\PassOptionsToPackage{numbers, compress}{natbib}
+
+% Track: Evaluations & Datasets (D&B successor in NeurIPS 2026).
+% Double-blind submission build: [eandd] only (no [final]).  The
+% style file then auto-anonymises the title block, hides the
+% acknowledgements, switches the first-page footer to
+% "Submitted to ... Do not distribute.", and adds line numbers
+% for reviewer reference.
+\usepackage[eandd]{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{multirow}
+\usepackage[section]{placeins}
+\usepackage{fancyhdr}
+\usepackage{float}
+
+% Hide remaining placeholders for the final draft. Set \paperfinalfalse to
+% re-enable yellow boxes.
+\newif\ifpaperfinal
+\paperfinaltrue
+\newcommand{\PLACEHOLDER}[1]{%
+  \ifpaperfinal\else%
+    \par\noindent\fcolorbox{red!60!black}{yellow!15}{%
+      \begin{minipage}{0.96\linewidth}%
+        \textbf{\textcolor{red!70!black}{[PLACEHOLDER]}} #1%
+      \end{minipage}%
+    }\par%
+  \fi%
+}
+\newcommand{\PH}[1]{%
+  \ifpaperfinal#1\else%
+    \textcolor{red!70!black}{$\langle$\textsf{\small #1}$\rangle$}%
+  \fi%
+}
+\newcommand{\TODO}[1]{\textcolor{orange!80!black}{\textbf{[TODO: #1]}}}
+
+\title{OenoBench: A Wine-Domain Benchmark for Knowledge-Grounded \\
+  Evaluation of Large Language Models}
+
+% In double-blind mode the style file replaces the \author block with
+% "Anonymous Author(s) / Affiliation / Address / email", so the
+% \author command is intentionally omitted here.  We retain only
+% \title.
+
+\begin{document}
+\makeatletter
+% Mirror the un-anonymised build: move the conference notice from a
+% [b] float (which blocks content at the foot of page~1) to a
+% one-page footer, so the Introduction flows in directly after the
+% abstract and the body stays within the 9-page main-content limit.
+% The footer text is the double-blind notice mandated by the style
+% file when [final] is not set.
+\renewcommand{\@notice}{%
+  \thispagestyle{firstpagefooter}%
+}
+\makeatother
+\fancypagestyle{firstpagefooter}{%
+  \fancyhf{}%
+  \renewcommand{\headrulewidth}{0pt}%
+  \renewcommand{\footrulewidth}{0pt}%
+  \fancyfoot[L]{\footnotesize Submitted to 40th Conference on Neural Information Processing Systems (NeurIPS 2026). Do not distribute.}%
+}
+\maketitle
+
+\input{sections/00_abstract}
+\input{sections/01_introduction}
+\input{sections/02_related_work}
+\input{sections/03_dataset_construction}
+\input{sections/04_quality_audit}
+\input{sections/05_evaluation}
+\input{sections/06_applications_future}
+\input{sections/07_limitations_ethics}
+
+% \begin{ack} ... \end{ack} is auto-hidden by the NeurIPS style file
+% when [final] is not set; we keep an anonymised stub here so a
+% later toggle to camera-ready will not accidentally reveal funding
+% or thanks.
+\begin{ack}
+Acknowledgements and disclosure of funding are withheld during
+double-blind review and will be added to the camera-ready version.
+\end{ack}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\appendix
+\input{sections/07_appendix_datasheet}
+\input{sections/08_appendix_methodology}
+\input{sections/09_appendix_evaluation}
+\input{sections/10_appendix_screenshots}
+\input{sections/11_appendix_artifacts}
+\input{sections/12_appendix_process_log}
+
+\newpage
+\input{checklist.tex}
+
+\end{document}

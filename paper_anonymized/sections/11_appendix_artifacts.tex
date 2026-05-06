@@ -1,0 +1,196 @@
+\section{Released Artifacts and Reproducibility}
+\label{app:artifacts}
+
+\subsection{Released artifacts}
+
+For double-blind review, the canonical HuggingFace and GitHub URLs
+are withheld; the artifacts listed below are mirrored at anonymous
+review URLs and will be relinked to the canonical hosts in the
+camera-ready version.
+
+\begin{itemize}\itemsep -1pt
+  \item \textbf{Dataset (anonymous mirror).}
+    \texttt{[anonymous-dataset-url-withheld-for-review]} —
+    \texttt{release\_v1.2}, 3{,}266 questions, Parquet test split,
+    \texttt{README.md} datasheet, \texttt{croissant.json} manifest.
+    License: CC-BY-SA-4.0. Versioning is permanent: prior releases
+    remain accessible via revision tags.
+  \item \textbf{Code (anonymous mirror).}
+    \texttt{[anonymous-code-url-withheld-for-review]} — full
+    pipeline: 35 scrapers, 5 question generators, 14 audit agents,
+    the human review web app, and the monitoring dashboard.
+    Apache 2.0.
+  \item \textbf{Process log.} \texttt{docs/PROCESS\_LOG.md} —
+    chronological lab-notebook of every phase shipped, with sources,
+    methodology, quality-control counts, and decision rationale, in
+    the format prescribed for the methodology sections of this paper.
+  \item \textbf{Audit reports.} \texttt{docs/QUALITY\_AUDIT\_REPORT.md},
+    \texttt{docs/RELEASE\_V1\_2\_AUDIT\_ACTIONS.md},
+    \texttt{docs/GOLD\_CALIBRATION\_ANALYSIS.md},
+    \texttt{data/reports/zero\_correct\_97\_audit.md}.
+  \item \textbf{Eval reports.}
+    \texttt{data/reports/eval\_release\_v1\_2\_full\_cleaned.md} (the
+    16-config × 3{,}266-Q run reported in this paper).
+\end{itemize}
+
+\subsection{Reproducibility scripts}
+
+The construction pipeline is driven by a small number of shell scripts
+in \texttt{scripts/}:
+
+\begin{itemize}\itemsep -1pt
+  \item \texttt{run\_all\_scrapers.sh} — orchestrates the 35 scrapers
+    end-to-end. Each scraper writes a timestamped log to
+    \texttt{data/logs/}.
+  \item \texttt{run\_release\_v1\_build.sh} — full generation pipeline
+    invocation; idempotent and resume-safe via stamped tags.
+  \item \texttt{export\_release\_v1\_2\_to\_parquet.py} — produces the
+    HuggingFace Parquet directly from Postgres; the released file
+    is the byte-identical output of this script.
+  \item \texttt{build\_smart\_review\_sheet.py} — generates a 50-question
+    stratified gold-sheet review batch (random + critical-FAIL +
+    borderline-WARN strata).
+  \item \texttt{tag\_audit\_actions.py} — applies the audit drop /
+    relabel policy to a tagged corpus; this is the script that
+    produced the \texttt{release\_v1.2} state from
+    \texttt{release\_v1.1}.
+\end{itemize}
+
+\subsection{Database schema}
+
+The released schema is initialised by the migrations under
+\texttt{config/postgres/} (six idempotent files, applied in order on
+container startup):
+\texttt{init.sql} (sources, facts, questions, question\_facts,
+generation\_metadata, evaluation\_runs, evaluation\_answers,
+human\_reviews),
+\texttt{002\_audit\_schema.sql} (audit\_runs, audit\_findings,
+audit\_gold\_labels, audit\_severity enum),
+\texttt{003\_sample\_schema.sql} (mirror schema for the Phase~5
+sample-DB eval),
+\texttt{003\_cb\_reserve.sql} (closed-book reserve pool tagging),
+\texttt{004\_eval\_telemetry.sql} (provider, tokens, reasoning\_config,
+latency columns on \texttt{evaluation\_answers}),
+\texttt{005\_or\_cost\_telemetry.sql} (OpenRouter authoritative cost
+columns).
+
+The released schema is documented in code
+(\texttt{config/postgres/}); the load-bearing tables are
+\texttt{sources} (registry), \texttt{facts} (atomic facts grounded by
+source), \texttt{questions} + \texttt{question\_facts} (corpus and
+fact-question links), \texttt{generation\_metadata} (per-question
+generator and strategy), \texttt{audit\_findings} (per-agent
+verdicts), and \texttt{human\_reviews} (gold-sheet ratings).
+
+\subsection{Compute and cost}
+
+The full evaluation reported in Section~\ref{sec:eval} ran in
+\textbf{120 minutes 34 seconds} on a single VM driving 16 OpenRouter
+configurations in parallel. \textbf{Total LLM API spend across the
+entire project was \$783}, paid out-of-pocket to OpenRouter and
+covering all generation pilots, audit cycles, gold-sheet calibration
+runs, and the final 16-config evaluation. No GPU compute was used;
+all model inference was via OpenRouter (a unified API gateway). The
+release artefacts include all per-call telemetry (provider, tokens,
+reasoning configuration, p50/p95 latency, OR-authoritative cost) for
+the full evaluation run; the per-config cost ledger is reproduced
+inline as Table~\ref{tab:cost-ledger-app}.
+
+\begin{table}[h]
+  \centering
+  \footnotesize
+  \caption{Per-config cost ledger for the full 16-config evaluation
+    (3{,}266 questions per config). Effective OpenRouter spend.}
+  \label{tab:cost-ledger-app}
+  \begin{tabular}{lrrr}
+    \toprule
+    Config & Total cost & Correct ans. & Cost / correct \\
+    \midrule
+    llama-3.1-8b               & \$0.01 & 1{,}976 & \$0.0000 \\
+    llama-3.3-70b              & \$0.04 & 2{,}190 & \$0.0000 \\
+    gemini-2.5-flash           & \$0.12 & 2{,}454 & \$0.0000 \\
+    deepseek-v3                & \$0.12 & 2{,}295 & \$0.0001 \\
+    qwen-2.5-7b                & \$0.12 & 1{,}860 & \$0.0001 \\
+    qwen-2.5-72b               & \$0.15 & 2{,}202 & \$0.0001 \\
+    claude-haiku-4.5           & \$0.44 & 1{,}741 & \$0.0003 \\
+    mistral-large-2411         & \$0.87 & 2{,}256 & \$0.0004 \\
+    gpt-5-mini                 & \$2.82 & 2{,}561 & \$0.0011 \\
+    claude-opus-4.7            & \$3.35 & 2{,}647 & \$0.0013 \\
+    claude-opus-4.7-thinking   & \$3.53 & 2{,}645 & \$0.0013 \\
+    deepseek-r1                & \$10.54 & 2{,}517 & \$0.0042 \\
+    o3                         & \$11.80 & 2{,}729 & \$0.0043 \\
+    gemini-2.5-pro-thinking    & \$13.06 & 2{,}698 & \$0.0048 \\
+    gpt-5                      & \$21.90 & 2{,}704 & \$0.0081 \\
+    gemini-2.5-pro             & \$29.47 & 2{,}669 & \$0.0110 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Per-source licensing}
+\label{sec:licensing}
+
+Section~\ref{sec:sources} states that every fact in the corpus traces
+to a public-record source or to a source distributed under a licence
+that permits scraping and redistribution. We give the per-source
+breakdown in Table~\ref{tab:licensing}, grouping the
+35 scrapers' source families by tier and licence basis. Each row
+maps to one or more rows in the released \texttt{sources} table, where
+per-row \texttt{name}, \texttt{url}, \texttt{tier}, and access timestamp
+are recorded for every fact (\texttt{facts.source\_id}~$\rightarrow$
+\texttt{sources.id}). Wikipedia and Wikidata together account for 65.3\%
+of facts and propagate their share-alike / public-domain dedications
+through the \texttt{release\_v1.2} CC-BY-SA-4.0 licence. Government
+records (Tier~1, 19.6\% of facts) are either explicit open-data
+licences (INAO Licence Ouverte~2.0, EU re-use Decision 2011/833/EU) or
+US-Government works in the public domain
+(17~U.S.C.~\textsection 105: TTB, USDA Extension, UC IPM).
+
+\begin{table}[h]
+  \centering
+  \footnotesize
+  \caption{Per-source licensing for OenoBench's 35 scrapers, grouped by
+    source family. ``Share'' is the percentage of the 38{,}104-fact
+    corpus contributed; ``Tier'' is the source-of-authority label from
+    Section~\ref{sec:sources}. Counts are computed directly from the
+    \texttt{facts}~$\bowtie$~\texttt{sources} join in the released
+    schema.}
+  \label{tab:licensing}
+  \begin{tabular}{p{0.31\linewidth}lp{0.30\linewidth}r}
+    \toprule
+    Source family & Tier & Licence / legal basis & Share \\
+    \midrule
+    Wikipedia (MediaWiki API)                                            & T2          & CC-BY-SA 4.0                                           & 34.4\% \\
+    Wikidata (SPARQL)                                                    & T1 / T2     & CC0 1.0                                                & 30.3\% \\
+    HuggingFace \texttt{spawn99/wine-reviews}                            & T2          & HuggingFace dataset terms (open redistribution)        &  8.5\% \\
+    UC Davis (AVA Project, FPS, Wine Ontology)                           & T1          & Open / CC-BY (UC Davis Library)                        &  5.7\% \\
+    UC IPM \& USDA Extension (eXtension, PSU/OSU)                        & T1 / T2     & Public domain --- US Gov.\ work (17 USC \S105)         &  4.7\% \\
+    Kaggle: wine-reviews (Wine Enthusiast scrape)                        & T3          & Kaggle dataset terms (research use)                    &  3.8\% \\
+    INAO (data.gouv.fr open-data)                                        & T1          & Licence Ouverte 2.0 (Etalab)                           &  3.9\% \\
+    Wine consortia + national bodies (CIVB, BIVB, CIVC, IT consortia, NZ Wine, Austrian Wine, Deutsches Weininstitut, Spanish DO) & T2 & Industry-body publications, educational use & 3.2\% \\
+    OENO One                                                             & T2          & CC-BY 4.0 (open-access journal)                        &  2.0\% \\
+    TTB (27 CFR Part 4, Established AVAs, Approved Grape Names)          & T1          & Public domain --- US Gov.\ work                        &  1.3\% \\
+    National ministries + EU registries (MASAF, MAPA, IVV, IVDP, EUR-Lex, GIView) & T1 / T2 & Government public records / EU Decision 2011/833/EU & 1.3\% \\
+    OIV publications (Code of Oenological Practices, statistics)         & T1          & Open access --- intergov.\ organisation                &  0.2\% \\
+    Vitis (Hochschule Geisenheim)                                        & T2          & Open access                                            &  0.3\% \\
+    National reference databases (CA, UK, HR/SI, HU/GE, LB/IL, +regions) & T2          & Reference / official-body content                      &  0.3\% \\
+    Kaggle: wine-quality (UCI ML Repository)                             & T2          & CC-BY 4.0 (UCI)                                        &  0.2\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The released corpus, including this paper's quoted statistics, is
+distributed under \textbf{CC-BY-SA 4.0}. The construction code is
+released under \textbf{Apache 2.0}. Verbatim source text is never
+stored: every fact is paraphrased atomically (Section~\ref{sec:extraction})
+and a paraphrase guard at audit time (agent~A3) re-checks for
+verbatim leakage. We retain \texttt{accessed\_date} and a per-source
+\texttt{content\_date} for every fact, so dataset users can audit
+freshness against original sources.
+
+\subsection{Test status}
+
+771 of 771 unit tests pass on \texttt{main} as of the camera-ready
+build. Tests cover the fact-processing pipeline, the five generation
+strategies, all 14 audit agents, the orchestrator, the closed-book
+gate, the eval harness (slot dispatch, cost computation,
+reasoning-mode prompt assembly), and the review-app endpoints.

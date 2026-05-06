@@ -1,0 +1,23 @@
+\section{Limitations}
+\label{sec:limitations}
+
+\paragraph{Snapshot vs.\ moving target.} Wine regulation,
+classifications, and producer ownership change on a multi-year cadence
+(INAO appellation revisions, DOCG promotions, estate sales). The
+released corpus is a snapshot dated 2026-04-01 and will require
+periodic re-extraction; we release the scrapers and provenance
+metadata so this is mechanically reproducible.
+
+\paragraph{Closed-book audit calibration.} The B2 ClosedBookSolvability
+agent shows $\kappa\approx0.007$ with humans on the gold sheet
+(Section~\ref{sec:gold}). Rather than drop the affected questions we
+keep them with explicit disclosure and report the closed-book vs.\
+contextual contrast (Section~\ref{sec:eval-cb}) as a calibrated
+memorisation-reliance diagnostic.
+
+\paragraph{Self-preference is not fully neutralised.} The Anthropic
+$+9$~pp positive SPS (Section~\ref{sec:eval-sps}) shows the
+multi-model strategy did not fully neutralise stylistic fingerprints;
+downstream Anthropic-vs-other comparisons on the full corpus should
+be read with the per-config SPS in mind.
+
