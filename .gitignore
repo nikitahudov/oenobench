@@ -45,3 +45,13 @@ paper/*.log
 paper/*.out
 paper/*.toc
 paper/*.synctex.gz
+paper_anonymized/*.aux
+paper_anonymized/*.bbl
+paper_anonymized/*.blg
+paper_anonymized/*.fdb_latexmk
+paper_anonymized/*.fls
+paper_anonymized/*.log
+paper_anonymized/*.out
+paper_anonymized/*.toc
+paper_anonymized/*.synctex.gz
+texput.log

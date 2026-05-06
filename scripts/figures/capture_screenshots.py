@@ -129,7 +129,7 @@ pre {{ background: #f3f4f6; padding: 10px; border-radius: 6px; overflow-x: auto;
 .huggingface-banner {{ background: linear-gradient(90deg, #fcd34d, #fbbf24); padding: 14px 18px;
   border-radius: 8px; margin-bottom: 18px; font-weight: 600; }}
 </style></head><body>
-<div class="huggingface-banner">huggingface.co/datasets/oenobench-anon/oenobench</div>
+<div class="huggingface-banner">huggingface.co/datasets/oenobench/oenobench</div>
 {body}
 </body></html>"""
         # write to a tempfile and screenshot
