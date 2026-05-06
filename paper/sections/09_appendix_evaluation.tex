@@ -2,12 +2,84 @@
 \label{app:eval}
 
 This appendix gives the per-config tables and supporting figures
-behind each Section~\ref{sec:eval} subsection: per-domain (C.1),
-per-strategy (C.2), and per-difficulty (C.3) breakdowns of the
-overall ranking; reasoning-mode lift (C.4); self-preference
-bootstrap CIs (C.5); and the closed-book vs.\ source-grounded
-contrast (C.6). The cost ledger that supports
-Section~\ref{sec:eval-cost} is in Appendix~\ref{app:artifacts}.
+behind each Section~\ref{sec:eval} subsection: reasoning-mode lift
+(C.1), self-preference bootstrap CIs (C.2), the closed-book vs.\
+source-grounded contrast (C.3), and per-domain (C.4), per-strategy
+(C.5), and per-difficulty (C.6) breakdowns of the overall ranking.
+The cost ledger that supports Section~\ref{sec:eval-cost} is in
+Appendix~\ref{app:artifacts}.
+
+\subsection{Reasoning-mode lift}
+\label{app:reasoning}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.78\linewidth]{figures/fig_reasoning_lift.pdf}
+  \caption{Reasoning-mode vs.\ standard accuracy for four families;
+    $\delta$ in pp with 95\% bootstrap CI (1{,}000 resamples). Only
+    DeepSeek's CI excludes zero.}
+  \label{fig:reasoning}
+\end{figure}
+
+\begin{table}[h]
+  \centering
+  \footnotesize
+  \caption{Reasoning lift per difficulty tier ($\delta$ = thinking $-$ standard, pp).}
+  \label{tab:reasoning-by-diff}
+  \begin{tabular}{lrrrr}
+    \toprule
+    Pair & L1 & L2 & L3 & L4 \\
+    \midrule
+    Claude Opus 4.7 (think vs std)        & $+$0.3 & $-$0.2 & $+$0.3 & $-$0.5 \\
+    Gemini 2.5 Pro (think vs std)         & $+$0.5 & $+$1.0 & $+$1.0 & $+$0.9 \\
+    OpenAI o3 vs GPT-5                    & $+$0.1 & $-$1.0 & $+$1.9 & $+$2.0 \\
+    DeepSeek R1 vs V3                     & $+$1.7 & $+$8.3 & $+$5.7 & $+$9.7 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Self-preference bootstrap CIs}
+
+\begin{table}[h]
+  \centering
+  \footnotesize
+  \caption{Per-config Self-Preference Score with 95\% bootstrap CI
+    (1{,}000 resamples). DeepSeek and Mistral have no own-family
+    questions in \texttt{release\_v1.2} and are omitted.}
+  \label{tab:sps-full}
+  \begin{tabular}{llrrrr}
+    \toprule
+    Config & Family & own (\%) & other (\%) & $\delta$ (pp) & 95\% CI \\
+    \midrule
+    claude-haiku-4.5             & anthropic & 58.8 & 48.8 & $+10.0$ & [$+5.7$, $+14.5$] \\
+    claude-opus-4.7              & anthropic & 86.6 & 77.5 & $+9.1$  & [$+6.1$, $+12.1$] \\
+    claude-opus-4.7-thinking     & anthropic & 86.9 & 77.2 & $+9.7$  & [$+6.5$, $+13.1$] \\
+    qwen-2.5-7b                  & qwen      & 60.9 & 51.9 & $+9.0$  & [$+4.5$, $+13.2$] \\
+    qwen-2.5-72b                 & qwen      & 66.1 & 64.1 & $+2.0$  & [$-2.1$, $+6.0$] \\
+    llama-3.3-70b                & meta      & 65.5 & 63.6 & $+1.9$  & [$-2.3$, $+6.1$] \\
+    gpt-5-mini                   & openai    & 77.9 & 76.1 & $+1.7$  & [$-2.4$, $+5.4$] \\
+    o3                           & openai    & 81.9 & 82.1 & $-0.1$  & [$-3.9$, $+3.3$] \\
+    gpt-5                        & openai    & 79.7 & 81.4 & $-1.7$  & [$-5.4$, $+2.1$] \\
+    llama-3.1-8b                 & meta      & 54.2 & 57.2 & $-3.0$  & [$-7.3$, $+1.4$] \\
+    gemini-2.5-pro               & google    & 75.0 & 81.1 & $-6.1$  & [$-10.7$, $-1.8$] \\
+    gemini-2.5-pro-thinking      & google    & 74.0 & 82.0 & $-8.0$  & [$-12.3$, $-3.8$] \\
+    gemini-2.5-flash             & google    & 64.3 & 74.7 & $-10.4$ & [$-15.3$, $-5.6$] \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Closed-book vs.\ source-grounded performance}
+\label{app:cb-figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.78\linewidth]{figures/fig_cb_vs_source.pdf}
+  \caption{Per-config accuracy on B2-flagged closed-book-solvable
+    questions ($n{=}1{,}601$) vs.\ contextual / source-grounded
+    questions ($n{=}1{,}665$); every config gains $+26.6$ to
+    $+39.6$~pp on the closed-book slice.}
+  \label{fig:cb}
+\end{figure}
 
 \subsection{Per-domain breakdown}
 
@@ -159,75 +231,3 @@ question; that fall is also where the inter-config spread is widest
 (Section~\ref{sec:eval-rank}), making L4 the most discriminating slice
 for distinguishing models. Both effects are intended outcomes of the
 audit-driven difficulty re-label rather than miscalibration.
-
-\subsection{Reasoning-mode lift}
-\label{app:reasoning}
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=0.78\linewidth]{figures/fig_reasoning_lift.pdf}
-  \caption{Reasoning-mode vs.\ standard accuracy for four families;
-    $\delta$ in pp with 95\% bootstrap CI (1{,}000 resamples). Only
-    DeepSeek's CI excludes zero.}
-  \label{fig:reasoning}
-\end{figure}
-
-\begin{table}[h]
-  \centering
-  \footnotesize
-  \caption{Reasoning lift per difficulty tier ($\delta$ = thinking $-$ standard, pp).}
-  \label{tab:reasoning-by-diff}
-  \begin{tabular}{lrrrr}
-    \toprule
-    Pair & L1 & L2 & L3 & L4 \\
-    \midrule
-    Claude Opus 4.7 (think vs std)        & $+$0.3 & $-$0.2 & $+$0.3 & $-$0.5 \\
-    Gemini 2.5 Pro (think vs std)         & $+$0.5 & $+$1.0 & $+$1.0 & $+$0.9 \\
-    OpenAI o3 vs GPT-5                    & $+$0.1 & $-$1.0 & $+$1.9 & $+$2.0 \\
-    DeepSeek R1 vs V3                     & $+$1.7 & $+$8.3 & $+$5.7 & $+$9.7 \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-\subsection{Self-preference bootstrap CIs}
-
-\begin{table}[h]
-  \centering
-  \footnotesize
-  \caption{Per-config Self-Preference Score with 95\% bootstrap CI
-    (1{,}000 resamples). DeepSeek and Mistral have no own-family
-    questions in \texttt{release\_v1.2} and are omitted.}
-  \label{tab:sps-full}
-  \begin{tabular}{llrrrr}
-    \toprule
-    Config & Family & own (\%) & other (\%) & $\delta$ (pp) & 95\% CI \\
-    \midrule
-    claude-haiku-4.5             & anthropic & 58.8 & 48.8 & $+10.0$ & [$+5.7$, $+14.5$] \\
-    claude-opus-4.7              & anthropic & 86.6 & 77.5 & $+9.1$  & [$+6.1$, $+12.1$] \\
-    claude-opus-4.7-thinking     & anthropic & 86.9 & 77.2 & $+9.7$  & [$+6.5$, $+13.1$] \\
-    qwen-2.5-7b                  & qwen      & 60.9 & 51.9 & $+9.0$  & [$+4.5$, $+13.2$] \\
-    qwen-2.5-72b                 & qwen      & 66.1 & 64.1 & $+2.0$  & [$-2.1$, $+6.0$] \\
-    llama-3.3-70b                & meta      & 65.5 & 63.6 & $+1.9$  & [$-2.3$, $+6.1$] \\
-    gpt-5-mini                   & openai    & 77.9 & 76.1 & $+1.7$  & [$-2.4$, $+5.4$] \\
-    o3                           & openai    & 81.9 & 82.1 & $-0.1$  & [$-3.9$, $+3.3$] \\
-    gpt-5                        & openai    & 79.7 & 81.4 & $-1.7$  & [$-5.4$, $+2.1$] \\
-    llama-3.1-8b                 & meta      & 54.2 & 57.2 & $-3.0$  & [$-7.3$, $+1.4$] \\
-    gemini-2.5-pro               & google    & 75.0 & 81.1 & $-6.1$  & [$-10.7$, $-1.8$] \\
-    gemini-2.5-pro-thinking      & google    & 74.0 & 82.0 & $-8.0$  & [$-12.3$, $-3.8$] \\
-    gemini-2.5-flash             & google    & 64.3 & 74.7 & $-10.4$ & [$-15.3$, $-5.6$] \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-\subsection{Closed-book vs.\ source-grounded performance}
-\label{app:cb-figure}
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=0.78\linewidth]{figures/fig_cb_vs_source.pdf}
-  \caption{Per-config accuracy on B2-flagged closed-book-solvable
-    questions ($n{=}1{,}601$) vs.\ contextual / source-grounded
-    questions ($n{=}1{,}665$); every config gains $+26.6$ to
-    $+39.6$~pp on the closed-book slice.}
-  \label{fig:cb}
-\end{figure}
