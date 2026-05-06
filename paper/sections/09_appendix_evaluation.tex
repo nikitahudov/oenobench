@@ -1,6 +1,17 @@
 \section{Full Evaluation Tables}
 \label{app:eval}
 
+% Tighten vertical spacing around floats inside this appendix and
+% switch to \raggedbottom so pages end naturally instead of stretching
+% glue to fill, which was leaving large gaps between figures and the
+% next subsection heading.
+\raggedbottom
+\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}
+\setlength{\intextsep}{8pt plus 2pt minus 2pt}
+\setlength{\floatsep}{8pt plus 2pt minus 2pt}
+\setlength{\abovecaptionskip}{4pt}
+\setlength{\belowcaptionskip}{2pt}
+
 This appendix gives the per-config tables and supporting figures
 behind each Section~\ref{sec:eval} subsection: reasoning-mode lift
 (C.1), self-preference bootstrap CIs (C.2), the closed-book vs.\
@@ -12,16 +23,16 @@ Appendix~\ref{app:artifacts}.
 \subsection{Reasoning-mode lift}
 \label{app:reasoning}
 
-\begin{figure}[h]
+\begin{figure}[H]
   \centering
-  \includegraphics[width=0.78\linewidth]{figures/fig_reasoning_lift.pdf}
+  \includegraphics[width=0.7\linewidth]{figures/fig_reasoning_lift.pdf}
   \caption{Reasoning-mode vs.\ standard accuracy for four families;
     $\delta$ in pp with 95\% bootstrap CI (1{,}000 resamples). Only
     DeepSeek's CI excludes zero.}
   \label{fig:reasoning}
 \end{figure}
 
-\begin{table}[h]
+\begin{table}[H]
   \centering
   \footnotesize
   \caption{Reasoning lift per difficulty tier ($\delta$ = thinking $-$ standard, pp).}
@@ -38,9 +49,10 @@ Appendix~\ref{app:artifacts}.
   \end{tabular}
 \end{table}
 
+\FloatBarrier
 \subsection{Self-preference bootstrap CIs}
 
-\begin{table}[h]
+\begin{table}[H]
   \centering
   \footnotesize
   \caption{Per-config Self-Preference Score with 95\% bootstrap CI
@@ -68,12 +80,13 @@ Appendix~\ref{app:artifacts}.
   \end{tabular}
 \end{table}
 
+\FloatBarrier
 \subsection{Closed-book vs.\ source-grounded performance}
 \label{app:cb-figure}
 
-\begin{figure}[h]
+\begin{figure}[H]
   \centering
-  \includegraphics[width=0.78\linewidth]{figures/fig_cb_vs_source.pdf}
+  \includegraphics[width=0.7\linewidth]{figures/fig_cb_vs_source.pdf}
   \caption{Per-config accuracy on B2-flagged closed-book-solvable
     questions ($n{=}1{,}601$) vs.\ contextual / source-grounded
     questions ($n{=}1{,}665$); every config gains $+26.6$ to
@@ -81,9 +94,10 @@ Appendix~\ref{app:artifacts}.
   \label{fig:cb}
 \end{figure}
 
+\FloatBarrier
 \subsection{Per-domain breakdown}
 
-\begin{table}[h]
+\begin{table}[H]
   \centering
   \footnotesize
   \caption{Per-config per-domain accuracy (\%).}
@@ -114,9 +128,9 @@ Appendix~\ref{app:artifacts}.
   \end{tabular}
 \end{table}
 
-\begin{figure}[h]
+\begin{figure}[H]
   \centering
-  \includegraphics[width=0.78\linewidth]{figures/fig_domain_heatmap.pdf}
+  \includegraphics[width=0.65\linewidth]{figures/fig_domain_heatmap.pdf}
   \caption{Per-domain accuracy as a heatmap. \emph{Wine business} is
     the hardest domain across every tier (mean 56.5\%) — both because
     business-domain facts are sparser in the training distribution and
@@ -126,9 +140,10 @@ Appendix~\ref{app:artifacts}.
   \label{fig:domain-heatmap}
 \end{figure}
 
+\FloatBarrier
 \subsection{Per-strategy breakdown}
 
-\begin{table}[h]
+\begin{table}[H]
   \centering
   \footnotesize
   \caption{Per-config per-strategy accuracy (\%).}
@@ -159,9 +174,9 @@ Appendix~\ref{app:artifacts}.
   \end{tabular}
 \end{table}
 
-\begin{figure}[h]
+\begin{figure}[H]
   \centering
-  \includegraphics[width=0.7\linewidth]{figures/fig_strategy_heatmap.pdf}
+  \includegraphics[width=0.6\linewidth]{figures/fig_strategy_heatmap.pdf}
   \caption{Per-strategy accuracy heatmap. Templates are the easiest
     strategy uniformly (89.5\% mean), even for small models, because
     they are deterministic single-fact recall questions. The
@@ -172,9 +187,10 @@ Appendix~\ref{app:artifacts}.
   \label{fig:strategy-heatmap}
 \end{figure}
 
+\FloatBarrier
 \subsection{Per-difficulty breakdown}
 
-\begin{table}[h]
+\begin{table}[H]
   \centering
   \footnotesize
   \caption{Per-config per-difficulty accuracy (\%).}
@@ -205,15 +221,16 @@ Appendix~\ref{app:artifacts}.
   \end{tabular}
 \end{table}
 
-\begin{figure}[h]
+\begin{figure}[H]
   \centering
-  \includegraphics[width=0.65\linewidth]{figures/fig_difficulty_calib.pdf}
+  \includegraphics[width=0.55\linewidth]{figures/fig_difficulty_calib.pdf}
   \caption{Difficulty calibration: distribution of accuracy across the
     16 configs at each level. The medians sit at L1 96\%, L2 70\%, L3
     81\%, L4 60\%.}
   \label{fig:difficulty-box}
 \end{figure}
 
+\vspace{-0.5em}
 \paragraph{On the L2 / L3 / L4 means in Table~\ref{tab:full-difficulty}.}
 Two features of the column averages deserve comment. First, the L2
 mean (68.8\%) is \emph{below} the L3 mean (78.7\%) --- an apparent
