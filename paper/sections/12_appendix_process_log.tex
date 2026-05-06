@@ -14,7 +14,18 @@ here for paper-traceable provenance.
     \toprule
     Phase & Dates & Milestone \\
     \midrule
-    1   & 2026-03-12 -- 04-01 & 35 scrapers built; first 16{,}702-fact corpus assembled. \\
+    0   & 2026-02-13         & Repository initialised: Docker stack
+                               (Postgres / Elasticsearch / Neo4j / Redis), schema, and the
+                               first four scrapers (Wikidata, HuggingFace, Kaggle,
+                               UC Davis) committed. \\
+    1   & 2026-02-13 -- 04-01 & 35 scrapers built incrementally
+                               (INAO, TTB, EU/OIV, Wikipedia, Italian / Spanish /
+                               Portuguese / German / Austrian / Greek registries,
+                               Bordeaux / Burgundy / Champagne / Italian
+                               consortia, USDA Extension, OENO One / Vitis /
+                               AJEV academic crawlers, country enrichment passes);
+                               first $\sim$16{,}702-fact working corpus
+                               assembled by end of March. \\
     1.1 & 2026-04-07         & \emph{Provenance audit reveals 19 scrapers contained
                                hardcoded LLM-generated facts}; corpus paused. \\
     1.2 & 2026-04-08 -- 04-11 & Shared infrastructure
@@ -28,7 +39,7 @@ here for paper-traceable provenance.
     2   & 2026-04-12 -- 04-22 & Five generation strategies built and iteratively
                                tuned; multi-model orchestrator with quota management;
                                closed-book gate v2 wired into all five generators. \\
-    2c  & 2026-04-19 -- 05-02 & Nine-agent audit framework shipped across 4 teams;
+    2c  & 2026-04-18 -- 05-02 & Nine-agent audit framework shipped across 4 teams;
                                sixteen audit pilots (v1--v16) tune thresholds and
                                speedups; 472/472 → 771/771 tests pass. \\
     2g  & 2026-04-28 -- 05-02 & Ten generation-pipeline speedup levers shipped

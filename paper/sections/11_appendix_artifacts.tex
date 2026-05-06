@@ -120,6 +120,67 @@ inline as Table~\ref{tab:cost-ledger-app}.
   \end{tabular}
 \end{table}
 
+\subsection{Per-source licensing}
+\label{sec:licensing}
+
+Section~\ref{sec:sources} states that every fact in the corpus traces
+to a public-record source or to a source distributed under a licence
+that permits scraping and redistribution. We give the per-source
+breakdown in Table~\ref{tab:licensing}, grouping the
+35 scrapers' source families by tier and licence basis. Each row
+maps to one or more rows in the released \texttt{sources} table, where
+per-row \texttt{name}, \texttt{url}, \texttt{tier}, and access timestamp
+are recorded for every fact (\texttt{facts.source\_id}~$\rightarrow$
+\texttt{sources.id}). Wikipedia and Wikidata together account for 65.3\%
+of facts and propagate their share-alike / public-domain dedications
+through the \texttt{release\_v1.2} CC-BY-SA-4.0 licence. Government
+records (Tier~1, 19.6\% of facts) are either explicit open-data
+licences (INAO Licence Ouverte~2.0, EU re-use Decision 2011/833/EU) or
+US-Government works in the public domain
+(17~U.S.C.~\textsection 105: TTB, USDA Extension, UC IPM).
+
+\begin{table}[h]
+  \centering
+  \footnotesize
+  \caption{Per-source licensing for OenoBench's 35 scrapers, grouped by
+    source family. ``Share'' is the percentage of the 38{,}104-fact
+    corpus contributed; ``Tier'' is the source-of-authority label from
+    Section~\ref{sec:sources}. Counts are computed directly from the
+    \texttt{facts}~$\bowtie$~\texttt{sources} join in the released
+    schema.}
+  \label{tab:licensing}
+  \begin{tabular}{p{0.31\linewidth}lp{0.30\linewidth}r}
+    \toprule
+    Source family & Tier & Licence / legal basis & Share \\
+    \midrule
+    Wikipedia (MediaWiki API)                                            & T2          & CC-BY-SA 4.0                                           & 34.4\% \\
+    Wikidata (SPARQL)                                                    & T1 / T2     & CC0 1.0                                                & 30.3\% \\
+    HuggingFace \texttt{spawn99/wine-reviews}                            & T2          & HuggingFace dataset terms (open redistribution)        &  8.5\% \\
+    UC Davis (AVA Project, FPS, Wine Ontology)                           & T1          & Open / CC-BY (UC Davis Library)                        &  5.7\% \\
+    UC IPM \& USDA Extension (eXtension, PSU/OSU)                        & T1 / T2     & Public domain --- US Gov.\ work (17 USC \S105)         &  4.7\% \\
+    Kaggle: wine-reviews (Wine Enthusiast scrape)                        & T3          & Kaggle dataset terms (research use)                    &  3.8\% \\
+    INAO (data.gouv.fr open-data)                                        & T1          & Licence Ouverte 2.0 (Etalab)                           &  3.9\% \\
+    Wine consortia + national bodies (CIVB, BIVB, CIVC, IT consortia, NZ Wine, Austrian Wine, Deutsches Weininstitut, Spanish DO) & T2 & Industry-body publications, educational use & 3.2\% \\
+    OENO One                                                             & T2          & CC-BY 4.0 (open-access journal)                        &  2.0\% \\
+    TTB (27 CFR Part 4, Established AVAs, Approved Grape Names)          & T1          & Public domain --- US Gov.\ work                        &  1.3\% \\
+    National ministries + EU registries (MASAF, MAPA, IVV, IVDP, EUR-Lex, GIView) & T1 / T2 & Government public records / EU Decision 2011/833/EU & 1.3\% \\
+    OIV publications (Code of Oenological Practices, statistics)         & T1          & Open access --- intergov.\ organisation                &  0.2\% \\
+    Vitis (Hochschule Geisenheim)                                        & T2          & Open access                                            &  0.3\% \\
+    National reference databases (CA, UK, HR/SI, HU/GE, LB/IL, +regions) & T2          & Reference / official-body content                      &  0.3\% \\
+    Kaggle: wine-quality (UCI ML Repository)                             & T2          & CC-BY 4.0 (UCI)                                        &  0.2\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The released corpus, including this paper's quoted statistics, is
+distributed under \textbf{CC-BY-SA 4.0}. The construction code is
+released under \textbf{Apache 2.0}. Verbatim source text is never
+stored: every fact is paraphrased atomically (Section~\ref{sec:extraction})
+and a paraphrase guard at audit time (agent~A3) re-checks for
+verbatim leakage. We retain \texttt{accessed\_date} and a per-source
+\texttt{content\_date} for every fact, so dataset users can audit
+freshness against original sources.
+
 \subsection{Test status}
 
 771 of 771 unit tests pass on \texttt{main} as of the camera-ready

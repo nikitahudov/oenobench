@@ -20,7 +20,7 @@
 \item {\bf Experimental result reproducibility}
     \item[] Question: Does the paper fully disclose all the information needed to reproduce the main experimental results of the paper?
     \item[] Answer: \answerYes{}
-    \item[] Justification: Appendix~\ref{app:artifacts} lists the construction scripts, the dataset URL, the model slate, the per-call telemetry available alongside the released corpus, and the deterministic build pipeline. Section~\ref{sec:eval} reports run id, wall time, total cost, and exact config strings.
+    \item[] Justification: Appendix~\ref{app:artifacts} lists the construction scripts, the dataset URL, the model slate, the per-call telemetry available alongside the released corpus (including run id, wall time, OR-authoritative cost, and exact config strings), and the deterministic build pipeline. Section~\ref{sec:eval} specifies the 16-config slate, the single-letter (A--D) output protocol, and the bootstrap procedure.
 
 \item {\bf Open access to data and code}
     \item[] Question: Does the paper provide open access to the data and code, with sufficient instructions to faithfully reproduce the main experimental results, as described in supplemental material?
@@ -35,12 +35,12 @@
 \item {\bf Experiment statistical significance}
     \item[] Question: Does the paper report error bars suitably and correctly defined or other appropriate information about the statistical significance of the experiments?
     \item[] Answer: \answerYes{}
-    \item[] Justification: Reasoning lift, self-preference scores, and closed-book vs.\ contextual deltas are all reported with 95\% bootstrap confidence intervals (1{,}000 resamples), with the bootstrap procedure documented in Section~\ref{sec:eval}.
+    \item[] Justification: Reasoning lift, self-preference scores, and closed-book vs.\ contextual deltas are all reported with 95\% bootstrap confidence intervals (1{,}000 resamples). Section~\ref{sec:eval} states the procedure; Appendix~\ref{app:eval} (Tables~\ref{tab:reasoning-by-diff}, \ref{tab:sps-full}, \ref{tab:sps-by-tier}, \ref{tab:cb-by-tier}) reports per-config CIs.
 
 \item {\bf Experiments compute resources}
     \item[] Question: For each experiment, does the paper provide sufficient information on the computer resources needed to reproduce the experiments?
     \item[] Answer: \answerYes{}
-    \item[] Justification: Appendix~\ref{app:artifacts} reports total wall time (120~min~34~s), total LLM calls (52{,}256), total cost (\$98.33 effective), and the deployment topology (single VM driving 16 OpenRouter configurations in parallel; no GPU compute).
+    \item[] Justification: Appendix~\ref{app:artifacts} reports the full 16-config evaluation wall time (120~min~34~s), total LLM calls (52{,}256), and effective evaluation cost (\$98.33), and the deployment topology (single VM driving 16 OpenRouter configurations in parallel; no GPU compute). The total OpenRouter spend across the entire project --- generation pilots, audit cycles, gold-sheet calibration, and the final evaluation --- was \textbf{\$783}, paid out-of-pocket and itemised in Appendix~\ref{app:artifacts} and the Datasheet (Appendix~\ref{app:datasheet}, Motivation).
 
 \item {\bf Code of ethics}
     \item[] Question: Does the research conducted in the paper conform, in every respect, with the NeurIPS Code of Ethics?
@@ -50,7 +50,7 @@
 \item {\bf Broader impacts}
     \item[] Question: Does the paper discuss both potential positive societal impacts and negative societal impacts of the work performed?
     \item[] Answer: \answerYes{}
-    \item[] Justification: The Datasheet (Appendix~\ref{app:datasheet}) covers alcohol-context and discouraged uses; source-licensing and the non-fabrication guarantee are documented in Section~\ref{sec:sources}; personal-data scope and the no-private-individuals constraint are in the Datasheet ``Composition''. Section~\ref{sec:future} discusses positive applications including specialist-model fine-tuning and pipeline retargeting to other expert domains.
+    \item[] Justification: The Datasheet (Appendix~\ref{app:datasheet}) covers alcohol-context and discouraged uses; source-licensing and the non-fabrication guarantee are documented in Section~\ref{sec:sources} and Table~\ref{tab:licensing} (Appendix~\ref{app:artifacts}); the corpus contains only public-record information about commercial wine entities (no private individuals; Datasheet ``Collection process''). Section~\ref{sec:future} discusses positive applications including specialist-model fine-tuning and pipeline retargeting to other expert domains.
 
 \item {\bf Safeguards}
     \item[] Question: Does the paper describe safeguards that have been put in place for responsible release of data or models that have a high risk for misuse?
@@ -60,12 +60,12 @@
 \item {\bf Licenses for existing assets}
     \item[] Question: Are the creators or original owners of assets used in the paper properly credited and are the license and terms of use explicitly mentioned and properly respected?
     \item[] Answer: \answerYes{}
-    \item[] Justification: Source-tier table in Section~\ref{sec:sources} credits all major sources with licenses (Wikipedia CC-BY-SA, Wikidata CC0, INAO Licence Ouverte, TTB public domain, etc.). Per-fact source URLs are released alongside the corpus.
+    \item[] Justification: The full per-source licensing table (Table~\ref{tab:licensing} in Appendix~\ref{app:artifacts}) credits every source family with licence and legal basis (Wikipedia CC-BY-SA 4.0, Wikidata CC0, INAO Licence Ouverte 2.0, TTB / USDA / UC IPM public domain (US Government work, 17~USC~\textsection 105), EU re-use Decision 2011/833/EU, OENO One CC-BY 4.0, etc.) and is also summarised in Section~\ref{sec:sources}. Per-fact source URL, accessed-date, and content-date are released alongside the corpus.
 
 \item {\bf New assets}
     \item[] Question: Are new assets introduced in the paper well documented and is the documentation provided alongside the assets?
     \item[] Answer: \answerYes{}
-    \item[] Justification: A full Datasheet is in Appendix~\ref{app:datasheet}; a Croissant manifest \citep{koehn2024croissant} ships with the HuggingFace release; all 9 audit agents, 5 generators, and 35 scrapers are documented in source.
+    \item[] Justification: A full Datasheet is in Appendix~\ref{app:datasheet}; a Croissant manifest \citep{koehn2024croissant} ships with the HuggingFace release; all 14 audit agents (9 always-run, 5 escalation-gated; Section~\ref{sec:audit-arch}), 5 generation strategies, 5 generator-model families, and 35 scrapers are documented in source.
 
 \item {\bf Crowdsourcing and research with human subjects}
     \item[] Question: For crowdsourcing experiments and research with human subjects, does the paper include the full text of instructions given to participants and screenshots, if applicable, as well as details about compensation?

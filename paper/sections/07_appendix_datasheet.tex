@@ -15,8 +15,12 @@ partition).
 The dataset was created by Nikita Khudov (StrategAI) for the NeurIPS 2026
 Evaluations \& Datasets Track. The lead author holds the WSET Diploma in
 Wines (the highest pre-Master-of-Wine qualification of the Wine \& Spirit
-Education Trust) and produced the gold-sheet ratings used to calibrate
-the audit agents.
+Education Trust). Gold-sheet ratings used to calibrate the nine audit
+agents were produced by \textbf{three WSET-certified reviewers}
+(Diploma, Level~3, Level~2) including the lead author; per-pair
+inter-rater agreement is reported alongside the audit-agent
+$\kappa$ values in Section~\ref{sec:gold} and
+Appendix~\ref{app:methodology}.
 
 \paragraph{Funding.}
 Independently funded by StrategAI. No external research grants were
@@ -39,7 +43,8 @@ scenario 319, comparative 244. By difficulty (post-relabel):
 L1 694, L2 894, L3 678, L4 1{,}001. By domain: wine regions 1{,}108,
 grape varieties 766, producers 515, viticulture 502, wine business 250,
 winemaking 187. The corpus is built from 38{,}104 atomic facts across
-35 scrapers and 580 unique source URLs.
+35 scrapers and 4{,}295 individually-tracked source records
+spanning 56 unique top-level domains.
 
 \paragraph{What data does each instance consist of?}
 Structured Postgres records mirroring the schema documented in
@@ -94,7 +99,9 @@ assurance, not as human-subjects research.
 Atomic-fact extraction with entity tagging; per-source paraphrase to
 avoid verbatim copy; near-duplicate suppression at cosine~$\geq 0.92$;
 nine-agent automated audit; human gold-sheet rating on a stratified
-50-question subset per release.
+50-question subset per release, produced independently by three
+WSET-certified reviewers (Diploma, Level~3, Level~2) with the lead
+author resolving disagreements.
 
 \subsection{Uses}
 \paragraph{Recommended uses.} Evaluation of LLM factual knowledge in
