@@ -15,7 +15,7 @@
 - **16 моделей × 3 266 вопросов = 52 256 вызовов**, отыграно за **2 часа и $98** через OpenRouter. Топ: o3 (83.6%), GPT-5 (82.8%), Gemini 2.5 Pro thinking (82.6%), Claude Opus 4.7 (81.0%).
 - **Сюрприз:** Anthropic-модели систематически лучше отвечают на «свои» вопросы (+9–10 п. п.), а Google-модели — наоборот, **хуже на своих** (−6 до −10 п. п.). Что-то Gemini знает про себя, чего мы не знаем.
 
-GitHub: [nikitahudov/oenobench](https://github.com/nikitahudov/oenobench). Датасет на HuggingFace: [oenobench/oenobench](https://huggingface.co/datasets/oenobench/oenobench).
+GitHub: [nikitahudov/oenobench](https://github.com/nikitahudov/oenobench). Датасет на HuggingFace: [nikitahudov/oenobench-v1](https://huggingface.co/datasets/nikitahudov/oenobench-v1).
 
 ## Зачем ещё один бенчмарк, да ещё про вино?
 
@@ -340,7 +340,7 @@ python -m src.qa.orchestrator run \
 
 ```python
 from datasets import load_dataset
-ds = load_dataset("oenobench/oenobench")
+ds = load_dataset("nikitahudov/oenobench-v1")
 ```
 
 Каждый вопрос имеет `question_id`, `domain`, `difficulty`, `cognitive_dim`, `correct_answer`, `tags` (включая `closed_book_solvable` для тех, кто хочет фильтровать). Дополнительно — линки на исходные факты и URL источников, если хотите проверить руками.
@@ -366,7 +366,7 @@ ds = load_dataset("oenobench/oenobench")
 **Ссылки:**
 
 - 🍷 Код: [github.com/nikitahudov/oenobench](https://github.com/nikitahudov/oenobench)
-- 📚 Датасет: [huggingface.co/datasets/oenobench/oenobench](https://huggingface.co/datasets/oenobench/oenobench)
+- 📚 Датасет: [huggingface.co/datasets/nikitahudov/oenobench-v1](https://huggingface.co/datasets/nikitahudov/oenobench-v1)
 - 📄 Препринт (NeurIPS 2026 D&B Track) — линк появится после публикации
 - 🐦 По вопросам: nikitahudov@gmail.com
 
